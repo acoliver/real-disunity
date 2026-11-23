@@ -1,12 +1,13 @@
 //! Renderer components of 3D objects: the settings of a mesh renderer or skinned mesh renderer,
 //! and the mesh a mesh filter names. Meshes are managed instance ids; materials, property blocks
-//! and bones stay in the managed component, which keeps a material count here and, per material
-//! slot, the world material the slot draws with. The presentation lists them as mesh objects with
-//! the colour and texture each slot draws.
+//! stay in the managed component, which keeps a material count here and, per material slot, the
+//! world material the slot draws with. A skinned renderer also holds its skin binding: the mesh the
+//! host draws and the root bone that places it. The presentation lists them as mesh objects with the
+//! colour and texture each slot draws.
 use std::collections::BTreeMap;
 
 use crate::graphics::{MaterialId, ShaderProperties};
-use crate::{ComponentError, WorldError};
+use crate::{ComponentError, ObjectHandle, WorldError};
 
 /// Most materials one renderer holds.
 pub const MAX_RENDERER_MATERIALS: u32 = 64;
@@ -60,6 +61,26 @@ impl Default for DrawnMaterial {
     }
 }
 
+/// The bone that places a skinned renderer's mesh, with that bone's bind pose.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SkinRoot {
+    /// The object of the root bone, whose matrix is read from the object when a frame needs it.
+    pub bone: ObjectHandle,
+    /// The root bone's bind pose from the mesh, column-major. With every bone at rest the matrix
+    /// of the bone times this pose is the matrix the mesh was bound at.
+    pub bind_pose: [f32; 16],
+}
+
+/// What a skinned renderer draws and where its skin puts it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SkinBinding {
+    /// The renderer identity the host knows the mesh's contents by, 0 when the host has none.
+    pub drawn_mesh: u64,
+    /// The root bone and its bind pose, `None` when the renderer's skeleton is not in the world.
+    /// Such a renderer has no placement and is left out.
+    pub root: Option<SkinRoot>,
+}
+
 /// The settings of a mesh renderer or a skinned mesh renderer.
 ///
 /// The mode fields hold the numeric value of the matching script enum: shadow casting 0 to 3,
@@ -97,6 +118,8 @@ pub struct MeshRenderer {
     /// A render queue that replaces the materials' queues for this renderer. No Unity member
     /// sets it; a host that sorts renderers by queue may.
     pub render_queue: Option<i32>,
+    /// The skin of a skinned renderer. Any other kind holds the default, which names nothing.
+    pub skin: SkinBinding,
 }
 
 impl Default for MeshRenderer {
@@ -121,6 +144,7 @@ impl Default for MeshRenderer {
             property_block: None,
             slot_blocks: BTreeMap::new(),
             render_queue: None,
+            skin: SkinBinding::default(),
         }
     }
 }
@@ -134,6 +158,33 @@ impl MeshRenderer {
         }
     }
 
+    /// Whether the skin is one this kind of renderer holds: a skinned renderer's root bind pose is
+    /// finite, and every other kind names nothing.
+    fn skin_fits_kind(&self) -> bool {
+        match self.kind {
+            RendererKind::Skinned => self
+                .skin
+                .root
+                .is_none_or(|root| root.bind_pose.iter().all(|value| value.is_finite())),
+            _ => self.skin == SkinBinding::default(),
+        }
+    }
+
+    /// Whether the renderer draws a mesh, as a mesh or skinned renderer does, and is enabled and
+    /// not forced off.
+    pub(crate) fn shows(&self) -> bool {
+        self.kind != RendererKind::Particle
+            && self.switches.enabled
+            && !self.switches.force_rendering_off
+    }
+
+    /// The mesh a skinned renderer names itself, `None` for a renderer whose mesh is its object's
+    /// mesh filter's and for one without a drawn mesh.
+    pub(crate) fn own_mesh(&self) -> Option<u64> {
+        (self.kind == RendererKind::Skinned && self.skin.drawn_mesh != 0)
+            .then_some(self.skin.drawn_mesh)
+    }
+
     pub(crate) fn validate(&self) -> Result<(), WorldError> {
         let valid = self.shadow_casting_mode <= 3
             && self.motion_vector_mode <= 2
@@ -144,7 +195,8 @@ impl MeshRenderer {
             && self
                 .slot_blocks
                 .keys()
-                .all(|slot| *slot < MAX_RENDERER_MATERIALS);
+                .all(|slot| *slot < MAX_RENDERER_MATERIALS)
+            && self.skin_fits_kind();
         if valid {
             Ok(())
         } else {

@@ -10,7 +10,13 @@ fn field_plan() -> UiRenderPlan {
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -161,6 +167,11 @@ fn text_field_and_annotations_share_overlay_contributions_without_a_gpu() {
         [UiTexture::Coverage(0), UiTexture::Coverage(1)].into()
     );
     assert!(
-        UiOverlay::from_presentation(&presentation, &std::collections::BTreeMap::new()).is_ok()
+        UiOverlay::from_presentation(
+            &presentation,
+            &std::collections::BTreeMap::new(),
+            &worldrunner_world_simulation::ui::presentation::UiLayers::default()
+        )
+        .is_ok()
     );
 }

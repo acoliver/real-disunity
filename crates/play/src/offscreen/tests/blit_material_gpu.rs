@@ -16,7 +16,7 @@ const RED: [u8; 4] = [255, 0, 0, 255];
 const GREEN: [u8; 4] = [0, 255, 0, 255];
 
 /// Clears `texture` to `value`.
-fn fill(world: &mut World, texture: RenderTextureId, value: [f32; 4]) {
+pub(super) fn fill(world: &mut World, texture: RenderTextureId, value: [f32; 4]) {
     for work in [
         OffscreenWork::SetRenderTarget {
             color: vec![TargetRef::Render(texture)],

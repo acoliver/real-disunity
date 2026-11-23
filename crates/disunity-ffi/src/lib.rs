@@ -32,6 +32,7 @@ pub mod errors;
 pub mod faces;
 pub mod gpu_flush;
 pub mod graphics;
+pub mod graphics_batch;
 pub mod graphics_commands;
 pub mod graphics_context;
 pub mod graphics_offscreen;
@@ -45,6 +46,8 @@ pub mod input_axes;
 pub mod light;
 pub mod mesh_channels;
 pub mod mesh_renderer;
+#[cfg(test)]
+mod mesh_renderer_skin_tests;
 pub mod meshes;
 pub mod object_api;
 mod object_ids;

@@ -1,32 +1,41 @@
 //! Runs a built Unity player's scene headless in the managed host.
-use std::num::NonZeroU64;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::ManagedHostConfig;
 use worldrunner_original_games::workspace_root;
-use worldrunner_unity_import::{
-    player_identity::{
-        PlayerIdentity, player_identity, player_project_graphics, player_quality,
-        player_scene_paths,
-    },
-    player_plan::plan_player_scene,
-    player_resources::plan_player_resources,
-    script_layouts::parse_script_layouts,
-};
+use worldrunner_unity_import::player_identity::PlayerIdentity;
+use worldrunner_unity_import::player_identity::player_identity;
+use worldrunner_unity_import::player_identity::player_project_graphics;
+use worldrunner_unity_import::player_identity::player_quality;
+use worldrunner_unity_import::player_identity::player_scene_paths;
+use worldrunner_unity_import::player_plan::plan_player_scene;
+use worldrunner_unity_import::player_resources::plan_player_resources;
+use worldrunner_unity_import::script_layouts::parse_script_layouts;
 use worldrunner_unity_serialized::script_data::ScriptLayouts;
 
 use crate::PlayError;
-use crate::offscreen::{StandInLook, SuppliedGlobal};
+use crate::driver::FIRST_COVERAGE_TEXTURE;
+use crate::gpu_player::GpuLaunch;
+use crate::gpu_player::PlayerGpu;
+use crate::offscreen::StandInLook;
+use crate::offscreen::SuppliedGlobal;
 use crate::plan_differences::shader_difference_lines;
-use crate::player_screen_ui::{CaptureSink, ScreenComposer, ScreenDevice};
-use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
-use crate::{
-    driver::FIRST_COVERAGE_TEXTURE,
-    gpu_player::{GpuLaunch, PlayerGpu},
-    player_meshes::PlayerMeshes,
-};
+use crate::player_meshes::PlayerMeshes;
+use crate::player_screen_ui::CaptureSink;
+use crate::player_screen_ui::ScreenComposer;
+use crate::player_screen_ui::ScreenDevice;
+use crate::prepare::FIRST_TEXTURE;
+use crate::prepare::bridge_config;
+use crate::prepare::dotnet;
+use crate::prepare::run;
+use crate::prepare::target;
+use crate::prepare::write;
+use crate::target_read::TargetRead;
 
 /// A player scene ready to boot: the host configuration and the request its bridge loads.
 pub struct PreparedPlayer {
@@ -44,10 +53,10 @@ pub struct PreparedPlayer {
 /// reports (a headless run gives none), and extra native plugin directories the player
 /// searches after its own `Plugins` directories and the engine's substitutes. `globals` are the
 /// values `--global` supplies; they reach the GPU work only, not the request, and so do
-/// `stand_ins` (how the stand-in textures look), `gpu_storage_mb` (the storage budget in MiB, in
-/// place of the adapter's) and `report_each_frame`. The default has no arguments, no window, no
-/// extra plugins and no globals, and the declared stand-ins, the adapter's budget and a report at
-/// the end only.
+/// `stand_ins` (how the stand-in textures look), `report_each_frame` and `read_targets` (the
+/// records whose targets a headless run writes to files). The default has no arguments, no
+/// window, no extra plugins and no globals, and the declared stand-ins and a report at the end
+/// only.
 #[derive(Clone, Copy, Default)]
 pub struct PlayerLaunch<'a> {
     pub arguments: &'a [String],
@@ -55,8 +64,8 @@ pub struct PlayerLaunch<'a> {
     pub plugins: &'a [PathBuf],
     pub globals: &'a [SuppliedGlobal],
     pub stand_ins: StandInLook,
-    pub gpu_storage_mb: Option<NonZeroU64>,
     pub report_each_frame: bool,
+    pub read_targets: &'a [TargetRead],
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
@@ -113,8 +122,8 @@ pub fn prepare_player(
         gpu: GpuLaunch {
             globals: launch.globals.to_vec(),
             stand_ins: launch.stand_ins,
-            storage_mb: launch.gpu_storage_mb,
             report_each_frame: launch.report_each_frame,
+            reads: launch.read_targets.to_vec(),
         },
     })
 }
@@ -348,16 +357,7 @@ pub struct ScreenOutput {
 }
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
-/// player's offscreen work on a device. The error names the step that failed: the missing GPU,
-/// starting the scene or the frame that failed. The run has no screen.
-///
-/// # Errors
-/// As [`run_player_screens`] without a screen.
-pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
-    run_player_screens(prepared, frames, dt, None)
-}
-
-/// [`run_player`] with a screen, when `screen` is given: the offscreen work draws a
+/// player's offscreen work on a device. With `screen`, the offscreen work draws a
 /// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
 /// frame `screen` lists, the frame a window shows is written to that frame's file as an RGB PNG:
 /// the newest image of the screen with the game's UI over it. The offscreen work and the viewer
@@ -367,10 +367,12 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
 ///
 /// # Errors
 /// Fails naming the reason when the machine has no GPU adapter or device, when the scene cannot
-/// start, and at a frame that fails. A run with a screen also fails before the scene starts when a
-/// listed frame is not among the `frames` run, and at a listed frame that has no image yet because
-/// no work has drawn into the screen, or whose UI cannot be drawn.
-pub fn run_player_screens(
+/// start, and at a frame that fails, including a frame or flush the GPU refuses (the error names
+/// the refusal, and no screen is written for that frame or after it). A run with a screen also
+/// fails before the scene starts when a listed frame is not among the `frames` run, and at a
+/// listed frame that has no image yet because no work has drawn into the screen, or whose UI
+/// cannot be drawn.
+pub fn run_player(
     prepared: &PreparedPlayer,
     frames: u64,
     dt: Duration,
@@ -384,6 +386,8 @@ pub fn run_player_screens(
         None => player_gpu(prepared)?,
     };
     check_screen(frames, screen)?;
+    TargetRead::check_frames(&prepared.gpu.reads, frames).map_err(PlayError::Invalid)?;
+    gpu.set_reads(prepared.gpu.reads.clone());
     let mut composer = device.map(|device| device.compose(&mut sink)).transpose()?;
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     gpu.install(&mut host)?;
@@ -403,6 +407,10 @@ pub fn run_player_screens(
             .map_err(PlayError::from)
             .and_then(|()| present_meshes(&mut host, &mut meshes, viewport))
             .and_then(|()| gpu.frame(&mut host))
+            .and_then(|()| match gpu.take_refusal() {
+                Some(refusal) => Err(PlayError::Invalid(refusal)),
+                None => Ok(()),
+            })
             .and_then(|()| write_screens(&gpu, composer.as_mut(), &host, frame, screen));
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it. The
@@ -421,6 +429,12 @@ pub fn run_player_screens(
     }
     report_times(&times);
     gpu.report().print(None);
+    let unwritten = gpu.report().reads_unwritten;
+    if result.is_ok() && unwritten > 0 {
+        result = Err(PlayError::Invalid(format!(
+            "{unwritten} --read-target reads wrote no file; the errors above name each"
+        )));
+    }
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
@@ -460,12 +474,12 @@ fn screens_due<'a>(
     if files.is_empty() {
         return Ok((frame, files));
     }
-    let image = gpu.screen().ok_or_else(|| {
+    let drawn = gpu.drawn_screen().ok_or_else(|| {
         PlayError::Invalid(format!(
             "no screen image after frame {frame}: no work has drawn into the screen yet"
         ))
     })?;
-    Ok((image.frame, files))
+    Ok((drawn, files))
 }
 
 /// Writes the composed frame to the file `screen` lists for `frame`, if it lists one: the newest

@@ -7,7 +7,7 @@ using static GraphicsTestSupport;
 
 /// <summary>Material.SetBuffer with a compute buffer binds the buffer to the property name of the material the world draws with:
 /// a draw of the material makes the graphics snapshot carry the binding and the buffer's contents once, whenever the binding was
-/// made. A null buffer, a released buffer and a GraphicsBuffer, which has no world buffer, leave no binding in the world.</summary>
+/// made. A null buffer, a released buffer and a GraphicsBuffer, which a material does not bind, leave no binding in the world.</summary>
 internal static unsafe class MaterialBufferTests
 {
     private static readonly byte[] Payload = [0xA1, 0xB2, 0xC3, 0xD4, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC];
@@ -21,7 +21,7 @@ internal static unsafe class MaterialBufferTests
             ABufferSetAfterTheWorldMaterialExistsReachesTheWorld();
             ASharedBufferIsCopiedOnce();
             ANullOrReleasedBufferRemovesTheBinding();
-            AGraphicsBufferStaysManagedAndUnbindsTheNameItReplaces();
+            AGraphicsBufferIsNotBoundAndUnbindsTheNameItReplaces();
             ACopiedMaterialCarriesItsBuffers();
             TheWorldRefusesABufferItDoesNotHold();
         }
@@ -117,7 +117,7 @@ internal static unsafe class MaterialBufferTests
         Console.WriteLine("PASS: SetBuffer with a null or released buffer removes the binding from the world");
     }
 
-    private static void AGraphicsBufferStaysManagedAndUnbindsTheNameItReplaces()
+    private static void AGraphicsBufferIsNotBoundAndUnbindsTheNameItReplaces()
     {
         var material = new Material(Material.SpriteLit);
         using var compute = Filled();
@@ -129,9 +129,9 @@ internal static unsafe class MaterialBufferTests
         Ensure(material.HasBuffer("_Properties") && material.HasBuffer("_Managed"), "the material still reports both buffers");
         var snapshot = SnapshotAfterDrawing(material);
         Expect.Equal(0, Count(snapshot, "_Properties"), "a GraphicsBuffer replaces the compute buffer's binding");
-        Expect.Equal(0, Count(snapshot, "_Managed"), "a GraphicsBuffer has no world buffer to send");
+        Expect.Equal(0, Count(snapshot, "_Managed"), "a material does not bind a GraphicsBuffer");
         Expect.Equal(0, Count(snapshot, Payload), "nothing of either buffer reaches the frame");
-        Console.WriteLine("PASS: a GraphicsBuffer set on a Material is kept in managed memory only and unbinds the name it replaces");
+        Console.WriteLine("PASS: a GraphicsBuffer set on a Material is kept by the material, not bound, and unbinds the name it replaces");
     }
 
     private static void ACopiedMaterialCarriesItsBuffers()

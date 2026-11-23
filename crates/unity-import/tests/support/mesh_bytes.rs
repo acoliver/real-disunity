@@ -8,6 +8,16 @@ pub type Channel = [u8; 4];
 /// One sub-mesh: first byte, index count, topology, base vertex, first vertex, vertex count.
 pub type SubMeshSpec = [u32; 6];
 
+/// The bone data of a skinned mesh: bind poses as 16 row-major floats, the bone name hashes, the
+/// root bone's hash and the weights of a mesh with a varying bone count per vertex.
+#[derive(Default)]
+pub struct SkinSpec {
+    pub bind_poses: Vec<[f32; 16]>,
+    pub bone_hashes: Vec<u32>,
+    pub root_hash: u32,
+    pub variable_weights: Vec<u32>,
+}
+
 pub struct MeshSpec {
     pub name: &'static str,
     pub sub_meshes: Vec<SubMeshSpec>,
@@ -23,6 +33,7 @@ pub struct MeshSpec {
     pub vertex_data: Vec<u8>,
     /// Offset, size and path of streamed vertex data; empty path when inline.
     pub stream: (u64, u32, &'static str),
+    pub skin: SkinSpec,
 }
 
 const BOUNDS: [f32; 6] = [0.5, 0.5, 0.0, 0.5, 0.5, 0.0];
@@ -44,6 +55,22 @@ fn write_compressed(w: &mut ObjectWriter) {
     w.u32(0);
 }
 
+fn write_skin(w: &mut ObjectWriter, skin: &SkinSpec) {
+    w.i32(i32::try_from(skin.bind_poses.len()).unwrap());
+    for pose in &skin.bind_poses {
+        w.floats(pose);
+    }
+    w.i32(i32::try_from(skin.bone_hashes.len()).unwrap());
+    for hash in &skin.bone_hashes {
+        w.u32(*hash);
+    }
+    w.u32(skin.root_hash).i32(0);
+    w.i32(i32::try_from(skin.variable_weights.len()).unwrap());
+    for weight in &skin.variable_weights {
+        w.u32(*weight);
+    }
+}
+
 pub fn mesh_bytes(spec: &MeshSpec) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string(spec.name).unwrap();
@@ -54,7 +81,7 @@ pub fn mesh_bytes(spec: &MeshSpec) -> Vec<u8> {
         w.u32(base).u32(first).u32(vertices).floats(&BOUNDS);
     }
     w.i32(0).i32(0).i32(0).i32(0);
-    w.i32(0).i32(0).u32(0).i32(0).i32(0);
+    write_skin(&mut w, &spec.skin);
     w.bytes(&[spec.compression, 1, 0, 1]).align();
     w.i32(spec.index_format);
     w.byte_array(&spec.indices).unwrap();

@@ -50,7 +50,7 @@ fn check_abandonment(depth_test: bool, clip_rect: Option<[u32; 4]>) {
         .set_ui_overlay(
             device,
             context.submission(),
-            &UiOverlay {
+            &std::sync::Arc::new(UiOverlay {
                 textures: vec![],
                 quads: vec![DynamicQuad {
                     overlay: true,
@@ -60,7 +60,8 @@ fn check_abandonment(depth_test: bool, clip_rect: Option<[u32; 4]>) {
                     ..DynamicQuad::default()
                 }],
                 targets: vec![],
-            },
+                layer: None,
+            }),
             &[],
         )
         .unwrap();

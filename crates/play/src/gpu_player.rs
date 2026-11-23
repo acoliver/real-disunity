@@ -18,33 +18,54 @@
 //!   first time is there for that flush.
 //!
 
-use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
-use std::num::NonZeroU64;
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::GpuFlush;
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_gpu::configuration::Configuration;
 use worldrunner_render_gpu::device::request_device;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
+use worldrunner_render_program::unity::offscreen::ListDraws;
 use worldrunner_scene_viewer::GameScreen;
 
 mod frame;
+mod refusal;
 mod ui_offer;
 pub(crate) use ui_offer::UiOffer;
 
 use crate::PlayError;
-use crate::counts_line::{names_line, top_counts_line};
+use crate::counts_line::names_line;
+use crate::counts_line::top_counts_line;
 use crate::global_listing::GlobalListing;
-use crate::gpu_device::{DeviceSource, PlayerStartupInputs, headless_gpu_instance, player_device};
-use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, GlobalReads, OffscreenAdapter, OffscreenHost, Phases,
-    PlayerKernels, Reclaimed, Report, ScreenImage, Settings, StandInCounts, StandInLook,
-    SuppliedGlobal, WorkTrace, supplied_line,
-};
+use crate::gpu_device::DeviceSource;
+use crate::gpu_device::PlayerStartupInputs;
+use crate::gpu_device::headless_gpu_instance;
+use crate::gpu_device::player_device;
+use crate::offscreen::ComputeAdapter;
+use crate::offscreen::DispatchTrace;
+use crate::offscreen::GlobalReads;
+use crate::offscreen::OffscreenAdapter;
+use crate::offscreen::OffscreenHost;
+use crate::offscreen::Phases;
+use crate::offscreen::PlayerKernels;
+use crate::offscreen::Reclaimed;
+use crate::offscreen::Report;
+use crate::offscreen::Settings;
+use crate::offscreen::StandInCounts;
+use crate::offscreen::StandInLook;
+use crate::offscreen::SuppliedGlobal;
+use crate::offscreen::WorkTrace;
+use crate::offscreen::supplied_line;
 use crate::scene_census::SubstitutionCensus;
 
 /// The most dispatch traces a report keeps.
@@ -72,10 +93,10 @@ pub struct GpuLaunch {
     pub globals: Vec<SuppliedGlobal>,
     /// How the stand-in textures the host supplies look.
     pub stand_ins: StandInLook,
-    /// The storage budget in MiB, in place of the one chosen for the adapter.
-    pub storage_mb: Option<NonZeroU64>,
     /// Whether a headless run prints the GPU report after every frame, not only at the end.
     pub report_each_frame: bool,
+    /// The records whose targets the run writes to files.
+    pub reads: Vec<crate::TargetRead>,
 }
 
 impl GpuLaunch {
@@ -124,10 +145,6 @@ pub struct GpuWorkReport {
     /// Pixel reads of render textures answered, and left unanswered by the reason.
     pub pixel_reads: usize,
     pub pixel_reads_refused: BTreeMap<String, usize>,
-    /// Images of the screen read back after work drew into it, and the readbacks refused by the
-    /// reason.
-    pub screen_reads: usize,
-    pub screen_reads_refused: BTreeMap<String, usize>,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
     /// The most bytes the runtime held at any moment, not only after a flush.
@@ -142,8 +159,12 @@ pub struct GpuWorkReport {
     /// totals above, which a refused piece of work never reaches.
     pub refused_records: usize,
     pub refused_works: usize,
+    /// The first refusal the run has not been told of yet (see `PlayerGpu::take_refusal`).
+    refusal: Option<String>,
     /// Why a frame's work or a flush failed, by message.
     pub errors: BTreeMap<String, usize>,
+    /// The `--read-target` reads that wrote no file.
+    pub reads_unwritten: usize,
     /// How the first dispatches were bound and what came of them.
     pub traces: Vec<DispatchTrace>,
     /// Camera renders, the draws they recorded and the draws left out for want of a pass.
@@ -201,6 +222,7 @@ impl GpuWorkReport {
         for trace in traces.iter().filter(|trace| trace.error.is_some()) {
             self.refused_records += trace.records;
             self.refused_works += 1;
+            refusal::note_whole(&mut self.refusal, trace);
         }
         for trace in &traces {
             self.planner.add(&trace.phases);
@@ -210,6 +232,7 @@ impl GpuWorkReport {
     }
 
     fn add(&mut self, report: &Report, source: &'static str) {
+        refusal::note_over_budget(&mut self.refusal, report, source);
         self.records += report.records;
         self.built += report.built;
         self.dispatches += report.dispatches;
@@ -267,7 +290,7 @@ impl GpuWorkReport {
         self.list_unmatched += report
             .list_draws
             .iter()
-            .map(|l| l.unmatched + l.missing_texture + l.missing_channel + l.feedback_loop)
+            .map(ListDraws::left_out)
             .sum::<usize>();
         for (name, count) in &report.built_by_kind {
             *self.built_by_kind.entry(name.clone()).or_default() += count;
@@ -356,25 +379,6 @@ impl GpuWorkReport {
         if let Some(line) = self.global_reads.line(TOP_UNREAD_GLOBALS) {
             eprintln!("[gpu] {line}");
         }
-    }
-
-    /// The line of the report about the screen's readbacks.
-    fn screen_line(&self) -> String {
-        let refused: usize = self.screen_reads_refused.values().sum();
-        let reasons: Vec<String> = self
-            .screen_reads_refused
-            .iter()
-            .map(|(reason, count)| format!("{reason}: {count}"))
-            .collect();
-        let detail = if reasons.is_empty() {
-            String::new()
-        } else {
-            format!(" ({})", reasons.join("; "))
-        };
-        format!(
-            "[gpu] screen images read back {}, refused {refused}{detail}",
-            self.screen_reads
-        )
     }
 
     fn print_unset_constants(&self) {
@@ -495,7 +499,6 @@ impl GpuWorkReport {
         for (reason, count) in &self.pixel_reads_refused {
             eprintln!("[gpu] pixel reads refused: {reason}: {count}");
         }
-        eprintln!("{}", self.screen_line());
         eprintln!(
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records
@@ -513,10 +516,13 @@ pub struct PlayerGpu {
     report: Rc<RefCell<GpuWorkReport>>,
     authority: SubmissionAuthority,
     device: wgpu::Device,
-    /// The newest image of the screen read back, if work has drawn into it.
-    screen: RefCell<Option<ScreenImage>>,
+    /// The frame whose work (or a flush before it) last drew into the screen, counting from
+    /// zero; `None` before any did.
+    drawn_screen: Cell<Option<u64>>,
     /// The size the screen has been asked to be, which a texture of another size no longer is.
     screen_size: Cell<Option<[u32; 2]>>,
+    /// The reads of a record's target the run was asked for, which the frames they name make.
+    reads: RefCell<Vec<crate::TargetRead>>,
 }
 
 impl PlayerGpu {
@@ -534,7 +540,7 @@ impl PlayerGpu {
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
     /// program runtime cannot reserve its arena.
     pub fn headless(data: &Path, launch: &GpuLaunch) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let inputs = PlayerStartupInputs::capture();
         let settings = launch.settings();
         let instance = headless_gpu_instance();
         let adapter =
@@ -578,7 +584,7 @@ impl PlayerGpu {
         data: &Path,
         launch: &GpuLaunch,
     ) -> Result<Self, String> {
-        let inputs = PlayerStartupInputs::capture(launch.storage_mb);
+        let inputs = PlayerStartupInputs::capture();
         let settings = launch.settings();
         let adapter = source.adapter()?;
         Self::shared_on_adapter(source, &adapter, data, &inputs, settings)
@@ -690,8 +696,9 @@ impl PlayerGpu {
             })),
             authority,
             device,
-            screen: RefCell::new(None),
+            drawn_screen: Cell::new(None),
             screen_size: Cell::new(None),
+            reads: RefCell::new(Vec::new()),
         })
     }
 
@@ -702,43 +709,38 @@ impl PlayerGpu {
         self.screen_size.set(size);
         self.offscreen.borrow_mut().set_screen(size);
         if size.is_none() {
-            *self.screen.borrow_mut() = None;
+            self.drawn_screen.set(None);
         }
     }
 
-    /// The newest image of the screen: what it held after the last frame (or the flush before
-    /// it) whose work drew into it, `None` before any did. Its `frame` says which frame that was,
-    /// counting from zero, so a caller shows an image once by remembering the number.
+    /// Asks for the reads of a record's target, each made by the player's own frame it names.
+    pub fn set_reads(&self, reads: Vec<crate::TargetRead>) {
+        *self.reads.borrow_mut() = reads;
+    }
+
+    /// The number of the last frame whose work (or a flush before it) drew into the screen,
+    /// counting from zero, `None` before any did, so a caller writes an image once by remembering
+    /// the number.
     #[must_use]
-    pub fn screen(&self) -> Option<std::cell::Ref<'_, ScreenImage>> {
-        std::cell::Ref::filter_map(self.screen.borrow(), Option::as_ref).ok()
+    pub fn drawn_screen(&self) -> Option<u64> {
+        self.drawn_screen.get()
     }
 
-    /// The screen as the window shows it: the texture the offscreen work draws into, with whether
-    /// a flush the player submitted itself already wrote it. Nothing is copied. `None` while there
-    /// is no screen, before any frame made its texture, and when the texture is not the size the
-    /// screen was last asked to be: a resize makes the next frame that has work a new one, and the
-    /// old texture shows a size the window no longer has. A texture the viewer cannot sample is
-    /// counted in the report and shows nothing.
+    /// The screen as a window shows it: the texture the offscreen work draws into, and whether it
+    /// already holds what work drew: a flush the player submitted itself wrote it, or one of the
+    /// player's own frames, which it submits and waits for, drew into it ([`Self::drawn_screen`]).
+    /// A window's frames are submitted by the viewer, which knows their writes. Nothing is copied.
+    /// `None` while there is no screen, before any frame made its texture, and when the texture is
+    /// not the size the screen was last asked to be: a resize makes the next frame that has work a
+    /// new one, and the old texture shows a size the window no longer has. A texture the viewer
+    /// cannot sample is counted in the report and shows nothing.
     pub(crate) fn game_screen(&self) -> Option<GameScreen> {
-        self.offered_screen(false)
-    }
-
-    /// [`Self::game_screen`] for the player's own frames, whose work the player submitted and waited
-    /// for: the screen has contents once any of that work drew into it, which is when
-    /// [`Self::screen`] has an image. `None` before then.
-    pub(crate) fn written_screen(&self) -> Option<GameScreen> {
-        self.screen()?;
-        self.offered_screen(true)
-    }
-
-    fn offered_screen(&self, written: bool) -> Option<GameScreen> {
         let host = self.offscreen.borrow();
         let (texture, flushed) = host.screen_texture()?;
         if self.screen_size.get() != Some([texture.width(), texture.height()]) {
             return None;
         }
-        GameScreen::new(texture, flushed || written)
+        GameScreen::new(texture, flushed || self.drawn_screen.get().is_some())
             .map_err(|error| {
                 *self
                     .report
@@ -750,20 +752,18 @@ impl PlayerGpu {
             .ok()
     }
 
-    /// Reads the screen back when work drew into it since the last read, and keeps the image.
-    /// A readback the host refuses is counted by its reason, and tried again by the next frame.
-    /// The image is numbered `frame`, the frame whose work drew it.
-    fn read_screen(&self, report: &mut GpuWorkReport, frame: u64) {
-        let mut host = self.offscreen.borrow_mut();
-        if !host.screen_written() {
-            return;
-        }
-        match host.read_screen(frame) {
-            Ok(image) => {
-                report.screen_reads += 1;
-                *self.screen.borrow_mut() = Some(image);
-            }
-            Err(reason) => *report.screen_reads_refused.entry(reason).or_default() += 1,
+    /// The texture the UI frame's runs were drawn into, which the viewer's overlay shows. `None`
+    /// until a frame with runs made it, after a frame without any, and while it is not the size
+    /// of the screen: a resize makes the next frame that has runs a new one.
+    pub(crate) fn ui_layers(&self) -> Option<wgpu::Texture> {
+        let texture = self.offscreen.borrow().ui_layers_texture()?;
+        (self.screen_size.get() == Some([texture.width(), texture.height()])).then_some(texture)
+    }
+
+    /// Numbers the screen `frame` when work drew into it since the last frame of the player's own.
+    fn note_drawn_screen(&self, frame: u64) {
+        if self.offscreen.borrow_mut().take_screen_written() {
+            self.drawn_screen.set(Some(frame));
         }
     }
 

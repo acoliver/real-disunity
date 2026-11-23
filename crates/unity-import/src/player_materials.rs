@@ -8,10 +8,13 @@
 //! asset index and `unsent` set, which is not the game's own null slot, and is listed once per
 //! material. A material that does not decode is an error entry, and a reference to it binds `null`.
 
+use std::collections::BTreeSet;
+
 use serde::Serialize;
 use worldrunner_unity_serialized::{
     graphics::{Material, TexEnv},
     object::PPtr,
+    shader::Shader,
 };
 
 use crate::{player_files::PlayerFiles, player_resources::ObjectKey};
@@ -33,8 +36,10 @@ pub struct PlanTextureSlot {
 
 /// What the plan holds of a material. `shader` is the asset index of the planned shader, or
 /// `None` when the material has none or it did not plan. `render_queue` is the material's own
-/// queue, -1 for the shader's. Colors include the vector properties, which a material stores
-/// in the same list.
+/// queue, -1 for the shader's. A material saves its color and vector properties in one list; a
+/// property its shader declares as a vector is planned in `vectors`, and every other saved
+/// property in `colors`, which the engine converts to the project's color space as a game's own
+/// colors are (a linear project sends the linear color). `vectors` is left out when empty.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PlanMaterial {
     pub name: String,
@@ -46,7 +51,35 @@ pub struct PlanMaterial {
     pub floats: Vec<(String, f32)>,
     pub ints: Vec<(String, i32)>,
     pub colors: Vec<(String, [f32; 4])>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub vectors: Vec<(String, [f32; 4])>,
     pub textures: Vec<PlanTextureSlot>,
+}
+
+/// `ShaderPropertyType` of a vector property in a shader's declaration.
+const VECTOR_PROPERTY: i32 = 1;
+
+/// The names of the properties `shader` declares as vectors.
+pub(crate) fn declared_vectors(shader: &Shader) -> BTreeSet<String> {
+    shader
+        .parsed
+        .properties
+        .iter()
+        .filter(|property| property.kind == VECTOR_PROPERTY)
+        .map(|property| property.name.clone())
+        .collect()
+}
+
+impl PlanMaterial {
+    /// Moves each saved property named in `declared`, the vectors the material's shader declares,
+    /// from `colors` to `vectors`. A material stores a color and a vector in one list, so
+    /// without the shader's declaration they cannot be told apart.
+    pub(crate) fn separate_vectors(&mut self, declared: &BTreeSet<String>) {
+        let saved = std::mem::take(&mut self.colors);
+        (self.vectors, self.colors) = saved
+            .into_iter()
+            .partition(|(name, _)| declared.contains(name));
+    }
 }
 
 /// Decodes the material object `key`, or says why it does not.
@@ -159,6 +192,7 @@ pub(crate) fn plan_material(
         floats: material.properties.floats.clone(),
         ints: material.properties.ints.clone(),
         colors: material.properties.colors.clone(),
+        vectors: Vec::new(),
         textures,
     }
 }

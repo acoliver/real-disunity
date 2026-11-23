@@ -66,6 +66,26 @@ fn a_script_waiting_for_start_with_no_per_frame_messages_starts_in_the_next_phas
 }
 
 #[test]
+fn scripts_of_different_execution_orders_queue_as_the_full_scan_queues_them() {
+    let mut world = world();
+    let (_, first) = ready_script(&mut world, "First");
+    let (_, second) = ready_script(&mut world, "Second");
+    let (_, third) = ready_script(&mut world, "Third");
+    world.set_script_execution_order(first, 10).unwrap();
+    world.set_script_execution_order(third, -10).unwrap();
+    assert_eq!(
+        queued_scripts(&mut world, ScriptMessage::Start)
+            .into_iter()
+            .map(|(script, _)| script)
+            .collect::<Vec<_>>(),
+        vec![third, second, first]
+    );
+    assert_phases_match(&mut world);
+    start_all(&mut world);
+    assert_phases_match(&mut world);
+}
+
+#[test]
 fn only_scripts_that_define_a_message_are_queued_for_it() {
     let mut world = world();
     let (_, late) = ready_script(&mut world, "Late");

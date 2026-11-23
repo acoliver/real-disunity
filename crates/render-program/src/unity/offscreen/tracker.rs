@@ -31,6 +31,8 @@ pub(super) struct Imported {
     pub(super) mips: u32,
     pub(super) size: [u32; 2],
     pub(super) format: wgpu::TextureFormat,
+    /// The format of the depth allocation, which a readback of its depth aspect copies by.
+    pub(super) depth_format: Option<wgpu::TextureFormat>,
 }
 
 pub(super) struct Tracker {
@@ -115,6 +117,7 @@ impl Tracker {
             mips: texture.mip_level_count(),
             size: [texture.width(), texture.height()],
             format: texture.format(),
+            depth_format: depth.map(wgpu::Texture::format),
         };
         self.textures.insert(id, imported);
         self.primaries.insert(id, texture.clone());

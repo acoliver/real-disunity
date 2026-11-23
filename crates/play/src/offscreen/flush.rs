@@ -48,6 +48,7 @@ use super::probe::{BeforeDispatch, Probe};
 use super::screen::ScreenImage;
 use super::screen::writes_screen;
 use super::sink::BufferSink;
+use super::taps;
 use super::trace::WorkTrace;
 
 mod parts;
@@ -412,6 +413,7 @@ impl OffscreenHost {
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
         settling: Settling,
+        reads: &[crate::TargetRead],
     ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
         let live_before = self.runtime.live_bytes();
         self.release_frame_buffers();
@@ -431,6 +433,7 @@ impl OffscreenHost {
             .report
             .count_many("materialbuffer:BufferUpload", uploaded.refused);
         adapted.report.phases.adapt = started.elapsed();
+        taps::arrange(&mut adapted, reads);
         if adapted.frame.records.is_empty() {
             self.release_frame_buffers();
             self.note(("frame", live_before), &adapted.report, None);

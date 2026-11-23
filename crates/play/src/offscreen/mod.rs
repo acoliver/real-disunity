@@ -86,6 +86,7 @@ mod shaders;
 mod sink;
 mod stand_ins;
 mod supplied;
+mod taps;
 mod trace;
 mod ui_frame;
 mod volume_assets;

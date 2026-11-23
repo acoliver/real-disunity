@@ -39,6 +39,7 @@ mod scene_light;
 mod scene_tables;
 mod scene_transform;
 pub mod storage_budget;
+mod target_read;
 mod textures;
 #[cfg(test)]
 mod textures_tests;
@@ -56,6 +57,7 @@ pub use player_meshes::{
 };
 pub use prepare::{Prepared, prepare};
 pub use retained_driver::{PlayerWindow, ScheduledKey, play_player_window};
+pub use target_read::TargetRead;
 pub use worldrunner_original_games::Game;
 
 use std::path::PathBuf;

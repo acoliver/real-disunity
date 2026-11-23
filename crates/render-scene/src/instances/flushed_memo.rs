@@ -7,6 +7,8 @@
 //! and with whether previous buffers are asked for. A view of a moving camera over a scene at
 //! rest asks at the same state every frame, so it asks the scene once instead of every batch it
 //! selects.
+#[cfg(test)]
+mod test_hooks;
 use std::cell::Cell;
 
 use super::Instances;
@@ -51,11 +53,5 @@ impl Instances {
         let flushed = scan();
         self.flushed.found.set(Some((at, flushed)));
         flushed
-    }
-
-    /// How many times `all_flushed` scanned the batches rather than reusing an answer.
-    #[cfg(test)]
-    pub(crate) fn flushed_scans(&self) -> usize {
-        self.flushed.scans.get()
     }
 }

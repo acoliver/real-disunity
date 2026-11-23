@@ -6,6 +6,8 @@
 //! finds every batch settled has written, copied and published nothing, so it remembers the
 //! stamp and `track_previous` it saw, and the next flush at the same pair has nothing to find.
 //! A flush that did anything remembers nothing; the scene is checked again by the next one.
+#[cfg(test)]
+mod test_hooks;
 use worldrunner_render_post::PrepareContext;
 
 use super::ready_memo::Stamp;
@@ -66,12 +68,6 @@ impl Instances {
             self.settled.at = Some((stamp, track));
         }
         writes
-    }
-
-    /// How many flushes looped over the batches rather than skipping a scene at rest.
-    #[cfg(test)]
-    pub(crate) fn flush_loops(&self) -> usize {
-        self.settled.loops
     }
 }
 

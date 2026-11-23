@@ -14,6 +14,8 @@
 //! them. Only a change of a counter ends that, so a later transaction at the same stamp is
 //! answered without a scan.
 
+#[cfg(test)]
+mod test_hooks;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
@@ -116,11 +118,5 @@ impl ReadyMemo {
             });
         }
         ready
-    }
-
-    /// How many times a check has scanned the batches.
-    #[cfg(test)]
-    pub fn scans(&self) -> usize {
-        self.scans.get()
     }
 }

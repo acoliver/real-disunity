@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod test_hooks;
 use std::collections::BTreeSet;
 use std::ops::Range;
 
@@ -248,17 +250,6 @@ impl InstanceBatch {
                 .ready(&self.bytes, in_frame, self.previous.is_some())
     }
 
-    #[cfg(test)]
-    pub fn visible_ranges(&self) -> Vec<Range<u32>> {
-        ranges(
-            self.placements
-                .iter()
-                .enumerate()
-                .filter(|(_, placement)| placement.is_some_and(|(_, visible)| visible))
-                .map(|(position, _)| position),
-        )
-    }
-
     pub fn has_instances(&self) -> bool {
         self.free.len() != self.placements.len()
     }
@@ -317,11 +308,6 @@ impl InstanceBatch {
         self.dirty = pending;
     }
 
-    #[cfg(test)]
-    pub fn pending_ranges(&self) -> Vec<Range<u32>> {
-        self.pending_ranges_for(Publications::current().as_ref())
-    }
-
     fn pending_ranges_for(&self, owner: Option<&Publications>) -> Vec<Range<u32>> {
         ranges(
             self.dirty
@@ -329,11 +315,6 @@ impl InstanceBatch {
                 .copied()
                 .filter(|position| self.slot_pending(*position, owner)),
         )
-    }
-
-    #[cfg(test)]
-    pub fn dirty_count(&self) -> usize {
-        self.dirty.len()
     }
 
     #[cfg(test)]

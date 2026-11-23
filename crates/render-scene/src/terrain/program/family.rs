@@ -1,5 +1,7 @@
 //! The program runtimes a family of pipelines shares.
 
+#[cfg(test)]
+mod test_hooks;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -69,16 +71,6 @@ impl Family {
     pub(crate) fn stats(&self) -> RuntimeStats {
         self.0
             .runtime
-            .borrow()
-            .as_ref()
-            .map_or_else(RuntimeStats::default, ProgramRuntime::stats)
-    }
-
-    /// What the objects' runtime has built so far.
-    #[cfg(test)]
-    pub(crate) fn object_stats(&self) -> RuntimeStats {
-        self.0
-            .objects
             .borrow()
             .as_ref()
             .map_or_else(RuntimeStats::default, ProgramRuntime::stats)

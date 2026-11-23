@@ -1,5 +1,7 @@
 pub(crate) mod casters;
 mod chunk_view;
+#[cfg(test)]
+mod test_hooks;
 pub use chunk_view::{
     TerrainChunkBuffers, TerrainChunkDraw, TerrainChunkEdge, TerrainChunkNeighbor,
     TerrainChunkViewError,
@@ -248,57 +250,6 @@ impl Streaming {
             *destination.borrow_mut() = residents;
         });
     }
-    /// The chunks a stock draw recorded now would submit, before culling.
-    #[cfg(test)]
-    pub(super) fn drawn_chunks(&self) -> Vec<TerrainChunk> {
-        self.with_residents(Publications::current().as_ref(), |residents, _| {
-            residents.iter().map(|(chunk, _)| *chunk).collect()
-        })
-    }
-    #[cfg(test)]
-    pub(super) fn prepared_buffers(&self) -> Vec<wgpu::Buffer> {
-        self.drawing
-            .borrow()
-            .as_ref()
-            .unwrap()
-            .residents
-            .iter()
-            .map(|(_, lod)| lod.vertices.clone())
-            .collect()
-    }
-    /// The vertex buffers of the chunks that are committed or being drawn.
-    #[cfg(test)]
-    pub(super) fn resident_buffers(&self) -> Vec<wgpu::Buffer> {
-        let drawing = self.drawing.borrow();
-        let drawn = drawing.iter().flat_map(|prepared| &prepared.residents);
-        self.committed
-            .borrow()
-            .iter()
-            .chain(drawn)
-            .map(|(_, lod)| lod.vertices.clone())
-            .collect()
-    }
-    #[cfg(test)]
-    pub(super) fn allocation_counts(&self) -> (usize, usize, usize) {
-        let pending = self
-            .drawing
-            .borrow()
-            .as_ref()
-            .filter(|prepared| {
-                prepared.owner.status()
-                    != worldrunner_render_gpu::submission::TransactionStatus::Submitted
-            })
-            .map_or(0, |prepared| prepared.uploads);
-        (
-            self.committed.borrow().len(),
-            pending,
-            self.retired
-                .borrow()
-                .iter()
-                .map(|(_, chunks)| chunks.len())
-                .sum(),
-        )
-    }
     pub(super) fn request(
         &self,
         frame: &crate::frame::FrameUniform,
@@ -536,14 +487,6 @@ fn buffer(
     buffer
 }
 impl SceneGpu {
-    /// The vertex buffers the program geometry cache holds for streamed chunks.
-    #[cfg(test)]
-    pub(crate) fn cached_chunk_buffers(&self) -> Vec<wgpu::Buffer> {
-        self.terrain
-            .as_ref()
-            .and_then(|terrain| terrain.streaming.as_ref())
-            .map_or_else(Vec::new, |streaming| streaming.geometry.buffers())
-    }
     /// Changes whenever the casters a shadow cascade would draw change: placements and
     /// caster membership, or the resident terrain chunk buffers. Both inputs only
     /// increase, so the sum never repeats a value a retained cascade was rendered with.

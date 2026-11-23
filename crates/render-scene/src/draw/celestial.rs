@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod test_hooks;
 use super::{GpuMesh, ScenePipelines};
 use wgpu::util::DeviceExt;
 use worldrunner_render_plan::RenderScene;
@@ -74,11 +76,6 @@ impl super::SceneGpu {
         if let Some(meshes) = &self.celestial {
             meshes.plan(device, size, passes, views, declaration);
         }
-    }
-    /// The scene's celestial meshes, for the captures that switch how they record.
-    #[cfg(test)]
-    pub(crate) fn celestial_meshes(&self) -> Option<&crate::sky::meshes::Meshes> {
-        self.celestial.as_ref()
     }
     /// Prepares the celestial bodies' pipelines for the frame `frame`, before the pass that
     /// draws them opens.

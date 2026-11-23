@@ -15,6 +15,8 @@ pub(crate) mod snapshots;
 pub(crate) mod surface;
 mod terms;
 #[cfg(test)]
+mod test_hooks;
+#[cfg(test)]
 mod tests;
 mod vertex_seeds;
 
@@ -290,12 +292,6 @@ impl Water {
             draws,
             shadow: shadow.cloned(),
         })
-    }
-
-    /// Draws bodies of `key` with `source` compiled for `options` in place of the composed text.
-    #[cfg(test)]
-    pub(crate) fn substitute(&self, key: ([u32; 5], bool), source: &str, options: [u32; 5]) {
-        self.programs.borrow_mut().substitute(key, source, options);
     }
 
     /// The prepared draw of each body with vertices, `None` for one without, for frame slot

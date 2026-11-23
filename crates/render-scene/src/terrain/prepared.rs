@@ -9,6 +9,8 @@
 //! the material group once, then per chunk two vertex buffers, the index buffer and the draw.
 //! The engine's sets are bound by the pass.
 
+#[cfg(test)]
+mod test_hooks;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -294,12 +296,6 @@ impl PreparedTerrain {
             .draw(pass, geometry)
             .expect("the mesh was made for the terrain's vertex layout");
     }
-
-    /// How many pipelines and sets are kept, for the tests that hold the caches bounded.
-    #[cfg(test)]
-    pub(crate) fn kept(&self) -> (usize, usize) {
-        (self.pipelines.borrow().len(), self.sets.borrow().len())
-    }
 }
 
 impl ChunkGeometry {
@@ -359,15 +355,5 @@ impl ChunkGeometry {
         self.chunks
             .borrow_mut()
             .retain(|chunk, (vertices, _)| keep(chunk, vertices));
-    }
-
-    /// The vertex buffers the chunk geometry holds.
-    #[cfg(test)]
-    pub(crate) fn buffers(&self) -> Vec<Buffer> {
-        self.chunks
-            .borrow()
-            .values()
-            .map(|(vertices, _)| vertices.clone())
-            .collect()
     }
 }

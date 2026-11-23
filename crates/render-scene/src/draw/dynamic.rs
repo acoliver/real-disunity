@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod test_hooks;
+#[cfg(test)]
 #[path = "dynamic_tests.rs"]
 mod tests;
 
@@ -126,11 +128,6 @@ impl SceneGpu {
         self.dynamic
             .retain(encoder, pipelines)
             .map_err(|error| dynamic_refused(&error))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn dynamic_probes(&self) -> Vec<std::sync::Weak<dyn std::any::Any + Send + Sync>> {
-        self.dynamic.probes()
     }
 
     /// Releases every runtime texture, draw buffer and retained quad index buffer on unload.

@@ -24,7 +24,7 @@ impl BloomPyramid {
         }
         .validate()?;
         validate_source(device, source)?;
-        crate::gaussian_extents_with_terminal(
+        crate::gaussian_extents(
             [source.texture().width(), source.texture().height()],
             self.bloom.levels,
             self.bloom.policies.terminal,

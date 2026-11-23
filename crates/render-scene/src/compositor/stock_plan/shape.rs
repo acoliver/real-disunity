@@ -55,13 +55,6 @@ pub(super) fn owned<'a>(environment: &'a Environment<'_>) -> Owned<'a> {
                 .map(|texture| ("reflection", texture)),
         );
     }
-    if let Some(gbuffer) = environment.gbuffer {
-        owned.extend(
-            gbuffer
-                .written_textures()
-                .map(|texture| ("gbuffer", texture)),
-        );
-    }
     if let Some(water) = environment.water {
         owned.extend(
             water.receivers[environment.slot]
@@ -126,8 +119,6 @@ struct ScreenShape {
     size: [u32; 2],
     depth_format: wgpu::TextureFormat,
     merged: bool,
-    /// Whether the metadata carries a producer, whether it writes early outputs, and their formats.
-    producer: Option<(bool, Vec<wgpu::TextureFormat>)>,
     receiver: Option<Vec<wgpu::TextureFormat>>,
     computes_occlusion: bool,
     stages: Vec<(PassSlot, Vec<ResourceRef>)>,
@@ -140,15 +131,6 @@ impl ScreenShape {
             size: screen.size,
             depth_format: screen.depth.format(),
             merged: screen.geometry.merged.is_some(),
-            producer: screen.geometry.gbuffer.as_ref().map(|(pipelines, _)| {
-                let outputs = pipelines.early_outputs();
-                (
-                    outputs.is_some(),
-                    outputs
-                        .map(crate::gbuffer_writes::EarlyOutputs::formats)
-                        .unwrap_or_default(),
-                )
-            }),
             receiver: screen
                 .receiver
                 .as_ref()
@@ -167,7 +149,6 @@ pub(super) struct Shape {
     ssr_requested: Option<SceneSsr>,
     water: Option<std::sync::Arc<[SceneWaterBody]>>,
     screen: Option<ScreenShape>,
-    gbuffer_renders: Option<bool>,
     overlay_depth: bool,
     allocations: Vec<Descriptor>,
 }
@@ -180,7 +161,6 @@ impl Shape {
             ssr_requested: environment.requested.1,
             water: environment.water.map(|water| water.settings.clone()),
             screen: environment.ssao.map(ScreenShape::new),
-            gbuffer_renders: environment.gbuffer.map(crate::gbuffer::Gbuffer::renders),
             overlay_depth: environment.overlay_depth,
             allocations: owned
                 .iter()
@@ -256,7 +236,6 @@ mod tests {
             size: [64, 64],
             depth_format: wgpu::TextureFormat::Depth32Float,
             merged: false,
-            producer: None,
             receiver: None,
             computes_occlusion: true,
             stages: Vec::new(),

@@ -49,7 +49,7 @@ impl<'a> GaussianPyramid<'a> {
         levels: &[GaussianLevel; 8],
         exposure: Option<(&wgpu::Buffer, f64)>,
     ) -> wgpu::TextureView {
-        let extents = crate::gaussian_extents_with_terminal(
+        let extents = crate::gaussian_extents(
             [
                 source.view(0).texture().width(),
                 source.view(0).texture().height(),

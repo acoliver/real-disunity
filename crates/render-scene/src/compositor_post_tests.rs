@@ -22,8 +22,8 @@ fn post_timing_and_reset_follow_output_boundaries_not_slot_selection() {
     );
     frame.reset_exposure();
     frame.select_frame_slot(2);
-    frame.set_frame_time(0.25).unwrap();
-    frame.set_frame_time(0.5).unwrap();
+    frame.set_frame_time(std::time::Duration::from_secs_f32(0.25));
+    frame.set_frame_time(std::time::Duration::from_secs_f32(0.5));
     assert_eq!(frame.frame_delta.to_bits(), 0.5_f32.to_bits());
     assert!(frame.exposure_reset.get());
     let mut encoder = context.submission().begin(device).unwrap();
@@ -36,12 +36,12 @@ fn post_timing_and_reset_follow_output_boundaries_not_slot_selection() {
     encoder.finish().submit().unwrap();
     device.poll(wgpu::PollType::Poll).unwrap();
     frame.select_frame_slot(0);
-    frame.set_frame_time(0.75).unwrap();
+    frame.set_frame_time(std::time::Duration::from_secs_f32(0.75));
     assert_eq!(frame.frame_delta.to_bits(), 0.25_f32.to_bits());
     assert!(!frame.exposure_reset.get());
     assert_eq!(frame.set_frame_delta(f32::NAN), Err(PostError::FrameDelta));
     assert_eq!(frame.frame_delta.to_bits(), 0.25_f32.to_bits());
-    frame.set_frame_time(100.0).unwrap();
+    frame.set_frame_time(std::time::Duration::from_secs_f32(100.0));
     assert_eq!(frame.frame_delta.to_bits(), 10.0_f32.to_bits());
 }
 

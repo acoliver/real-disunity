@@ -101,10 +101,12 @@ fn request() -> SceneSsr {
 }
 
 fn configuration() -> RendererConfiguration {
-    let mut settings =
-        RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        [SIZE; 2],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.frame = FrameConfig::new([SIZE; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.ssr = Some(request());
     settings
 }
@@ -138,7 +140,7 @@ fn render(
                 frame,
             )
             .unwrap();
-        renderer.targets().encode_resolve(&mut encoder);
+        renderer.encode_resolve(&mut encoder);
         encoder.finish().submit().unwrap();
     }
     Readback::new(
@@ -170,7 +172,7 @@ fn through_reconfiguration(source: Source) {
         scenes::pose(),
         scene.effects().expect("the scene has effects"),
     );
-    let pipelines = ScenePipelines::new(context.device(), HDR);
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame);

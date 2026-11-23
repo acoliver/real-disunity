@@ -2,12 +2,12 @@
 
 use super::super::*;
 use super::rig::{BLACK, Fixture, GREEN, Image, RED, engine_scene, frame};
-use super::{COLOR_FORMAT, settings};
+use super::settings;
 use crate::draw::DrawCount;
 
 fn fixture() -> Fixture {
     Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, COLOR_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     })
 }
 

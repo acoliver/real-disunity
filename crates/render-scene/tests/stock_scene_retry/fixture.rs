@@ -40,8 +40,6 @@ fn effects() -> SceneEffects {
         anti_alias: SceneAntiAlias::taa(900_000),
     })
     .unwrap()
-    .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
-    .unwrap()
     .with_ssr(SceneSsr {
         enabled: true,
         max_steps: 256,

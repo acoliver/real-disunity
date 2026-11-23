@@ -107,8 +107,9 @@ fn attempt(
             device,
             encoder,
             (&[pass], &views),
+            None,
             &mut features,
-            (prepared, None),
+            &(prepared, None),
         )
     }) {
         Ok(transaction) => {

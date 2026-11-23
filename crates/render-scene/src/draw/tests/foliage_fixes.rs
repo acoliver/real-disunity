@@ -71,7 +71,7 @@ fn accepted(
 fn screen_pixel_transition_is_exclusive_and_complete_on_overlapping_geometry() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for coverage in [0, 123_457, 500_000, 1_000_000] {
         let gpu = SceneGpu::upload(
             context.device(),
@@ -144,7 +144,7 @@ fn reduced_contact_scene(enabled: bool, steps: u8) -> RenderScene {
 fn unused_contact_keeps_only_inactive_binding_with_reduced_terrain() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -159,7 +159,7 @@ fn unused_contact_keeps_only_inactive_binding_with_reduced_terrain() {
 fn enabled_contact_retains_reduced_samples_with_triangle_source() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
@@ -190,7 +190,7 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
         .unwrap();
     assert_eq!(device.limits().max_storage_buffer_binding_size, 64);
     let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue);
-    let layouts = ScenePipelines::new(&device, COLOR_FORMAT);
+    let layouts = ScenePipelines::new(&device, COLOR_FORMAT, 1).unwrap();
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     // Even a 2x2 triangle source needs 80 bytes. Exercise admitted contact bindings
     // independently; full terrain uploads are covered on the unrestricted device.
@@ -233,7 +233,7 @@ fn upload_contact_materials(
     let (_textures, views) =
         super::super::resources::upload_textures(device, authority, &prepared.textures)?;
     let (_placeholder, view) = crate::upload::placeholder_with_view(device, authority.queue());
-    let (_uniforms, imports, _records) = super::super::resources::upload_materials(
+    let (_uniforms, imports) = super::super::resources::upload_materials(
         device,
         authority.queue(),
         scene,
@@ -310,7 +310,7 @@ fn fitted_normal_scene(fit: bool) -> RenderScene {
 fn fitted_normals_match_baked_geometry_in_shading_and_normal_metadata() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let fitted = fitted_normal_scene(true);
     let baked = fitted_normal_scene(false);
     let frame = frame_from(CameraPose {
@@ -423,7 +423,7 @@ fn feature_off_output_matches_stock_shader_snapshot_within_derived_bounds() {
         include_str!("fixtures/stock_environment.wgsl"),
     );
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     assert_flat_lit_pixels_match_model(&context, &layouts, stock);
     for (scene, entry) in [
         (scene(SceneAlphaMode::Opaque, true, 1), "fs_opaque"),

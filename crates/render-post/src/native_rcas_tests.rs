@@ -5,7 +5,7 @@ use crate::*;
 fn gpu_native_rcas_follows_resolve_and_cas() {
     let (device, queue) = crate::gpu_tests::gpu();
     for resolve in [
-        PostResolve::fxaa(1.0),
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
         PostResolve::smaa(SmaaPreset::Low),
         PostResolve::cmaa2(Cmaa2Preset::High),
     ] {
@@ -27,6 +27,7 @@ fn gpu_native_rcas_follows_resolve_and_cas() {
                 .unwrap()
                 .with_effects(&device, settings)
                 .unwrap(),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         paint(&device, &queue, chain.targets().texture(), 1);
@@ -71,6 +72,7 @@ fn gpu_native_rcas_setting_does_not_change_upscaled_bytes() {
                 .unwrap()
                 .with_effects(&device, settings)
                 .unwrap(),
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         paint(&device, &queue, chain.targets().texture(), 1);
@@ -162,6 +164,7 @@ fn verify_linear(
             stops: 0.75,
             domain,
         }),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     paint(device, queue, chain.targets().texture(), pattern);
@@ -228,6 +231,7 @@ fn chain(
                 },
             )
             .unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap()
 }
@@ -329,6 +333,7 @@ fn gpu_native_rcas_default_is_byte_identical() {
         candidate.targets().config(),
         Resources::default(),
         ToneMapOutput::new(wgpu::TextureFormat::Rgba8UnormSrgb, 1.0, ToneMap::Reinhard).unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     for chain in [&candidate, &control] {

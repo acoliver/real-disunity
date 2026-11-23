@@ -707,7 +707,7 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
   --frames 300 --warmup 60 --objects 3000 --in-flight 1 --size 1280x720
 ```
 
-`--legacy` selects the legacy output profile. `--in-flight 1`, the default, admits a frame only
+`--in-flight 1`, the default, admits a frame only
 after the previous one has finished, so the software rasterizer does not compete with the timed
 thread. The example uses no game assets.
 
@@ -744,8 +744,8 @@ submission statistics. Capture recipe timings identify each rendered subframe; l
 subframes have distinct IDs, while the capture result retains its initial source ID.
 Each pass retains its existing `PassId`: geometry uses `PassSlot` (shadows,
 metadata/prepass, AO, opaque, SSR and water), output stages use `StageId`, and
-multisample resolve uses `Resolve`. Only executed passes appear. Legacy presentation
-is the `post copy output` stage. HDR output retains its authored post stage names.
+multisample resolve uses `Resolve`. Only executed passes appear. Output retains its
+authored post stage names.
 Depth fitting adds `sdsm receiver initialize` and `sdsm receiver reduce` stages at
 level zero to the same geometry/output sample, including same-frame captures.
 Durations are nanoseconds using the queue timestamp period. All-zero or reversed

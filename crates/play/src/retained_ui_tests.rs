@@ -1,21 +1,30 @@
 use super::*;
 use crate::GpuLaunch;
 use crate::gpu_device::{SharedDevice, headless};
-use std::{path::PathBuf, process::Command, time::Instant};
+use std::{path::PathBuf, process::Command, sync::OnceLock, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
 
 /// The turn of one test that boots the managed host. A process holds one host at a time, so a
-/// second test booting while the first runs fails with `AlreadyBooted`, and two fixture builds
-/// at once can collide on the build's output files. Hold the turn for the whole test.
+/// second test booting while the first runs fails with `AlreadyBooted`. Hold the turn for the
+/// whole test.
 pub(crate) fn fixture_turn() -> std::sync::MutexGuard<'static, ()> {
     static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
     TURN.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The configuration that boots the portable fixture's managed assembly: builds the FFI library and
-/// the fixture first. Take [`fixture_turn`] first.
+/// The configuration that boots the portable fixture's managed assembly. The first call in a test
+/// process builds the FFI library and the fixture; later calls return the same files and build
+/// nothing. The CLR lives as long as the process and keeps calling the FFI image it loaded first,
+/// while a cargo build replaces the library file even when nothing compiles (on macOS a new
+/// inode), so a host booted after a second build would load a second image whose store holds none
+/// of the worlds the managed side made. Take [`fixture_turn`] first.
 pub(crate) fn fixture_config() -> ManagedHostConfig {
+    static CONFIG: OnceLock<ManagedHostConfig> = OnceLock::new();
+    CONFIG.get_or_init(build_fixture).clone()
+}
+
+fn build_fixture() -> ManagedHostConfig {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let status = Command::new(env!("CARGO"))
         .args(["build", "--locked", "-p", "worldrunner-disunity-ffi"])
@@ -62,6 +71,19 @@ fn fixture_host() -> DisunityHost {
     host.run_slice(&root.join("csharp/PortableFixture/retained-ui.fixture"))
         .unwrap();
     host
+}
+
+#[test]
+fn every_host_booted_in_one_test_process_reaches_the_world_its_slice_loaded() {
+    let _turn = fixture_turn();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for boot in 0..2 {
+        let mut host = booted_fixture_host();
+        host.run_slice(&root.join("csharp/PortableFixture/triangle.fixture"))
+            .unwrap();
+        let objects = host.export_objects().map(|states| states.len());
+        assert!(matches!(objects, Ok(3)), "boot {boot}: {objects:?}");
+    }
 }
 
 #[test]

@@ -19,7 +19,8 @@ fn exact_profile_rejects_missing_features_and_quantized_working_attachments() {
             &device,
             config,
             Resources::default(),
-            CopyOutput::exact_srgb8(&device)
+            CopyOutput::exact_srgb8(&device),
+            crate::SceneDepth::Independent
         )
         .err(),
         Some(crate::PostError::ExactCompositionFeatures)
@@ -33,7 +34,8 @@ fn exact_profile_rejects_missing_features_and_quantized_working_attachments() {
             &device,
             config,
             Resources::default(),
-            CopyOutput::exact_srgb8(&device)
+            CopyOutput::exact_srgb8(&device),
+            crate::SceneDepth::Independent
         )
         .err(),
         Some(crate::PostError::ExactCompositionFormat)
@@ -66,6 +68,7 @@ fn exact_srgb8_matches_f64_oracle_at_every_threshold_neighbor() {
         config,
         Resources::default(),
         CopyOutput::exact_srgb8(&device),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let output = ExactSrgb8::new(&device, size).unwrap();

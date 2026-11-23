@@ -44,7 +44,7 @@ fn target_set(
         velocity: true,
         temporal_mask,
     };
-    FrameTargets::with_options(device, config, options).unwrap()
+    FrameTargets::new(device, config, options, crate::SceneDepth::Independent).unwrap()
 }
 
 pub(crate) fn slots(
@@ -316,8 +316,14 @@ fn a_temporal_chain_dispatches_every_stage_at_the_output_extent_and_writes_every
     let config =
         FrameConfig::new(output, wgpu::TextureFormat::Rgba16Float, 1).with_render_extent(render);
     let factory = public_factory(&device, &full_chain_settings());
-    let chain =
-        crate::PostChain::new(&device, config, crate::Resources::default(), factory).unwrap();
+    let chain = crate::PostChain::new(
+        &device,
+        config,
+        crate::Resources::default(),
+        factory,
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     // A constant field at the render extent; the output must be the same field at O.
     let out = crate::color_texture(&device, "out", output, wgpu::TextureFormat::Rgba8UnormSrgb);
     let block = TemporalBlock {

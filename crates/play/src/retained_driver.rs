@@ -278,7 +278,11 @@ pub(crate) fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
         },
         orbit: orbit_limits(),
         shadows: None,
-        frame_profile: FrameProfile::Legacy,
+        // The window shows the game's own finished screen, so the output stage applies no curve.
+        frame_profile: FrameProfile::Hdr {
+            samples: 1,
+            tone_map: worldrunner_scene_viewer::ToneMap::Clamp,
+        },
         frames_in_flight: 2,
         gpu_timing: false,
         present_mode: PresentMode::Fifo,

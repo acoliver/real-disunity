@@ -121,13 +121,17 @@ After an intentional ABI change:
    `disunity_canvas_renderer_texture_write` a texture kind (0 a stored image identity, 1 a
    render texture the world holds) and adds `texture_kind` and a padding word to
    `DisunityUiGraphicInfo` (16 to 24 bytes) and `DisunityUiDraw` (152 to 160 bytes); the quad
-   texture of a draw whose kind is 1 is the render texture id. Revision 28 adds
-   `disunity_offscreen_draw_mesh_batch` and the 64-byte `DisunityDrawBatch` (offscreen kind 23): a
-   draw of the instances a shader reads from a window of a compute buffer, with the game's metadata
-   words by property name and the visible instance indexes; revision 26 adds the
+   texture of a draw whose kind is 1 is the render texture id. Revision 26 adds the
    `world_material` argument of `disunity_canvas_renderer_material_write` (the world material
    of main slot 0, 0 for none) and the `material` and `material_generation` fields of
-   `DisunityUiDraw` (160 to 176 bytes); revision 27 belongs to another branch. Native and managed hosts reject
+   `DisunityUiDraw` (160 to 176 bytes). Revision 27 adds `disunity_script_execution_order`, the execution
+   order of a script (a 32-bit signed integer, 0 by default), which a lifecycle phase uses to deliver
+   messages to the lowest order first and, for equal orders, in registration order. Revision 28 belongs to
+   another branch. Revision 29 adds
+   `disunity_offscreen_draw_mesh_batch` and the 64-byte `DisunityDrawBatch` (offscreen kind 23): a
+   draw of the instances a shader reads from a window of a compute buffer, with the game's metadata
+   words by property name and the visible instance indexes, carried in the graphics snapshot from
+   wire version 20. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

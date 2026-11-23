@@ -59,7 +59,7 @@ fn annotation_labels_share_native_types_and_merge_coverage_without_collisions() 
 #[test]
 fn missing_canvas_fails_and_frame_glyph_budget_is_shared() {
     use worldrunner_world_simulation::ParentSpace;
-    use worldrunner_world_simulation::ui::{TextRun, UiError};
+    use worldrunner_world_simulation::ui::{CanvasMode, TextRun, UiError};
     let mut world = World::new(WorldSettings::default()).unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -88,7 +88,13 @@ fn missing_canvas_fails_and_frame_glyph_budget_is_shared() {
         Err(UiError::MissingLayout.into())
     );
     world
-        .add_component(object, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            object,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let child = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -120,14 +126,20 @@ mod test_font;
 
 #[test]
 fn glyph_contributions_use_coverage_texture_and_preserve_alpha_and_order() {
-    use worldrunner_world_simulation::ui::{TextRun, UiError};
+    use worldrunner_world_simulation::ui::{CanvasMode, TextRun, UiError};
     let mut world = World::new(WorldSettings::default()).unwrap();
     let root = world.create_object(ObjectDesc::default()).unwrap();
     world
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let mut fonts = FontBook::new(UiLimits::default()).unwrap();
     let font = fonts.register(test_font::font_with(2, 800, -200)).unwrap();
@@ -181,7 +193,9 @@ fn glyph_contributions_use_coverage_texture_and_preserve_alpha_and_order() {
 }
 
 use worldrunner_world_simulation::ui::contribution::extract_ui;
-use worldrunner_world_simulation::ui::{Canvas, FontBook, RectTransform, UiLimits, UiTexture};
+use worldrunner_world_simulation::ui::{
+    Canvas, CanvasMode, FontBook, RectTransform, UiLimits, UiTexture,
+};
 use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, World, WorldSettings};
 
 #[test]
@@ -192,7 +206,13 @@ fn ui_extraction_is_pathless_and_omits_inactive_rectangles() {
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let fonts = FontBook::new(UiLimits::default()).unwrap();
     let plan = extract_ui(&world, &fonts, [800, 600]).unwrap();

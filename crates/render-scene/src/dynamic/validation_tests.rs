@@ -68,7 +68,12 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
         }],
         ..Default::default()
     };
-    let result = crate::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new()).unwrap();
+    let result = crate::simulation::UiOverlay::from_presentation(
+        &plan,
+        &BTreeMap::new(),
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap();
     assert_eq!(result.quads[0].corner_colors, Some(colors));
     assert_eq!(
         result.quads[0].tint.map(f32::to_bits),
@@ -77,7 +82,11 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
     for value in [f32::NAN, -0.1, 1.1] {
         plan.draws[0].corner_colors.as_mut().unwrap()[2][3] = value;
         assert!(matches!(
-            crate::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new()),
+            crate::simulation::UiOverlay::from_presentation(
+                &plan,
+                &BTreeMap::new(),
+                &worldrunner_world_simulation::ui::presentation::UiLayers::default()
+            ),
             Err(DynamicError::InvalidQuad {
                 index: 0,
                 field: "corner_colors"

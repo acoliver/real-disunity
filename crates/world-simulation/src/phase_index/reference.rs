@@ -1,5 +1,5 @@
 //! The phase-task selection as it was before the index, kept as the oracle the index is
-//! checked against: every registered script is visited in handle order.
+//! checked against: every registered script is visited by execution order, then in registration order.
 
 use crate::timeline::Task;
 use crate::{LifecycleWork, ScriptMessage, World};
@@ -17,7 +17,9 @@ pub(crate) const MESSAGES: [ScriptMessage; 8] = [
 
 fn full_scan(world: &World, message: ScriptMessage) -> Vec<LifecycleWork> {
     let mut work = Vec::new();
-    for (&script, state) in &world.lifecycle.scripts {
+    let mut scripts: Vec<_> = world.lifecycle.scripts.iter().collect();
+    scripts.sort_by_key(|(_, state)| (state.execution_order, state.registered));
+    for (&script, state) in scripts {
         let pending = state.start == crate::lifecycle::StartState::Pending;
         if !pending && (message == ScriptMessage::Start || !state.messages.wants(message)) {
             continue;

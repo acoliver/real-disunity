@@ -285,7 +285,7 @@ fn a_gpos_table_without_a_kern_feature_uses_legacy() {
 #[test]
 fn text_field_caret_uses_the_same_pair_advance_as_its_glyph_layout() {
     use worldrunner_world_simulation::ui::{
-        Canvas, RectTransform, TextFieldStyle, UiControl, UiKey, UiRouter, UiTextField,
+        Canvas, CanvasMode, RectTransform, TextFieldStyle, UiControl, UiKey, UiRouter, UiTextField,
         contribution,
     };
     use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, World, WorldSettings};
@@ -307,7 +307,13 @@ fn text_field_caret_uses_the_same_pair_advance_as_its_glyph_layout() {
         )
         .unwrap();
     world
-        .add_component(object, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            object,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let mut router = UiRouter::default();
     router.controls.insert(object, UiControl::text_field());

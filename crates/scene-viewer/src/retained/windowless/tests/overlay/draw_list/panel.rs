@@ -83,7 +83,12 @@ fn textures() -> BTreeMap<u64, SceneTexture> {
 fn replace(run: &mut WindowlessRetained<'_>, p: &UiPresentation) {
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-            UiOverlay::from_presentation(p, &textures()).unwrap(),
+            UiOverlay::from_presentation(
+                p,
+                &textures(),
+                &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+            )
+            .unwrap(),
         )))
         .unwrap();
 }

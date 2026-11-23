@@ -30,7 +30,12 @@ fn filled_circle_and_ring_match_analytic_pixel_masks() {
             .unwrap();
         run.host_mut()
             .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-                UiOverlay::from_presentation(&plan, &std::collections::BTreeMap::new()).unwrap(),
+                UiOverlay::from_presentation(
+                    &plan,
+                    &std::collections::BTreeMap::new(),
+                    &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+                )
+                .unwrap(),
             )))
             .unwrap();
         let image = capture(&mut run, &events).1;

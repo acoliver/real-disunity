@@ -303,6 +303,13 @@ pub struct DrawRaster {
     /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
     /// to triangles only; a line list is drawn without it.
     pub depth_bias: [f32; 2],
+    /// Whether the draws blend their alpha channel as coverage: a colour blend of source alpha
+    /// and one minus source alpha leaves the target holding the colour premultiplied by the
+    /// alpha and the alpha as the coverage of everything drawn (source one, destination one
+    /// minus source alpha), as it does over a backdrop that is cleared to transparent. A host
+    /// that later composites the target over another image needs that alpha. A colour blend
+    /// of any other kind keeps the pass's own alpha blend.
+    pub coverage_alpha: bool,
 }
 
 /// A list of draws into attachments.

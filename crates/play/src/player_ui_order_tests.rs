@@ -65,49 +65,95 @@ fn game_material() -> UiMaterial {
     }
 }
 
-fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>) {
+fn update_three_times(plan: &UiPresentation) -> (PlayerUi, Vec<String>, Vec<RetainedUpdate>) {
     let mut player = PlayerUi::default();
     let (textures, images) = (SpriteTextures::default(), PlayerTextures::default());
-    let mut lines = Vec::new();
+    let (mut lines, mut updates) = (Vec::new(), Vec::new());
     for _ in 0..3 {
         let viewport = [64, 64];
         let mut plan = plan.clone();
+        player.prepare(&mut plan, viewport, &textures, &images, |line| {
+            lines.push(line);
+        });
         player.offer_targets(&mut plan, Vec::new(), |line| lines.push(line));
         let update = player.update(plan, viewport, &textures, &images, |line| lines.push(line));
-        update.unwrap();
+        updates.extend(update.unwrap());
     }
-    (player, lines)
+    (player, lines, updates)
+}
+
+fn material_draw(material: UiMaterial, rect: [f32; 4]) -> UiDraw {
+    let [x, y, width, height] = rect;
+    UiDraw {
+        material: Some(material),
+        texture: Some(UiTexture::Image(1 << 40)),
+        corners: [
+            [x, y, 0.],
+            [x + width, y, 0.],
+            [x + width, y + height, 0.],
+            [x, y + height, 0.],
+        ],
+        ..draw(7, 2, [0, 0, 64, 64])
+    }
 }
 
 #[test]
-fn a_draw_with_a_game_material_is_left_out_and_named_once() {
+fn a_draw_with_a_game_material_becomes_one_overlay_quad_and_the_work_that_draws_it() {
     let material = game_material();
-    let shaped = UiDraw {
-        material: Some(material),
-        texture: Some(UiTexture::Image(1 << 40)),
-        ..draw(7, 2, [0, 0, 64, 64])
-    };
     let plan = UiPresentation {
-        draws: vec![draw(-3, 1, [0, 0, 64, 64]), shaped.clone(), shaped],
+        draws: vec![
+            draw(-3, 1, [0, 0, 64, 64]),
+            material_draw(material, [8., 8., 16., 16.]),
+            material_draw(material, [30., 8., 16., 16.]),
+        ],
         shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
         ..Default::default()
     };
-    let (player, lines) = update_three_times(&plan);
-    assert_eq!(
-        player.plan.as_ref().unwrap().draws.as_slice(),
-        &plan.draws[..1]
-    );
-    assert_eq!(
-        lines,
-        [
-            "UI material 4294967299 (shader Game/Silhouette) is left out: UI draws with a game shader are not drawn yet"
-        ],
-        "the material is named once and its unavailable texture is not named"
-    );
+    let (player, lines, updates) = update_three_times(&plan);
+    assert!(lines.is_empty(), "{lines:?}");
+    let [RetainedUpdate::Ui(overlay)] = updates.as_slice() else {
+        panic!("one overlay for three identical frames");
+    };
+    assert_eq!(overlay.quad_count(), 2, "the default draw and one run");
+    assert!(overlay.shows_layers());
+    assert!(player.frame().is_some(), "the run is drawn every frame");
     assert_eq!(
         player.game_material_draws(),
         &BTreeMap::from([("Game/Silhouette".to_owned(), 2)])
     );
+}
+
+#[test]
+fn a_run_that_does_not_fit_the_layer_atlas_is_left_out_and_named_once() {
+    let material = game_material();
+    let plan = UiPresentation {
+        draws: vec![
+            material_draw(material, [0., 0., 40., 40.]),
+            draw(-3, 1, [0, 0, 64, 64]),
+            material_draw(material, [0., 0., 40., 40.]),
+            draw(-3, 1, [0, 0, 64, 64]),
+            material_draw(material, [0., 0., 40., 40.]),
+        ],
+        shaders: BTreeMap::from([(material, "Game/Silhouette".to_owned())]),
+        ..Default::default()
+    };
+    let (player, lines, updates) = update_three_times(&plan);
+    assert_eq!(
+        lines,
+        [
+            "UI material 4294967299 (shader Game/Silhouette) is left out: its run does not fit the layer atlas"
+        ],
+        "one line for one material across three frames"
+    );
+    let [RetainedUpdate::Ui(overlay)] = updates.as_slice() else {
+        panic!("one overlay");
+    };
+    assert_eq!(
+        overlay.quad_count(),
+        3,
+        "two default draws and the one run that fits"
+    );
+    assert!(player.frame().is_some());
 }
 
 #[test]
@@ -116,8 +162,9 @@ fn a_default_draw_is_unchanged() {
         draws: vec![draw(-3, 1, [0, 0, 64, 64]), draw(7, 2, [4, 4, 8, 8])],
         ..Default::default()
     };
-    let (player, lines) = update_three_times(&plan);
+    let (player, lines, _) = update_three_times(&plan);
     assert_eq!(player.plan.as_ref(), Some(&plan));
+    assert!(player.frame().is_none());
     assert!(lines.is_empty());
     assert!(player.game_material_draws().is_empty());
 }

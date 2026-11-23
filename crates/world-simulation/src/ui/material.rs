@@ -33,11 +33,11 @@ impl UiMaterial {
         })
     }
 
-    /// The report line for a draw left out because its material is the game's own.
+    /// The report line for a draw left out of the layers, with the reason it cannot be drawn.
     #[must_use]
-    pub fn refusal(self, shader: &str) -> String {
+    pub fn refusal(self, shader: &str, reason: &str) -> String {
         format!(
-            "UI material {} (shader {shader}) is left out: UI draws with a game shader are not drawn yet",
+            "UI material {} (shader {shader}) is left out: {reason}",
             self.id.to_bits()
         )
     }

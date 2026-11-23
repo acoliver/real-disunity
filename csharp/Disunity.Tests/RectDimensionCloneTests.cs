@@ -18,7 +18,7 @@ internal static class RectDimensionCloneTests
         {
             DisunityHost.SetViewport(800, 600);
             var canvas = NewRect(null);
-            canvas.gameObject.AddComponent<Canvas>();
+            canvas.gameObject.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
             InstantiatedScriptsHearTheirRectangle(Stretched(canvas));
             Console.WriteLine("PASS: OnRectTransformDimensionsChange reaches the scripts of an instantiated object");
         }

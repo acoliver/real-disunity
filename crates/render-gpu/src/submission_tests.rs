@@ -458,22 +458,3 @@ fn retiring_settled_waits_for_bookkeeping_a_held_poller_has_not_run() {
     releaser.join().unwrap();
     held.join();
 }
-
-#[test]
-fn frames_in_flight_counts_submitted_frames_until_their_completion_is_seen() {
-    // The no-op device completes work at once and reports it when wgpu next processes
-    // completions: a poll, or the next queue submission.
-    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    let authority = SubmissionAuthority::new(queue);
-    assert_eq!(authority.frames_in_flight(), 0);
-    authority.submit_commands([]).unwrap();
-    authority.begin(&device).unwrap().finish().submit().unwrap();
-    authority.begin(&device).unwrap().finish().cancel();
-    assert_eq!(
-        authority.frames_in_flight(),
-        1,
-        "cancelled frames and convenience work are not frames in flight"
-    );
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    assert_eq!(authority.frames_in_flight(), 0);
-}

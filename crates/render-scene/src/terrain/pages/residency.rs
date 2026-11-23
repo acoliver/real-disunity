@@ -150,11 +150,32 @@ impl ResidentPages {
         self.configuration.collect();
     }
 
+    /// Counts the frame `encoder` records as one of this cache's frames, once per frame. It is
+    /// in flight from its submission until its completion is seen, whether or not it admits a
+    /// page, and a cancelled frame never counts.
+    pub fn begin_frame(&self, encoder: &wgpu::CommandEncoder) -> Result<(), PageCacheError> {
+        let mut transaction = Publications::for_encoder(encoder)?;
+        let storage = self.storage();
+        let new = storage.state.borrow_mut().frame_began(&transaction);
+        if new {
+            let state = storage.state.clone();
+            let key = state.borrow().capture_write_key();
+            transaction.stage_write(key, move || state.borrow_mut().frame_submitted())?;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn frames_in_flight(&self) -> usize {
+        self.storage().state.borrow().frames_in_flight()
+    }
+
     pub fn reserve(
         &self,
         encoder: &wgpu::CommandEncoder,
         key: PageKey,
     ) -> Result<PendingPage, PageCacheError> {
+        self.begin_frame(encoder)?;
         let transaction = Publications::for_encoder(encoder)?;
         let storage = self.storage();
         Publications::retain_lease(encoder, &storage.owner.lease())?;

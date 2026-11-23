@@ -13,17 +13,42 @@ use worldrunner_render_plan::TerrainPageSettings;
 
 const FRAMES: usize = 24;
 
+/// A cache with two whole-page uploads per frame.
+fn two_page_cache(device: &wgpu::Device, authority: &SubmissionAuthority) -> ResidentPages {
+    let mut parts = settings().parts();
+    parts.upload_bytes_per_frame = settings().page_bytes() * 2;
+    let settings = TerrainPageSettings::new(parts).unwrap();
+    ResidentPages::new(device, authority, settings, 64, AllocationBudget(100_000)).unwrap()
+}
+
+/// Reserves and stages pages for `keys` in `frame` until the cache refuses one, and returns
+/// how many it admitted.
+fn admit(cache: &ResidentPages, frame: &wgpu::CommandEncoder, keys: &[PageKey]) -> usize {
+    let mut admitted = 0;
+    for &key in keys {
+        match cache.reserve(frame, key) {
+            Ok(pending) => pending.stage(frame).unwrap(),
+            Err(PageCacheError::UploadLimit | PageCacheError::ScratchFull) => break,
+            Err(error) => panic!("reserve {key:?}: {error}"),
+        }
+        admitted += 1;
+    }
+    admitted
+}
+
+fn keys(count: u32) -> Vec<PageKey> {
+    (0..count)
+        .map(|x| PageKey::new(3, [x, 0]).unwrap())
+        .collect()
+}
+
 /// Bakes pages over [`FRAMES`] frames with two whole-page uploads per frame and returns how
 /// many each frame admitted. `overlap` reports the previous frame's completion only after this
 /// frame's reservations, as a host with two frames in flight sees it while the GPU is busy.
 fn pages_per_frame(overlap: bool) -> Vec<usize> {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let authority = SubmissionAuthority::new(queue);
-    let mut parts = settings().parts();
-    parts.upload_bytes_per_frame = settings().page_bytes() * 2;
-    let settings = TerrainPageSettings::new(parts).unwrap();
-    let cache =
-        ResidentPages::new(&device, &authority, settings, 64, AllocationBudget(100_000)).unwrap();
+    let cache = two_page_cache(&device, &authority);
     let mut keys = (0..8).flat_map(|y| (0..8).map(move |x| PageKey::new(3, [x, y]).unwrap()));
     let mut next = keys.next();
     let mut counts = Vec::new();
@@ -71,4 +96,33 @@ fn page_bakes_use_the_whole_allowance_when_the_gpu_keeps_up() {
         counts.iter().all(|&count| count == 2),
         "pages per frame {counts:?}"
     );
+}
+
+#[test]
+fn an_abandoned_frame_leaves_the_next_frame_the_whole_allowance() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let authority = SubmissionAuthority::new(queue);
+    let cache = two_page_cache(&device, &authority);
+    let abandoned = authority.begin(&device).unwrap();
+    assert_eq!(admit(&cache, &abandoned, &keys(2)), 2);
+    drop(abandoned.finish());
+    assert_eq!(cache.frames_in_flight(), 0);
+    let frame = authority.begin(&device).unwrap();
+    assert_eq!(admit(&cache, &frame, &keys(2)), 2);
+    frame.finish().submit().unwrap();
+    assert_eq!(cache.frames_in_flight(), 1);
+}
+
+#[test]
+fn work_that_prepares_no_pages_does_not_take_a_frames_share() {
+    // Scene upload submits its instance flush as a prepared transaction, and a host draws its
+    // first frame without polling. That work bakes no pages, so it is not a frame of the cache.
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let authority = SubmissionAuthority::new(queue);
+    let cache = two_page_cache(&device, &authority);
+    authority.begin(&device).unwrap().finish().submit().unwrap();
+    assert_eq!(cache.frames_in_flight(), 0);
+    let frame = authority.begin(&device).unwrap();
+    assert_eq!(admit(&cache, &frame, &keys(2)), 2);
+    frame.finish().submit().unwrap();
 }

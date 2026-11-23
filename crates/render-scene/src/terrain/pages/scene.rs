@@ -155,6 +155,9 @@ impl ScenePages {
         viewport: [u32; 2],
         draw_pending: bool,
     ) -> Result<(), FrameError> {
+        // Every frame that prepares pages takes part in the scratch turnover, including one that
+        // admits none.
+        self.cache.begin_frame(encoder).map_err(preparation_error)?;
         self.draw_pending = draw_pending;
         if let Some(uploads) = &mut self.capture_uploads {
             uploads.reset();

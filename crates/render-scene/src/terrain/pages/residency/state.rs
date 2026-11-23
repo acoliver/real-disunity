@@ -40,6 +40,10 @@ pub(in crate::terrain::pages) struct PageState {
     frame_allowance: u64,
     uploads: BTreeMap<u64, Option<u64>>,
     maximum_uploads: u64,
+    /// The last frame that began on this cache; see [`frame_began`](Self::frame_began).
+    frame: Option<Publications>,
+    /// Submission serials of this cache's submitted frames whose completion has not been seen.
+    frames: Vec<u64>,
     authority: SubmissionAuthority,
     #[cfg(test)]
     slot_inspections: std::cell::Cell<usize>,
@@ -57,6 +61,8 @@ impl PageState {
             frame_allowance: maximum_uploads,
             uploads: BTreeMap::new(),
             maximum_uploads,
+            frame: None,
+            frames: Vec::new(),
             authority: authority.clone(),
             #[cfg(test)]
             slot_inspections: std::cell::Cell::new(0),
@@ -83,12 +89,45 @@ impl PageState {
     pub fn admit(&mut self) {
         self.admitted += 1;
     }
-    /// A page admitted now holds its upload scratch until this frame completes, after the
-    /// `frames_in_flight` frames submitted before it, so the scratch turns over once every
-    /// `1 + frames_in_flight` frames. Admitting the whole scratch in one frame leaves those
-    /// following frames none and puts every bake of a turnover in one frame; this frame takes
-    /// its share instead, rounded up so the scratch stays fully used. When the GPU keeps up, no
-    /// frame is in flight and the share is the whole per-frame allowance.
+    #[cfg(test)]
+    pub fn frames_in_flight(&self) -> usize {
+        let completed = self.authority.completed_serial();
+        self.frames
+            .iter()
+            .filter(|&&serial| serial > completed)
+            .count()
+    }
+    /// Whether `transaction` is a frame this cache has not seen yet, which then becomes the
+    /// current one. Its submission is recorded by [`frame_submitted`](Self::frame_submitted).
+    pub fn frame_began(&mut self, transaction: &Publications) -> bool {
+        let new = !self
+            .frame
+            .as_ref()
+            .is_some_and(|old| old.same_transaction(transaction));
+        if new {
+            self.frame = Some(transaction.clone());
+            self.retire_frames();
+        }
+        new
+    }
+    fn retire_frames(&mut self) {
+        let completed = self.authority.completed_serial();
+        self.frames.retain(|&serial| serial > completed);
+    }
+    /// Records the submission of a frame that began on this cache.
+    pub fn frame_submitted(&mut self) {
+        let serial = self.authority.submitted_serial();
+        self.frames.push(serial);
+    }
+    /// A page admitted now holds its upload scratch until this frame completes, after this
+    /// cache's frames in flight, so the scratch turns over once every `1 + frames_in_flight`
+    /// frames. Those are the frames that began on this cache, including ones that admitted no
+    /// page, and were submitted, and whose completion has not been seen. Other work on the
+    /// authority, such as a scene upload's instance flush, prepares no pages and does not count.
+    /// Admitting the whole scratch in one frame leaves the following frames none and puts every
+    /// bake of a turnover in one frame; this frame takes its share instead, rounded up so the
+    /// scratch stays fully used. When the GPU keeps up, no frame is in flight and the share is
+    /// the whole per-frame allowance.
     pub fn begin_frame(&mut self, transaction: &Publications) {
         if !self
             .transaction
@@ -112,8 +151,8 @@ impl PageState {
             self.uploads.retain(|_, serial| serial.is_some());
             self.transaction = Some(transaction.clone());
             self.admitted = 0;
-            let turnover = 1 + self.authority.frames_in_flight() as u64;
-            self.frame_allowance = self.maximum_uploads.div_ceil(turnover);
+            self.retire_frames();
+            self.frame_allowance = self.maximum_uploads.div_ceil(1 + self.frames.len() as u64);
         }
     }
     pub fn capture_write_key(&self) -> WriteKey {

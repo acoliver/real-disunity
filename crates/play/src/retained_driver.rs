@@ -11,6 +11,9 @@
 #[path = "retained_gpu_tests.rs"]
 mod gpu_tests;
 #[cfg(test)]
+#[path = "retained_legacy_text_tests.rs"]
+mod legacy_text_tests;
+#[cfg(test)]
 #[path = "retained_screen_tests.rs"]
 mod screen_tests;
 #[cfg(test)]

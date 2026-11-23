@@ -647,7 +647,7 @@ fn the_layer_texture_is_offered_once_a_frame_drew_the_ui_runs_at_the_size_of_the
 #[test]
 fn the_layer_texture_is_the_size_of_the_atlas_the_runs_grew() {
     let _turn = fixture_turn();
-    let (_viewer, gpu, _data) = window_player([8, 4]);
+    let (_shared, _authority, gpu, _data) = window_player([8, 4]);
     let mut host = started_screen_fixture(&gpu);
     let mut ui = crate::player_ui::PlayerUi::default();
     let mut plan = plan_with_a_run();

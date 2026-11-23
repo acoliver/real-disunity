@@ -1,5 +1,6 @@
 //! A bounding volume tree over one batch's live slots, so a view rejects whole groups of
-//! placements with one box test.
+//! placements with one box test, and a view tests the placements of a group from boxes that lie
+//! in the order of the groups.
 
 use glam::Vec3;
 
@@ -12,6 +13,10 @@ pub(crate) struct Tree {
     nodes: Vec<NodeData>,
     /// Live slots in leaf order; each leaf's slots ascend.
     slots: Vec<u32>,
+    /// The boxes of each slot of `slots`, `stride` of them, in the same order, so that a leaf's
+    /// boxes lie together and not among those of slots that are not in its group.
+    boxes: Vec<[Vec3; 2]>,
+    stride: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -34,6 +39,8 @@ pub(crate) enum Node<'a> {
     Leaf {
         bounds: [Vec3; 2],
         slots: &'a [u32],
+        /// The boxes of `slots`, as the tree's `stride` of them for each.
+        boxes: &'a [[Vec3; 2]],
     },
 }
 
@@ -47,15 +54,27 @@ impl Node<'_> {
 
 impl Tree {
     /// Groups `items`, each a slot and the union of its boxes, by splitting at the median
-    /// centre along the widest axis until a group fits a leaf.
-    pub fn build(mut items: Vec<(usize, [Vec3; 2])>) -> Self {
+    /// centre along the widest axis until a group fits a leaf. `boxes` holds `stride` boxes for
+    /// every slot, by slot, which the tree keeps in its own order.
+    pub fn build(
+        mut items: Vec<(usize, [Vec3; 2])>,
+        (boxes, stride): (&[[Vec3; 2]], usize),
+    ) -> Self {
         let mut tree = Self {
             nodes: Vec::with_capacity(2 * items.len().div_ceil(LEAF_SLOTS)),
             slots: Vec::with_capacity(items.len()),
+            boxes: Vec::new(),
+            stride: stride.max(1),
         };
         if !items.is_empty() {
             tree.split(&mut items);
         }
+        tree.boxes = tree
+            .slots
+            .iter()
+            .flat_map(|&slot| &boxes[slot as usize * stride..(slot as usize + 1) * stride])
+            .copied()
+            .collect();
         tree
     }
 
@@ -107,9 +126,11 @@ impl Tree {
     pub fn node(&self, index: usize) -> Node<'_> {
         let node = self.nodes[index];
         if node.second == 0 {
+            let (first, end) = (node.first as usize, (node.first + node.count) as usize);
             Node::Leaf {
                 bounds: node.bounds,
-                slots: &self.slots[node.first as usize..(node.first + node.count) as usize],
+                slots: &self.slots[first..end],
+                boxes: &self.boxes[first * self.stride..end * self.stride],
             }
         } else {
             Node::Inner {
@@ -129,6 +150,16 @@ impl Tree {
     pub fn slots(&self) -> &[u32] {
         &self.slots
     }
+
+    /// The boxes of `slots`, `stride` for each.
+    pub fn boxes(&self) -> &[[Vec3; 2]] {
+        &self.boxes
+    }
+
+    /// How many boxes each slot has, at least one.
+    pub fn stride(&self) -> usize {
+        self.stride
+    }
 }
 
 #[cfg(test)]
@@ -145,7 +176,10 @@ mod tests {
                 (slot * 2, [low, low + Vec3::splat(1.5)])
             })
             .collect();
-        let tree = Tree::build(items.clone());
+        let boxes: Vec<[Vec3; 2]> = (0..items.len() * 2)
+            .map(|slot| items.get(slot / 2).map_or([Vec3::ZERO; 2], |item| item.1))
+            .collect();
+        let tree = Tree::build(items.clone(), (&boxes, 1));
         assert_eq!(tree.len(), items.len());
         let mut seen = Vec::new();
         let mut stack = vec![(tree.root().unwrap(), [Vec3::NEG_INFINITY, Vec3::INFINITY])];
@@ -157,10 +191,12 @@ mod tests {
                 Node::Inner { children, .. } => {
                     stack.extend(children.map(|child| (child, [min, max])));
                 }
-                Node::Leaf { slots, .. } => {
+                Node::Leaf { slots, boxes, .. } => {
                     assert!(slots.len() <= LEAF_SLOTS);
                     assert!(slots.is_sorted());
-                    for &slot in slots {
+                    assert_eq!(boxes.len(), slots.len() * tree.stride());
+                    for (&slot, stored) in slots.iter().zip(boxes.chunks_exact(tree.stride())) {
+                        assert_eq!(stored, [items[slot as usize / 2].1]);
                         let [low, high] = items[slot as usize / 2].1;
                         assert!(low.cmpge(min).all() && high.cmple(max).all());
                         seen.push(slot as usize);
@@ -173,6 +209,6 @@ mod tests {
             seen,
             items.iter().map(|(slot, _)| *slot).collect::<Vec<_>>()
         );
-        assert!(Tree::build(Vec::new()).root().is_none());
+        assert!(Tree::build(Vec::new(), (&[], 1)).root().is_none());
     }
 }

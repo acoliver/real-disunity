@@ -9,22 +9,12 @@ pub const CORPUS_BINDING_SCHEMA: &str = "real-disunity.corpus-binding.v1";
 pub const CORPUS_BINDING_DOCUMENT_URI: &str = "real-disunity:corpus-binding-document-v1";
 pub const CAPABILITY_GRAPH_SCHEMA: &str = "real-disunity.capability-graph.v1";
 pub const CAPABILITY_GRAPH_DOCUMENT_URI: &str = "real-disunity:capability-graph-document-v1";
-pub const ENVIRONMENT_SCOPE_POLICY_SCHEMA: &str = "real-disunity.environment-scope-policy.v1";
-pub const VALIDATION_ATTESTATION_SCHEMA: &str = "real-disunity.validation-attestation.v2";
-pub const IMPORT_RECEIPT_SCHEMA: &str = "real-disunity.import-receipt.v4";
-pub const PUBLICATION_SET_SCHEMA: &str = "real-disunity.publication-set.v1";
-pub const PAIRED_CAPTURE_MANIFEST_SCHEMA: &str = "real-disunity.paired-capture-manifest.v1";
 
 pub const SAVE_BUNDLE_MANIFEST_VERSION: u32 = 1;
 pub const SOURCE_OBSERVATION_LOCK_VERSION: u32 = 1;
 pub const CORPUS_MANIFEST_VERSION: u32 = 2;
 pub const CORPUS_BINDING_VERSION: u32 = 1;
-pub(crate) const ENVIRONMENT_SCOPE_POLICY_VERSION: u32 = 1;
 pub const CAPABILITY_GRAPH_VERSION: u32 = 1;
-pub const VALIDATION_ATTESTATION_VERSION: u32 = 2;
-pub const IMPORT_RECEIPT_VERSION: u32 = 4;
-pub const PUBLICATION_SET_VERSION: u32 = 1;
-pub const PAIRED_CAPTURE_MANIFEST_VERSION: u32 = 1;
 
 /// Version envelope shared by every import document.
 ///

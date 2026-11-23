@@ -21,6 +21,8 @@ mod fixture;
 mod layers;
 #[path = "game_passes/lent.rs"]
 mod lent;
+#[path = "game_passes/lent_capture.rs"]
+mod lent_capture;
 #[path = "game_passes/lent_chunk.rs"]
 mod lent_chunk;
 #[path = "game_passes/lent_engine.rs"]

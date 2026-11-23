@@ -5,21 +5,34 @@ use super::engine::EngineConstants;
 use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
 use super::replacement::StockReplacement;
-use super::resources::{GameResources, SharedTextures};
+use super::resources::GameResources;
+use super::resources::SharedTextures;
 use super::scene_meshes::FrameSceneMeshesHandle;
 use super::scene_textures::FrameSceneTexturesHandle;
-use super::shadows::{FrameShadowHandle, FrameShadows};
-use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
-use super::targets::{GameTargets, TargetDeclaration, TargetStore};
+use super::shadows::FrameShadowHandle;
+use super::shadows::FrameShadows;
+use super::snapshots::FrameSnapshotHandle;
+use super::snapshots::SnapshotReads;
+use super::targets::GameTargets;
+use super::targets::TargetDeclaration;
+use super::targets::TargetStore;
 use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
-use worldrunner_render_post::{
-    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-    FrameFeature, PassDeclaration, PostError, PrepareContext, PreparedFeature,
-};
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BuildContext;
+use worldrunner_render_post::DrawContext;
+use worldrunner_render_post::FeatureDeclaration;
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::FrameFeature;
+use worldrunner_render_post::PassDeclaration;
+use worldrunner_render_post::PostError;
+use worldrunner_render_post::PrepareContext;
+use worldrunner_render_post::PreparedFeature;
 
 /// What a factory is given to build the feature of one renderer generation.
 pub struct GameBuild<'a> {

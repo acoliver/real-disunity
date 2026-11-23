@@ -17,6 +17,9 @@ public struct CullingResults : IEquatable<CullingResults>
     /// <summary>The id the world's culling record has; 0 for no result.</summary>
     internal ulong Handle;
 
+    /// <summary>What the live batch renderer groups draw for the view, asked when the culling ran; null for the default value.</summary>
+    internal BatchCull? Batches;
+
     /// <summary>The lights found when the culling ran; null for the default value.</summary>
     internal VisibleLightSet? Lights;
 

@@ -63,8 +63,8 @@ public partial class Material
 
     public void SetBuffer(string name, GraphicsBuffer value) => SetBuffer(Shader.PropertyToID(name), value);
 
-    /// <summary>A <see cref="GraphicsBuffer"/> has no world buffer, so it is kept here and not sent; a compute buffer that was
-    /// sent under the same name is unbound from the world's material.</summary>
+    /// <summary>A <see cref="GraphicsBuffer"/> is kept here and not bound in the world's material (only batch draws name its world
+    /// buffer); a compute buffer that was sent under the same name is unbound from the world's material.</summary>
     public void SetBuffer(int nameID, GraphicsBuffer value)
     {
         _properties.Buffers[nameID] = value;

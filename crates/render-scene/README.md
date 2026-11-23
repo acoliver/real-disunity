@@ -635,8 +635,8 @@ at the cost of more draws for fragmented visibility. Empty batches retain their
 capacity for reuse. This API does not change resource tables.
 
 `ShadowedScene::scene_mut()` exposes the same API and flushes before both passes.
-The desktop viewer's `run_with_updates` accepts a fallible per-frame callback
-with `&mut SceneGpu` in either rendering mode and flushes edits automatically.
+The desktop viewer applies the same edits to either rendering mode through
+`RetainedUpdate::{Add, Replace, Remove, Objects}` and flushes them when it publishes the generation.
 
 
 ## LOD and per-view visibility

@@ -233,19 +233,19 @@ pub(crate) fn options() -> ViewerOptions {
     }
 }
 #[test]
-fn invalid_window_size_returns_before_event_loop_startup() {
+fn invalid_window_size_is_refused_when_the_host_is_made() {
     for size in [[0, 600], [800, 0], [4097, 600], [800, u32::MAX]] {
         let options = ViewerOptions { size, ..options() };
         assert!(matches!(
-            run(scene(false), options),
+            RetainedHost::new(scene(false), options),
             Err(ViewerError::InvalidOptions(_))
         ));
     }
 }
 #[test]
-fn water_is_rejected_before_event_loop_startup() {
+fn water_without_hdr_is_refused_when_the_host_is_made() {
     assert!(matches!(
-        run(scene(true), options()),
+        RetainedHost::new(scene(true), options()),
         Err(ViewerError::UnsupportedScene("water requires HDR"))
     ));
 }

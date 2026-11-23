@@ -21,8 +21,7 @@ mod work_tests;
 
 use crate::{
     RetainedDriver, RetainedEvent, RetainedHost, RetainedInput, RetainedTick, ViewerError,
-    app::Content,
-    renderer::{Renderer, SceneSource},
+    app::Content, renderer::Renderer,
 };
 use std::time::Instant;
 use winit::event::{DeviceEvent, WindowEvent};
@@ -225,8 +224,8 @@ impl Content for Session<'_> {
             self.input(RetainedInput::RawMotion([delta.0, delta.1]));
         }
     }
-    fn source(&mut self) -> SceneSource<'_> {
-        SceneSource::Retained(&mut self.host)
+    fn host(&mut self) -> &mut RetainedHost {
+        &mut self.host
     }
     fn exit_requested(&self) -> bool {
         self.host.exit

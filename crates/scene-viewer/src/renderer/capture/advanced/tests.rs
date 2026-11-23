@@ -265,13 +265,7 @@ fn direct(renderer: &mut Renderer, view: &SceneView, time: Duration) -> Retained
     )
     .unwrap();
     let prepared = renderer
-        .encode_frame(
-            view,
-            (None, None),
-            &output,
-            Some(&mut image),
-            ViewMisses::default(),
-        )
+        .encode_frame(view, None, &output, Some(&mut image), ViewMisses::default())
         .unwrap();
     renderer
         .execution

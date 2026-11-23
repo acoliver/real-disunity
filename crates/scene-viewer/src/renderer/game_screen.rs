@@ -205,13 +205,12 @@ impl super::Renderer {
     pub(super) fn fit_stock_scene(
         &mut self,
         view: &SceneView,
-        live_capture: bool,
         retained: Option<&super::capture::Products>,
     ) -> Result<bool, ViewerError> {
         if self.game_screen.covers_stock_scene() {
             return Ok(false);
         }
-        let capturing = live_capture || retained.is_some();
+        let capturing = retained.is_some();
         if capturing && let Resident::Shadowed(scene) = &mut self.resident {
             scene.request_shadow_capture();
         }

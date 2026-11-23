@@ -61,11 +61,11 @@ internal static class TextGeneratorTests
         {
             var font = Disunity.Hosting.DisunityHost.RegisterFont(SyntheticFont.Bytes());
             var generator = new TextGenerator();
-            var rich = Settings();
-            rich.font = font;
-            rich.richText = true;
-            var message = Expect.Catch<NotSupportedException>(() => generator.Populate("A", rich), "rich text").Message;
-            Expect.That(message.Contains("richText"), $"the member is named: {message}");
+            var fit = Settings();
+            fit.font = font;
+            fit.resizeTextForBestFit = true;
+            var message = Expect.Catch<NotSupportedException>(() => generator.Populate("A", fit), "best fit").Message;
+            Expect.That(message.Contains("resizeTextForBestFit"), $"the member is named: {message}");
             Expect.Throws<ArgumentNullException>(() => generator.Populate(null!, Settings()), "null text");
         }
         finally { Disunity.Hosting.DisunityHost.UnloadWorld(); }

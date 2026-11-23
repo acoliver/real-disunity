@@ -1,8 +1,11 @@
 namespace UnityEngine;
 
-/// <summary>One character the generator lays out: its code point, glyph index (0 for none) and whole-pixel advance.
+/// <summary>How a character draws: the pixel size and style its glyph is drawn into the atlas at, and its colour.</summary>
+internal readonly record struct CharStyle(int Size, FontStyle Style, Color32 Color);
+
+/// <summary>One character the generator lays out: its code point, glyph index (0 for none), whole-pixel advance and style.
 /// A newline has no glyph and no advance.</summary>
-internal readonly record struct LayoutChar(int Code, uint Glyph, int Advance);
+internal readonly record struct LayoutChar(int Code, uint Glyph, int Advance, CharStyle Style);
 
 /// <summary>A line of laid-out characters: those from <see cref="Start"/> up to <see cref="End"/>, whose advances add up
 /// to <see cref="Width"/>. The space or newline a line break consumes sits at <see cref="End"/> and is on no line.</summary>

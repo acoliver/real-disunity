@@ -32,13 +32,13 @@ internal static class TextLayoutTests
         Console.WriteLine("PASS: TextGenerator lays plain text out as quads, characters, lines and extents");
     }
 
-    private static TextGenerationSettings Plain(Font? font) => new()
+    internal static TextGenerationSettings Plain(Font? font) => new()
     {
         font = font!, color = Color.white, fontSize = 20, lineSpacing = 1f, scaleFactor = 1f, textAnchor = TextAnchor.UpperLeft,
         generationExtents = new Vector2(120f, 100f), pivot = new Vector2(0f, 1f),
     };
 
-    private static TextGenerator Lay(string text, TextGenerationSettings settings)
+    internal static TextGenerator Lay(string text, TextGenerationSettings settings)
     {
         var generator = new TextGenerator();
         Expect.That(generator.Populate(text, settings), $"Populate of '{text}'");
@@ -46,14 +46,14 @@ internal static class TextLayoutTests
     }
 
     /// <summary>The bounds of quad <paramref name="index"/>: left, right, bottom, top.</summary>
-    private static (float L, float R, float B, float T) Quad(TextGenerator generator, int index)
+    internal static (float L, float R, float B, float T) Quad(TextGenerator generator, int index)
     {
         var v = generator.verts;
         var quad = new[] { v[index * 4], v[index * 4 + 1], v[index * 4 + 2], v[index * 4 + 3] }.Select(q => q.position).ToArray();
         return (quad.Min(p => p.x), quad.Max(p => p.x), quad.Min(p => p.y), quad.Max(p => p.y));
     }
 
-    private static void ExpectQuad(TextGenerator generator, int index, (float L, float R, float B, float T) expected, string what)
+    internal static void ExpectQuad(TextGenerator generator, int index, (float L, float R, float B, float T) expected, string what)
     {
         var quad = Quad(generator, index);
         Expect.That(Math.Abs(quad.L - expected.L) + Math.Abs(quad.R - expected.R) + Math.Abs(quad.B - expected.B) + Math.Abs(quad.T - expected.T) < 1e-3f,

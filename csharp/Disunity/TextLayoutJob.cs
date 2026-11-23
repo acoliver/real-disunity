@@ -1,4 +1,3 @@
-using System.Text;
 
 namespace UnityEngine;
 
@@ -14,30 +13,29 @@ internal sealed class TextLayoutResult(int visible, int fontSize)
     public int FontSize { get; } = fontSize;
 }
 
+/// <summary>The characters of a layout, the lines they break into and the measures of each line.</summary>
+internal sealed record Arranged(List<LayoutChar> Chars, List<TextLine> Lines, List<LineMeasures> Measures);
+
 /// <summary>
-/// One layout of a string with one generation settings value: it measures the characters, breaks them into lines, places
-/// the lines and turns them into vertices. All lengths are in pixels at the settings' scale factor, measured from the
-/// pivot with y growing upward. Characters and line breaks need only the face's metrics; the atlas is touched only by
-/// <see cref="Layout"/>, so the preferred sizes never add glyphs.
+/// One layout of a string with one generation settings value: it reads the rich text tags, measures the characters, breaks
+/// them into lines, places the lines and turns them into vertices. All lengths are in pixels at the settings' scale factor,
+/// measured from the pivot with y growing upward. Characters and line breaks need only the face's metrics; the atlas is
+/// touched only by <see cref="Layout"/>, so the preferred sizes never add glyphs.
 /// </summary>
 internal sealed class TextLayoutJob
 {
     private const int TabSpaces = 4;
 
-    private readonly string _text;
+    private readonly List<MarkedChar> _marked;
     private readonly TextGenerationSettings _settings;
     private readonly FontGlyphs _glyphs;
-    private readonly int _size;
-    private readonly List<LayoutChar> _chars = [];
 
-    private TextLayoutJob(string text, in TextGenerationSettings settings, FontGlyphs glyphs)
+    private TextLayoutJob(List<MarkedChar> marked, in TextGenerationSettings settings, FontGlyphs glyphs)
     {
-        _text = text;
+        _marked = marked;
         _settings = settings;
         _glyphs = glyphs;
-        var requested = settings.fontSize > 0 ? settings.fontSize : settings.font.fontSize;
-        FontSize = requested;
-        _size = Math.Max(1, (int)MathF.Round(requested * settings.scaleFactor));
+        FontSize = settings.fontSize > 0 ? settings.fontSize : settings.font.fontSize;
     }
 
     public Font Font => _settings.font;
@@ -50,86 +48,96 @@ internal sealed class TextLayoutJob
 
     private Vector2 Extents => new(_settings.generationExtents.x * _settings.scaleFactor, _settings.generationExtents.y * _settings.scaleFactor);
 
+    private bool Wraps => _settings.horizontalOverflow == HorizontalWrapMode.Wrap;
+
     /// <summary>The job for the text, or null when the settings have no font the engine can draw. Settings the layout does
     /// not handle yet are rejected by name.</summary>
     public static TextLayoutJob? For(string text, in TextGenerationSettings settings)
     {
-        if (settings.richText) throw Unsupported("richText");
         if (settings.resizeTextForBestFit) throw Unsupported("resizeTextForBestFit");
         if (settings.alignByGeometry) throw Unsupported("alignByGeometry");
         if (settings.font is not { } font || font.Glyphs is not { } glyphs || !glyphs.TryFace(out _)) return null;
-        var job = new TextLayoutJob(text, settings, glyphs);
-        job.Measure();
-        return job;
+        return new TextLayoutJob(TextMarkup.Parse(text, settings.richText, settings.color.a), settings, glyphs);
     }
 
     private static NotSupportedException Unsupported(string member) =>
         new($"TextGenerator cannot lay out text with {member} yet: the engine has no layout for it");
 
-    private void Measure()
+    private int Scaled(int size) => Math.Max(1, (int)MathF.Round(size * _settings.scaleFactor));
+
+    private List<LayoutChar> Measure(int baseSize)
     {
-        var space = Advance(' ');
-        foreach (var rune in _text.EnumerateRunes())
+        var chars = new List<LayoutChar>(_marked.Count);
+        foreach (var marked in _marked)
         {
-            if (rune.Value == '\r') continue;
-            if (rune.Value == '\n') _chars.Add(new LayoutChar('\n', 0, 0));
-            else if (rune.Value == '\t') _chars.Add(new LayoutChar('\t', 0, TabSpaces * space));
-            else
-            {
-                var glyph = _glyphs.GlyphIndex(rune.Value);
-                _chars.Add(new LayoutChar(rune.Value, glyph, glyph == 0 ? 0 : Advance(rune.Value)));
-            }
+            if (marked.Code == '\r') continue;
+            var size = marked.Size > 0 ? Scaled(marked.Size) : baseSize;
+            chars.Add(Characterize(marked.Code, new CharStyle(size, _settings.fontStyle | marked.Style, marked.Color ?? _settings.color)));
         }
+        return chars;
     }
 
-    private int Advance(int code) =>
-        _glyphs.GlyphIndex(code) is var glyph && glyph != 0 && _glyphs.TryMetrics(_size, glyph, out var metrics) ? (int)MathF.Round(metrics.horizontalAdvance) : 0;
-
-    private LineMeasures Measures()
+    private LayoutChar Characterize(int code, CharStyle style)
     {
-        var (ascent, height) = _glyphs.Lines(_size);
-        return new LineMeasures(ascent, height, (int)MathF.Round(height * _settings.lineSpacing));
+        if (code == '\n') return new LayoutChar(code, 0, 0, style);
+        if (code == '\t') return new LayoutChar(code, 0, TabSpaces * Advance(_glyphs.GlyphIndex(' '), style.Size), style);
+        var glyph = _glyphs.GlyphIndex(code);
+        return new LayoutChar(code, glyph, glyph == 0 ? 0 : Advance(glyph, style.Size), style);
     }
 
-    private List<TextLine> Break(bool wrap) => new TextLayoutBreaker(_chars, Extents.x, wrap).Lines();
+    private int Advance(uint glyph, int size) =>
+        glyph != 0 && _glyphs.TryMetrics(size, glyph, out var metrics) ? (int)MathF.Round(metrics.horizontalAdvance) : 0;
+
+    /// <summary>The characters at a base size broken into lines, with each line measured at its largest character size; a
+    /// line with no characters takes the size of the character that ended it.</summary>
+    private Arranged Arrange(int baseSize, bool wrap)
+    {
+        var chars = Measure(baseSize);
+        var lines = new TextLayoutBreaker(chars, Extents.x, wrap).Lines();
+        var measures = new List<LineMeasures>(lines.Count);
+        foreach (var line in lines)
+        {
+            var size = line.End > line.Start ? chars.Skip(line.Start).Take(line.End - line.Start).Max(c => c.Style.Size) : line.End < chars.Count ? chars[line.End].Style.Size : baseSize;
+            var (ascent, height) = _glyphs.Lines(size);
+            measures.Add(new LineMeasures(ascent, height, (int)MathF.Round(height * _settings.lineSpacing)));
+        }
+        return new Arranged(chars, lines, measures);
+    }
 
     /// <summary>The widest line when the text does not wrap.</summary>
-    public float PreferredWidth() => Break(false).Select(line => line.Width).DefaultIfEmpty(0).Max();
+    public float PreferredWidth() => Arrange(Scaled(FontSize), false).Lines.Select(line => line.Width).DefaultIfEmpty(0).Max();
 
     /// <summary>The height of the block of lines when the text wraps as the settings say, with no truncation.</summary>
     public float PreferredHeight()
     {
-        var lines = Break(_settings.horizontalOverflow == HorizontalWrapMode.Wrap);
-        var measures = Measures();
-        return lines.Count == 0 ? 0 : (lines.Count - 1) * measures.Step + measures.Height;
+        var measures = Arrange(Scaled(FontSize), Wraps).Measures;
+        return measures.Count == 0 ? 0 : measures.Take(measures.Count - 1).Sum(m => m.Step) + measures[^1].Height;
     }
 
     /// <summary>Lays the text out, drawing the glyphs of the kept lines into the font's atlas first so every UV refers to
     /// the final atlas.</summary>
     public TextLayoutResult Layout()
     {
-        var lines = Break(_settings.horizontalOverflow == HorizontalWrapMode.Wrap);
-        var measures = Measures();
+        var arranged = Arrange(Scaled(FontSize), Wraps);
         var extents = Extents;
         var area = new TextArea(-_settings.pivot.x * extents.x, (1 - _settings.pivot.y) * extents.y, extents,
             TextLayoutPlacer.AnchorFactors(_settings.textAnchor),
             _settings.verticalOverflow == VerticalWrapMode.Truncate && !_settings.generateOutOfBounds);
-        var (placed, kept) = TextLayoutPlacer.Place(lines, measures, area);
-        var infos = DrawGlyphs(placed.Take(kept));
-        var visible = kept < lines.Count ? lines[kept].Start : _chars.Count;
+        var (placed, kept) = TextLayoutPlacer.Place(arranged.Lines, arranged.Measures, area);
+        var infos = DrawGlyphs(arranged.Chars, placed.Take(kept));
+        var visible = kept < arranged.Lines.Count ? arranged.Lines[kept].Start : arranged.Chars.Count;
         var result = new TextLayoutResult(visible, FontSize);
-        var input = new EmitInput(_chars, placed, kept, measures, new GlyphStyle(_size, _settings.fontStyle, _settings.color));
-        TextLayoutEmitter.Emit(result, input, infos);
-        result.Extents = TextLayoutEmitter.Extents(placed.Take(kept), measures);
+        TextLayoutEmitter.Emit(result, new EmitInput(arranged.Chars, placed, kept), infos);
+        result.Extents = TextLayoutEmitter.Extents(placed.Take(kept));
         return result;
     }
 
-    private Dictionary<GlyphKey, CharacterInfo> DrawGlyphs(IEnumerable<PlacedLine> kept)
+    private Dictionary<GlyphKey, CharacterInfo> DrawGlyphs(IReadOnlyList<LayoutChar> chars, IEnumerable<PlacedLine> kept)
     {
         var codes = new Dictionary<GlyphKey, int>();
         foreach (var line in kept)
             for (var i = line.Line.Start; i < line.Line.End; i++)
-                if (_chars[i].Glyph != 0) codes.TryAdd(new GlyphKey(_chars[i].Glyph, _size, _settings.fontStyle), _chars[i].Code);
+                if (chars[i].Glyph != 0) codes.TryAdd(new GlyphKey(chars[i].Glyph, chars[i].Style.Size, chars[i].Style.Style), chars[i].Code);
         var infos = new Dictionary<GlyphKey, CharacterInfo>();
         if (codes.Count == 0) return infos;
         _glyphs.EnsureGlyphs(codes.Keys);

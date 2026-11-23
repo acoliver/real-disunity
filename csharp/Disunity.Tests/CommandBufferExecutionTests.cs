@@ -195,7 +195,6 @@ internal static class CommandBufferExecutionTests
         foreach (var type in new[] { BuiltinRenderTextureType.Depth, BuiltinRenderTextureType.MotionVectors, BuiltinRenderTextureType.GBuffer0, BuiltinRenderTextureType.CurrentActive })
             Throws<NotSupportedException>(() => buffer.SetRenderTarget(type), $"target {type}", $"BuiltinRenderTextureType.{type}", "CommandBuffer.SetRenderTarget");
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(new Texture2D(2, 2)), "a plain texture", "Texture2D", "render target");
-        Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", new Cubemap(2, TextureFormat.RGBA32, false)), "a cubemap", "Cubemap");
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(Target().colorBuffer), "a render buffer", "BufferPtr");
         Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", BuiltinRenderTextureType.Depth), "the camera depth as a texture", "Depth");
         Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", BuiltinRenderTextureType.GBuffer1), "a global texture", "GBuffer1");

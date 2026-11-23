@@ -124,6 +124,7 @@ fn synthetic(file: &str) -> SyntheticShader {
         "sampled" => block::sampled_passes(),
         "instanced" => buffers::instanced_passes(),
         "dots" => dots::passes(),
+        "lit_dots" => dots::lit_passes(),
         name if name.starts_with("declared_") => declared::passes(name),
         other => panic!("no synthetic shader {other}"),
     }

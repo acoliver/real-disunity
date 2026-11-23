@@ -36,7 +36,13 @@ fn odd_pages_and_gutters_match_direct_gpu_samples_with_height_mips() {
         let pending = cache.reserve(&frame, key).unwrap();
         let slot = pending.slot();
         source
-            .encode_page(device, &mut frame, &cache, pending)
+            .encode_page(
+                device,
+                &mut frame,
+                &PageWriter::new_layered(device, cache.settings()),
+                &cache,
+                pending,
+            )
             .unwrap();
         let reads: Vec<_> = settings
             .mip_extents()

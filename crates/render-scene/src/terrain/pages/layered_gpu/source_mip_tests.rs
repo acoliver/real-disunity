@@ -252,7 +252,13 @@ fn check_pages(
         let slot = pending.slot();
         if depth % 2 == 0 {
             source
-                .encode_page(device, &mut frame, &cache, pending)
+                .encode_page(
+                    device,
+                    &mut frame,
+                    &PageWriter::new_layered(device, cache.settings()),
+                    &cache,
+                    pending,
+                )
                 .unwrap();
         } else {
             scratch

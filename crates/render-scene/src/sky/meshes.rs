@@ -343,7 +343,7 @@ impl Meshes {
             pipeline.bind(pass);
             pass.set_bind_group(0, frame, &[]);
             let geometry = GeometryDraw::new(
-                &layout,
+                layout,
                 &[draw.vertices.clone(), draw.instance.clone()],
                 &ImportedGeometry::Indexed(ImportedIndices {
                     buffer: draw.indices.clone(),

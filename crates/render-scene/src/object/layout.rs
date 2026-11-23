@@ -5,6 +5,8 @@
 //! them and a material set that binds the scene palette. The static layout is every other
 //! level, and its programs, layouts and sets are the ones that existed before skinning.
 
+use std::sync::OnceLock;
+
 use worldrunner_render_program::runtime::{VertexBufferSpec, VertexLayoutSpec};
 
 use crate::geometry::{
@@ -63,11 +65,27 @@ impl GeometryLayout {
 pub(crate) fn vertex_layout(
     previous_transforms: bool,
     geometry: GeometryLayout,
-) -> VertexLayoutSpec {
+) -> &'static VertexLayoutSpec {
+    static LAYOUTS: OnceLock<[VertexLayoutSpec; 3]> = OnceLock::new();
     assert!(
         !(previous_transforms && geometry.is_skinned()),
         "skinned geometry has no previous-pose vertex layout"
     );
+    let layouts = LAYOUTS.get_or_init(|| {
+        [
+            build_layout(false, GeometryLayout::Static),
+            build_layout(true, GeometryLayout::Static),
+            build_layout(false, GeometryLayout::Skinned),
+        ]
+    });
+    &layouts[match (previous_transforms, geometry) {
+        (false, GeometryLayout::Static) => 0,
+        (true, GeometryLayout::Static) => 1,
+        (_, GeometryLayout::Skinned) => 2,
+    }]
+}
+
+fn build_layout(previous_transforms: bool, geometry: GeometryLayout) -> VertexLayoutSpec {
     let mut buffers = vec![
         geometry.vertex_buffer(),
         VertexBufferSpec {

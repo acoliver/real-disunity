@@ -193,7 +193,7 @@ struct Recorder<'a, P: ?Sized> {
     pass: Elided<'a, P>,
     objects: &'a PreparedObjects,
     context: &'a Context,
-    layouts: [VertexLayoutSpec; 2],
+    layouts: [&'static VertexLayoutSpec; 2],
     state: BoundState,
     current: Option<Rc<PreparedPipeline>>,
     /// Sends pipeline index `i` to the pipeline of key `i ^ mask`, as the capture tests do for
@@ -356,7 +356,7 @@ impl<P: PassCommands + ?Sized> Recorder<'_, P> {
         pipeline
             .draw_borrowed(
                 &mut self.pass,
-                &self.layouts[usize::from(skinned)],
+                self.layouts[usize::from(skinned)],
                 buffers,
                 indices,
                 draw.instances,

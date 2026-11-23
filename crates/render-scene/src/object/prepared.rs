@@ -376,7 +376,7 @@ impl PreparedObjects {
             &PipelineDraw {
                 program: &program,
                 state: &state,
-                layout: &layout,
+                layout,
                 bindings: &[],
                 imports: &[],
                 sets: &[&sets[&set_key].1],

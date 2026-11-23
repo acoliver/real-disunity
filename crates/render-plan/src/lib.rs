@@ -1,91 +1,34 @@
-//! GPU-free adaptation of independently verified normal publications into
-//! immutable, wholly owned CPU render plans.
+//! GPU-free, immutable, wholly owned CPU render scenes.
 //!
-//! Callers provide every exact document, component, capability, and payload
-//! contract route. This crate provides no dataset routes, defaults, path-based
-//! lookup, content sniffing, or renderer/GPU dependency. The capability
-//! factories additionally mint fail-closed
-//! [`worldrunner_world_runtime::CapabilityHandler`] implementations for wholly
-//! owned exact bytes, canonical package, mesh, material, and texture
-//! artifacts, and bounded pure U8 and little-endian U16 grids, each wholly
-//! configured by the caller. Authored [`ContractDocument`] route
-//! declarations activate into one exact [`RenderWorldContract`] through
-//! caller-registered implementation factories keyed by exact handler factory
-//! URI, with no fallback across route kinds. Payload preparation returns owned,
-//! route-qualified CPU state without invoking scene factories. Full render
-//! activation additionally requires each route scene factory and the document
-//! composer: route factories produce explicit [`SceneContribution`] values,
-//! including nonrendering outcomes, and the composer can join prepared payloads
-//! across routes before producing the mandatory validated [`RenderScene`] that
-//! [`RenderWorldPlan`] retains.
+//! [`RenderScene`] and its parts validate geometry, materials, textures, effects
+//! and terrain without a renderer or GPU dependency. This crate provides no
+//! dataset routes, defaults, path-based lookup or content sniffing.
 
-mod adapter;
-mod capability;
-mod contract;
-mod discovery;
-mod document;
-mod error;
-mod implementation_registry;
-mod limits;
 pub mod picking;
-mod plan;
-mod plan_closure;
 pub use picking::{ObjectId, PickHit};
-mod plan_scene;
 pub mod post;
 mod scene;
 pub mod world_schema;
 
-pub use adapter::{CpuRenderPayload, RenderPayload, RenderPayloadAdapter};
-pub use capability::{
-    CapabilityConfigError, ElementPolicy, ExactBytes, ExactCapabilityRoute, GridShape,
-    MaterialPayload, PackagePayload, StaticMeshPayload, TexturePayload, U8Grid, U16LeGrid,
-    exact_bytes_handler, material_handler, package_handler, static_mesh_handler, texture_handler,
-    u8_grid_handler, u16_le_grid_handler,
-};
-pub use contract::{ContractRegistration, RenderWorldContract, RenderWorldContractBuilder};
-pub use discovery::{
-    DiscoveredRenderContract, RENDER_CONTRACT_CAPABILITY_URI, RenderContractDiscoveryError,
-    RenderContractDiscoveryLimits, discover_render_contract,
-};
-pub use error::{
-    RenderAdapterError, RenderContractError, RenderImplementationError, RenderPlanError,
-};
-pub use implementation_registry::{
-    ActivatedRenderPayloadContract, ActivatedRenderWorldContract, CapabilityImplementation,
-    CapabilityImplementationFactory, ComponentImplementation, ComponentImplementationFactory,
-    DocumentImplementation, DocumentImplementationFactory, RenderFactoryError,
-    RenderImplementationRegistry, RenderImplementationRegistryBuilder, RenderRouteKind,
-    activate_render_payload_contract, activate_render_world_contract,
-};
-pub use limits::RenderWorldLimits;
-pub use plan::{
-    PreparedRenderWorldPayloads, RenderContribution, RenderWorldPlan,
-    build_discovered_render_world_plan, build_render_world_plan, compose_render_world_plan,
-    prepare_discovered_render_world_payloads, prepare_render_world_payloads,
-};
 pub use scene::SceneAppend;
 pub use scene::TextureAnisotropy;
 pub use scene::{
-    BillboardPolicy, DEFAULT_TAA_CLIP_SCALE_MICRO, DIRECTION_MICRO_SCALE, DocumentSceneInput,
-    EFFECTS_MICRO_SCALE, MATERIAL_MICRO_SCALE, MAXIMUM_SUN_IRRADIANCE_MICRO,
-    MAXIMUM_TAA_CLIP_SCALE_MICRO, MINIMUM_TAA_CLIP_SCALE_MICRO, MaterialHandle, MeshHandle,
-    ProvenSceneContribution, ROTATION_MICRO_SCALE, RenderScene, RouteDeclarationRef,
-    RouteSceneFactory, RouteSceneInput, SceneAffineMatrix, SceneAlphaMode, SceneAmbient,
-    SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneCompositionFactory,
-    SceneContribution, SceneDirection, SceneDownsampleRounding, SceneEffects, SceneEffectsParts,
+    BillboardPolicy, DEFAULT_TAA_CLIP_SCALE_MICRO, DIRECTION_MICRO_SCALE, EFFECTS_MICRO_SCALE,
+    MATERIAL_MICRO_SCALE, MAXIMUM_SUN_IRRADIANCE_MICRO, MAXIMUM_TAA_CLIP_SCALE_MICRO,
+    MINIMUM_TAA_CLIP_SCALE_MICRO, MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene,
+    SceneAffineMatrix, SceneAlphaMode, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor,
+    SceneColorGrading, SceneDirection, SceneDownsampleRounding, SceneEffects, SceneEffectsParts,
     SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject,
     SceneOpaqueExperiment, SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage,
-    SceneOpaqueVisibility, SceneParts, ScenePlacement, ScenePostStage, SceneResources,
-    SceneRotation, SceneShadowCascades, SceneShadowFilter, SceneShadowSampling, SceneSkeleton,
-    SceneSkinInfluence, SceneSkinPose, SceneSky, SceneSsao, SceneSsaoDepthFootprint,
-    SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver, SceneSsr, SceneSsrComposition,
-    SceneSsrGridDomain, SceneSsrHitFacing, SceneSsrLodMapping, SceneSsrPassBehind, SceneSsrPyramid,
-    SceneSsrTraversal, SceneSun, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneValidationError, SceneVertex,
-    SceneWaterBody, SceneWaterSurface, SkeletonHandle, SkinPoseHandle, TerrainLodPolicy,
-    TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
-    TextureWrap,
+    SceneOpaqueVisibility, SceneParts, ScenePostStage, SceneResources, SceneRotation,
+    SceneShadowCascades, SceneShadowFilter, SceneShadowSampling, SceneSkeleton, SceneSkinInfluence,
+    SceneSkinPose, SceneSky, SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel,
+    SceneSsaoReceiver, SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrHitFacing,
+    SceneSsrLodMapping, SceneSsrPassBehind, SceneSsrPyramid, SceneSsrTraversal, SceneSun,
+    SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, SceneTexture,
+    SceneTransform, SceneValidationError, SceneVertex, SceneWaterBody, SceneWaterSurface,
+    SkeletonHandle, SkinPoseHandle, TerrainLodPolicy, TexelFormat, TextureColorSpace,
+    TextureEncoding, TextureFilter, TextureHandle, TextureSampler, TextureWrap,
 };
 pub use scene::{SceneContourBlend, SceneContourFill, SceneContourStyle, SceneContours};
 pub use scene::{
@@ -98,18 +41,6 @@ pub use scene::{
     TerrainStreamingPolicy,
 };
 
-pub use document::{
-    AmbientLightMicro, AssetBinding, AssetResolutionPolicy, AxisDirection, BindingElementPolicy,
-    CameraIntrinsics, CapabilityRouteDeclaration, ComponentRouteDeclaration, ContractDocument,
-    ContractDocumentError, ContractDocumentHeader, ContractDocumentParts, ContractLimits,
-    CoordinateBasis, DirectionalLightMicro, DocumentRouteDeclaration, EffectsRecipe,
-    EffectsRecipeParts, EnvironmentRecipe, Handedness, LodLevel, LodPolicy, MICRO_SCALE,
-    MeshComponent, MicroFixed, PositionMillimeters, RENDER_CONTRACT_SCHEMA,
-    RENDER_CONTRACT_SCHEMA_VERSION, RotationQuaternion, RouteCardinality, RouteDeclarations,
-    RouteIdentity, SceneDescription, ShadowCascade, ShadowCascadesRecipe, SkyRecipe, SsaoRecipe,
-    StreamLimits, TerrainMaterialSlot, TerrainRecipe, TransformMillimeters, UniformScaleMillionths,
-    WaterPlaneRecipe, WindRecipe,
-};
 pub use scene::{SceneSmaaEdgeDetection, SceneSmaaPreset, SceneSmaaSettings};
 
 pub use scene::{

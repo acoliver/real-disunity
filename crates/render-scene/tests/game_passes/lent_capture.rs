@@ -4,7 +4,7 @@
 //! capture admits only declared writes, and the engine's copies and integration of those items
 //! are not among them, so the first frame must fill them without publishing anything the capture
 //! would refuse.
-use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE, quad_scene};
 use super::lent::{ClearKept, KEPT, Scenario, inventory, output};
 use super::lent_terrain_game::{
     Ask, Clear, Factory, OUT, Script, Seen, assert_bands, last_arrays, layered_scene,
@@ -83,7 +83,7 @@ fn a_game_that_first_asks_for_a_terrain_material_array_in_a_capture_is_lent_it()
     let lit = source
         .with_objects_and_effects(source.geometry().objects().to_vec(), Some(effects()))
         .unwrap();
-    let mut scene = fitted(&rig, &lit, FORMAT);
+    let mut scene = fitted(&rig, &lit, SCENE_FORMAT);
     let mut arrays = Vec::new();
     for frame in 0..3 {
         capture(&mut rig, &mut scene, frame);

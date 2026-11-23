@@ -22,6 +22,18 @@ pub const METADATA: &str = "unity_ObjectToWorld";
 /// The bytes in front of the first matrix, which the metadata word skips.
 pub const HEADER: usize = 16;
 
+/// What a variant's fragment stage draws.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fragment {
+    /// The colour of the instance, or the marker for the plain variant.
+    Colour,
+    /// `unity_LightData.z` in the red channel.
+    Light,
+    /// The fourth component of the spherical harmonic `unity_SHAr` in the blue channel: the plain
+    /// variant reads the builtin, the DOTS variant the default its globals block holds for it.
+    Ambient,
+}
+
 const PLAIN: &str = "
 struct VOut { @builtin(position) position: vec4<f32> }
 @vertex fn vs_main(@location(0) position: vec3<f32>) -> VOut {
@@ -48,8 +60,31 @@ struct VOut { @builtin(position) position: vec4<f32> }
     return vec4<f32>(light.data.z, 0.0, 0.0, 1.0);
 }";
 
-/// The binding of the constant buffer that holds `unity_LightData`, read by a fragment stage.
+/// A plain variant that places the quad by the draw's `unity_ObjectToWorld` and draws the fourth
+/// component of `unity_SHAr` in the blue channel.
+const AMBIENT_PLAIN: &str = "
+struct Draw { object_to_world: mat4x4<f32> }
+struct Ambient { sh: vec4<f32> }
+@group(0) @binding(1) var<uniform> draw: Draw;
+@group(0) @binding(7) var<uniform> ambient: Ambient;
+struct VOut { @builtin(position) position: vec4<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>) -> VOut {
+    var out: VOut;
+    out.position = draw.object_to_world * vec4<f32>(position, 1.0);
+    return out;
+}
+@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, ambient.sh.w, 1.0);
+}";
+
+/// The binding of the constant buffer that holds `unity_LightData`, or the ambient value an
+/// ambient variant reads, in a fragment stage.
 const LIGHT_BINDING: u16 = 7;
+
+/// The block of the defaults a DOTS variant reads for a builtin no instance gives, and the member
+/// of it that holds the default of `unity_SHAr`.
+const GLOBAL_VALUES: &str = "unity_DOTSInstanceGlobalValues";
+const DOTS_SH_AR: &str = "unity_DOTS_SHAr";
 
 /// The constant buffer and binding of `unity_LightData`.
 fn light_parameters() -> (ConstantBuffer, ResourceBinding) {
@@ -78,9 +113,27 @@ fn lit_plain_parameters() -> VariantParameters {
     }
 }
 
-/// The WGSL of the DOTS variant, whose visible block holds `entries` entries. A `lit` variant's
-/// fragment stage returns `unity_LightData.z` in the red channel instead of the instance colour.
-fn dots_wgsl(entries: usize, reads_indirect: bool, lit: bool) -> String {
+/// The parameters of [`AMBIENT_PLAIN`].
+fn ambient_plain_parameters() -> VariantParameters {
+    VariantParameters {
+        constant_buffers: vec![
+            constant_buffer("Draw", 64, vec![matrix_member("unity_ObjectToWorld", 0)]),
+            constant_buffer("UnityAmbient", 16, vec![vector_member("unity_SHAr", 0)]),
+        ],
+        bindings: vec![
+            binding("Draw", slot(0, 1, VERTEX), ResourceKind::ConstantBuffer),
+            binding(
+                "UnityAmbient",
+                slot(0, LIGHT_BINDING, FRAGMENT),
+                ResourceKind::ConstantBuffer,
+            ),
+        ],
+    }
+}
+
+/// The WGSL of the DOTS variant, whose visible block holds `entries` entries, with the fragment
+/// stage `fragment`.
+fn dots_wgsl(entries: usize, reads_indirect: bool, fragment: Fragment) -> String {
     let (indirect, skipped) = if reads_indirect {
         (
             "@group(0) @binding(6) var<storage, read> indirect: array<u32>;",
@@ -89,14 +142,18 @@ fn dots_wgsl(entries: usize, reads_indirect: bool, lit: bool) -> String {
     } else {
         ("", "0.0")
     };
-    let (light, fragment) = if lit {
-        (
+    let (light, fragment) = match fragment {
+        Fragment::Colour => ("", "in.color"),
+        Fragment::Light => (
             "struct Light { data: vec4<f32> }
 @group(0) @binding(7) var<uniform> light: Light;",
             "vec4<f32>(light.data.z, 0.0, 0.0, 1.0)",
-        )
-    } else {
-        ("", "in.color")
+        ),
+        Fragment::Ambient => (
+            "struct Defaults { sh: vec4<f32> }
+@group(0) @binding(7) var<uniform> defaults: Defaults;",
+            "vec4<f32>(0.0, 0.0, defaults.sh.w, 1.0)",
+        ),
     };
     format!(
         "
@@ -147,7 +204,7 @@ fn member(name: &str, kind: i32, columns: i32, offset: i32) -> BufferMember {
 
 /// The parameters of a DOTS variant: the metadata block, and the visible block of `entries`
 /// entries of 16 bytes, which a player stores as a struct array.
-fn dots_parameters(entries: i32, reads_indirect: bool, lit: bool) -> VariantParameters {
+fn dots_parameters(entries: i32, reads_indirect: bool, fragment: Fragment) -> VariantParameters {
     let metadata = constant_buffer(
         "UnityDOTSInstancing_BuiltinPropertyMetadata",
         8,
@@ -205,10 +262,25 @@ fn dots_parameters(entries: i32, reads_indirect: bool, lit: bool) -> VariantPara
             ResourceKind::Buffer,
         ));
     }
-    if lit {
-        let (light, light_binding) = light_parameters();
-        parameters.constant_buffers.push(light);
-        parameters.bindings.push(light_binding);
+    match fragment {
+        Fragment::Colour => {}
+        Fragment::Light => {
+            let (light, light_binding) = light_parameters();
+            parameters.constant_buffers.push(light);
+            parameters.bindings.push(light_binding);
+        }
+        Fragment::Ambient => {
+            parameters.constant_buffers.push(constant_buffer(
+                GLOBAL_VALUES,
+                16,
+                vec![vector_member(DOTS_SH_AR, 0)],
+            ));
+            parameters.bindings.push(binding(
+                GLOBAL_VALUES,
+                slot(0, LIGHT_BINDING, FRAGMENT),
+                ResourceKind::ConstantBuffer,
+            ));
+        }
     }
     parameters
 }
@@ -244,8 +316,12 @@ pub fn dots_passes(entries: usize, reads_indirect: bool) -> SyntheticShader {
     );
     let dots = spec(
         &[KEYWORD],
-        &dots_wgsl(entries, reads_indirect, false),
-        dots_parameters(i32::try_from(entries).unwrap(), reads_indirect, false),
+        &dots_wgsl(entries, reads_indirect, Fragment::Colour),
+        dots_parameters(
+            i32::try_from(entries).unwrap(),
+            reads_indirect,
+            Fragment::Colour,
+        ),
     );
     two_variants(plain, dots)
 }
@@ -257,8 +333,21 @@ pub fn lit_dots_passes(entries: usize) -> SyntheticShader {
     let plain = spec(&[], LIT_PLAIN, lit_plain_parameters());
     let dots = spec(
         &[KEYWORD],
-        &dots_wgsl(entries, false, true),
-        dots_parameters(i32::try_from(entries).unwrap(), false, true),
+        &dots_wgsl(entries, false, Fragment::Light),
+        dots_parameters(i32::try_from(entries).unwrap(), false, Fragment::Light),
+    );
+    two_variants(plain, dots)
+}
+
+/// A shader that draws the fourth component of `unity_SHAr` in the blue channel. Its plain variant
+/// reads the builtin; its DOTS variant, with a visible block of `entries` entries and the metadata
+/// of [`dots_passes`], reads the default of its globals block [`GLOBAL_VALUES`].
+pub fn ambient_dots_passes(entries: usize) -> SyntheticShader {
+    let plain = spec(&[], AMBIENT_PLAIN, ambient_plain_parameters());
+    let dots = spec(
+        &[KEYWORD],
+        &dots_wgsl(entries, false, Fragment::Ambient),
+        dots_parameters(i32::try_from(entries).unwrap(), false, Fragment::Ambient),
     );
     two_variants(plain, dots)
 }

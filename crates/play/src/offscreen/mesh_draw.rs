@@ -91,7 +91,35 @@ impl Mapper<'_> {
         (material, pass): (WorldMaterialId, i32),
         batch: &DrawBatch,
     ) -> Result<Vec<Record>, Skip> {
-        self.mesh_draw((mesh, submesh), (material, pass), &Instanced::Batch(batch))
+        let records =
+            self.mesh_draw((mesh, submesh), (material, pass), &Instanced::Batch(batch))?;
+        if !records.is_empty() {
+            self.note_batch(material, batch);
+        }
+        Ok(records)
+    }
+
+    /// Counts a batch draw that made a record by the shader that draws it, the pass tags it asks
+    /// for and the properties the game gave it metadata words for, which is what the world's
+    /// batch records leave unnamed.
+    fn note_batch(&mut self, material: WorldMaterialId, batch: &DrawBatch) {
+        let shader = self
+            .snapshot
+            .materials
+            .get(&material)
+            .and_then(|held| self.snapshot.shaders.get(&held.shader))
+            .map_or("unknown shader", |shader| shader.name.as_str());
+        let names: Vec<&str> = batch
+            .metadata
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let note = format!(
+            "batch draw: {shader} [{}] properties {}",
+            batch.pass_tags.join("+"),
+            names.join(","),
+        );
+        self.report.note_many(&note, 1);
     }
 
     fn mesh_draw(

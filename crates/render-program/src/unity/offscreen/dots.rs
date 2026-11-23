@@ -3,17 +3,21 @@
 //! A game that draws many instances of one mesh with a batch renderer fills a raw buffer with the
 //! per-instance values (matrices, colours), tells each property where its values start with a
 //! metadata word, and names the instances to draw. The shader's `DOTS_INSTANCING_ON` variant reads
-//! them through four things, each found here by the name the variant declares:
+//! them through these things, each found here by the name the variant declares:
 //!
 //! - the raw buffer `unity_DOTSInstanceData`, a read-only storage buffer;
 //! - the metadata blocks, whose members `unity_DOTSInstancing<type><size>_Metadata<property>` each
 //!   hold one word: the game's word for `<property>`, copied as it is;
 //! - the visibility block, a struct array `unity_DOTSVisibleInstances` whose element `k` holds in
-//!   `VisibleData.x` the index of the instance the draw's instance `k` shows.
+//!   `VisibleData.x` the index of the instance the draw's instance `k` shows;
+//! - the block `unity_DOTSInstanceGlobalValues`, whose member `unity_DOTS_<name>` holds the value
+//!   the variant reads for the builtin `unity_<name>` (the ambient spherical harmonics and the
+//!   reflection decode) when the batch gives no per-instance value for it: the value the
+//!   builtin has for any other draw.
 //!
 //! The host does not read the raw buffer or interpret a metadata word.
 
-use crate::properties::{PropertySet, PropertyValue};
+use crate::properties::{PropertySet, PropertyValue, lookup};
 use crate::resources::BufferHandle;
 use crate::unity::buffers::BufferLayout;
 
@@ -38,6 +42,10 @@ const METADATA_BLOCKS: [&str; 2] = [
     "UnityDOTSInstancing_BuiltinPropertyMetadata",
     "UnityDOTSInstancing_MaterialPropertyMetadata",
 ];
+/// The block of the values a variant reads for a builtin when no instance gives one, and the
+/// prefix of its members: `unity_DOTS_<name>` is the value of the builtin `unity_<name>`.
+const GLOBAL_VALUES_BLOCK: &str = "unity_DOTSInstanceGlobalValues";
+const GLOBAL_VALUE_PREFIX: &str = "unity_DOTS_";
 const MEMBER_PREFIX: &str = "unity_DOTSInstancing";
 const METADATA_TAG: &str = "_Metadata";
 
@@ -90,11 +98,17 @@ impl DotsDraw<'_> {
     }
 
     /// The values the members of the constant block `layout` take from the batch: the game's
-    /// words for the metadata members, and the draw's visible indexes for the visibility block.
+    /// words for the metadata members, the draw's visible indexes for the visibility block, and
+    /// for the block of global values the value `layers` give the builtin each member is the
+    /// default of.
     ///
     /// # Errors
     /// Fails on a member whose name is an index no table lists.
-    pub(super) fn values(&self, layout: &BufferLayout) -> Result<PropertySet, OffscreenError> {
+    pub(super) fn values(
+        &self,
+        layout: &BufferLayout,
+        layers: &[&PropertySet],
+    ) -> Result<PropertySet, OffscreenError> {
         let mut set = PropertySet::new();
         let block = layout.name.resolve(&[])?;
         if METADATA_BLOCKS.contains(&block) {
@@ -111,6 +125,16 @@ impl DotsDraw<'_> {
                 .map(|index| [index.cast_signed(), 0, 0, 0])
                 .collect();
             set.set(VISIBLE_MEMBER, PropertyValue::IntVectorArray(indexes));
+        } else if block == GLOBAL_VALUES_BLOCK {
+            for member in &layout.members {
+                let name = member.name.resolve(&[])?;
+                let builtin = name
+                    .strip_prefix(GLOBAL_VALUE_PREFIX)
+                    .map(|rest| format!("unity_{rest}"));
+                if let Some(value) = builtin.and_then(|builtin| lookup(layers, &builtin)) {
+                    set.set(name, value.clone());
+                }
+            }
         }
         Ok(set)
     }

@@ -65,6 +65,36 @@ The player reads the same size as its `Screen`.
 Without `--screen` a headless run sets no screen and behaves as it always did.
 Before this option composed the UI, `--screen` wrote the screen alone, so a still from an earlier run shows the game without its HUD; there is no option for the bare screen.
 
+### Reading a record's target
+
+`play --player DATA --read-target FRAME:RECORD:FILE.png` (repeatable) writes the target of one record of a frame as it stands right after that record, to compare each pass of a frame with an original capture:
+
+```sh
+cargo run -p worldrunner-play -- --player OW_Data --frames 43 --size 1920x1080 --read-target 42:0:first.png
+cargo run -p worldrunner-play -- --player OW_Data --frames 43 --size 1920x1080 --read-target 42:17:opaque.png --read-target 42:23:fog.png
+```
+
+- `FRAME` counts from 0 like `--screen`; `RECORD` is the index into the frame's adapted records, the numbering of `[gpu] frame F record R ...` lines.
+  The two numbers and `FILE` are split at the first two colons, so `FILE` may be `C:\out\a.png`; it must end in `.png`.
+- For every frame that has a `--read-target`, the run prints one `[gpu] frame F record R KIND ...` line for each record of the frame on standard error, before the frame is built, with the record's kind, its target texture, size and depth bits.
+  Run once with any record to find the numbers, then ask for the ones you want.
+  The numbering follows the frame path only: a script's flushes build their own, smaller record lists, which are not numbered.
+  The numbers stay the same between runs of one player, scene, flags and `--fixed-dt`, and may change with the game or the engine.
+- The read takes the record's target at mip 0, layer 0: the target of a camera render, a blit or a copy, the texture mips are generated for, or the first colour of a clear, a draw list or a procedural draw.
+  A read is a copy recorded in the frame's own submission right after the record, so it sees what the records up to that one drew, and the final image of the frame is the same with or without it.
+- Colour goes to `FILE` as an 8-bit RGB PNG, top row first, without alpha.
+  A float target (`Rgba16Float` and the like) is clamped to 0..1 and encoded as sRGB, so linear 0.5 becomes 188; an 8-bit target is written as stored.
+  Values above 1 clip.
+- Depth goes beside it, to `FILE.depth.png` (for `a.png`, `a.depth.png`), as a 16-bit grey PNG of the stored value: 1 is near and 0 is far, because every player run draws with reversed depth, and the value is not linearised.
+  The target must have a depth buffer whose depth aspect can be copied (`Depth32Float`, `Depth32FloatStencil8`, `Depth16Unorm`); a 24-bit depth buffer cannot be.
+- Each file written prints `[player] read-target frame F record R KIND colour|depth WxH FORMAT -> FILE`.
+- A read that cannot be made is named and counted in the report's errors, never skipped silently: a `Globals` record (it draws nothing), a record past the end of the frame, a frame with no work, a depth buffer that is missing or cannot be copied, and a frame the build refused records of (it is built again without the reads, since removing records changes the numbering).
+  A read that wrote a file but not the other one (no depth buffer, or a depth-only target with no colour) does not fail the run; a read that wrote no file makes the run exit with an error after the other files are written.
+- The option needs `--player` and a headless run: it takes no `--key` or `--capture`, and a FRAME that is not among the `--frames` run is refused before the scene starts.
+  It can be combined with `--screen`, and `--size` sets the size of the screen the player's `Screen` reports, as it does for `--screen`.
+- Stand-ins, time and `--global` values change a frame: use the same flags and `--fixed-dt` as the run you compare with.
+  Do not take frame timings from a run that has reads.
+
 ### Depth range
 
 Every player run draws with reversed depth: near is 1 and far is 0, depth clears to 0, a pass's `ZTest LEqual` is `GreaterEqual` (and `Less` is `Greater`), a shadow lookup's comparison is `GreaterEqual`, and a camera's `unity_MatrixVP` maps near to w and far to 0.

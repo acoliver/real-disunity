@@ -22,6 +22,7 @@ use crate::offscreen::{StandInLook, SuppliedGlobal};
 use crate::plan_differences::shader_difference_lines;
 use crate::player_screen_ui::{CaptureSink, ScreenComposer, ScreenDevice};
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
+use crate::target_read::TargetRead;
 use crate::{
     driver::FIRST_COVERAGE_TEXTURE,
     gpu_player::{GpuLaunch, PlayerGpu},
@@ -45,7 +46,8 @@ pub struct PreparedPlayer {
 /// searches after its own `Plugins` directories and the engine's substitutes. `globals` are the
 /// values `--global` supplies; they reach the GPU work only, not the request, and so do
 /// `stand_ins` (how the stand-in textures look), `gpu_storage_mb` (the storage budget in MiB, in
-/// place of the adapter's) and `report_each_frame`. The default has no arguments, no window, no
+/// place of the adapter's), `report_each_frame` and `read_targets` (the records whose targets a
+/// headless run writes to files). The default has no arguments, no window, no
 /// extra plugins and no globals, and the declared stand-ins, the adapter's budget and a report at
 /// the end only.
 #[derive(Clone, Copy, Default)]
@@ -57,6 +59,7 @@ pub struct PlayerLaunch<'a> {
     pub stand_ins: StandInLook,
     pub gpu_storage_mb: Option<NonZeroU64>,
     pub report_each_frame: bool,
+    pub read_targets: &'a [TargetRead],
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
@@ -115,6 +118,7 @@ pub fn prepare_player(
             stand_ins: launch.stand_ins,
             storage_mb: launch.gpu_storage_mb,
             report_each_frame: launch.report_each_frame,
+            reads: launch.read_targets.to_vec(),
         },
     })
 }
@@ -375,6 +379,8 @@ pub fn run_player(
         None => player_gpu(prepared)?,
     };
     check_screen(frames, screen)?;
+    TargetRead::check_frames(&prepared.gpu.reads, frames).map_err(PlayError::Invalid)?;
+    gpu.set_reads(prepared.gpu.reads.clone());
     let mut composer = device.map(|device| device.compose(&mut sink)).transpose()?;
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     gpu.install(&mut host)?;
@@ -412,6 +418,12 @@ pub fn run_player(
     }
     report_times(&times);
     gpu.report().print(None);
+    let unwritten = gpu.report().reads_unwritten;
+    if result.is_ok() && unwritten > 0 {
+        result = Err(PlayError::Invalid(format!(
+            "{unwritten} --read-target reads wrote no file; the errors above name each"
+        )));
+    }
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))

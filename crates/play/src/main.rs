@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use worldrunner_play::{
     Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
-    SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player,
+    SuppliedGlobal, TargetRead, key_code, play_player_window, prepare, prepare_player, run_player,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -23,7 +23,7 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
             [--screen FRAME:FILE.png]... [--stand-ins declared|magenta] [--gpu-storage-mb N]
             [--report-each-frame] [--global NAME=v0,v1,v2,v3]...
-            [--plugins DIRECTORY]...";
+            [--read-target FRAME:RECORD:FILE.png]... [--plugins DIRECTORY]...";
 
 #[derive(Default)]
 struct Arguments {
@@ -35,6 +35,8 @@ struct Arguments {
     captures: Vec<(u64, PathBuf)>,
     /// The frames of a headless player run whose composed frame is written, and the files.
     screens: Vec<(u64, PathBuf)>,
+    /// The reads of a record's target that `--read-target` asks for, in the order given.
+    reads: Vec<TargetRead>,
     font: Option<PathBuf>,
     /// Extra native plugin directories for a player, in the order given.
     plugins: Vec<PathBuf>,
@@ -116,6 +118,12 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .screens
                 .push((number(frame, "--screen frame")?, file.into()));
         }
+        "--read-target" => {
+            let read = TargetRead::parse(value)
+                .and_then(|read| read.check_new(&arguments.reads).map(|()| read))
+                .map_err(|reason| format!("--read-target `{value}`: {reason}"))?;
+            arguments.reads.push(read);
+        }
         "--font" => arguments.font = Some(value.into()),
         "--plugins" => arguments.plugins.push(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
@@ -185,7 +193,9 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
     let screens = !arguments.screens.is_empty();
+    let reading = !arguments.reads.is_empty();
     let windowed = !screens
+        && !reading
         && (arguments.size.is_some()
             || !arguments.keys.is_empty()
             || !arguments.captures.is_empty());
@@ -194,12 +204,13 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let size = arguments.size.unwrap_or(WINDOW_SIZE);
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
-        screen: (windowed || screens).then_some(size),
+        screen: (windowed || screens || reading).then_some(size),
         plugins: &arguments.plugins,
         globals: &arguments.globals,
         stand_ins: arguments.stand_ins,
         gpu_storage_mb: arguments.gpu_storage_mb,
         report_each_frame: arguments.report_each_frame,
+        read_targets: &arguments.reads,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
@@ -217,7 +228,7 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    let output = screens.then(|| ScreenOutput {
+    let output = (screens || reading).then(|| ScreenOutput {
         size,
         files: arguments.screens.clone(),
     });
@@ -310,9 +321,26 @@ fn check_globals(arguments: &Arguments) -> Result<(), String> {
     Ok(())
 }
 
+/// A read of a record's target comes from a headless player run that plays its frame.
+fn check_reads(arguments: &Arguments) -> Result<(), String> {
+    if arguments.reads.is_empty() {
+        return Ok(());
+    }
+    if arguments.player.is_none() {
+        return Err("--read-target applies only to --player".into());
+    }
+    if !arguments.keys.is_empty() || !arguments.captures.is_empty() {
+        return Err(
+            "--read-target reads from a headless run, which takes no --key or --capture".into(),
+        );
+    }
+    TargetRead::check_frames(&arguments.reads, arguments.frames.unwrap_or(1))
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
     check_plugins(&arguments)?;
     check_screens(&arguments)?;
+    check_reads(&arguments)?;
     check_globals(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
@@ -670,3 +698,7 @@ mod tests {
         assert!(parsed(&["--player", "Game_Data", "--arg"]).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "main_read_target_tests.rs"]
+mod read_target_tests;

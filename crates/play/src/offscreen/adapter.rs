@@ -512,6 +512,9 @@ fn rebuild_without_unusable_parts(
     first: Refusal,
 ) -> Result<OffscreenOperations, OffscreenError> {
     adapted.report.phases.refusals += 1;
+    // Leaving records out renumbers the ones after them, so a read could land on another record.
+    adapted.frame.taps.clear();
+    adapted.report.reads.clear();
     let over_budget = is_over_budget(&first.error);
     if over_budget && adapted.report.holdings.is_empty() {
         adapted.report.holdings = holdings::describe(runtime);
@@ -629,6 +632,7 @@ fn part(
         render_textures: textures.to_vec(),
         records,
         later_reads: Vec::new(),
+        taps: Vec::new(),
         ..frame.clone()
     }
 }

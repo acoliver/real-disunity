@@ -77,6 +77,8 @@ pub struct GpuLaunch {
     pub storage_mb: Option<NonZeroU64>,
     /// Whether a headless run prints the GPU report after every frame, not only at the end.
     pub report_each_frame: bool,
+    /// The records whose targets the run writes to files.
+    pub reads: Vec<crate::TargetRead>,
 }
 
 impl GpuLaunch {
@@ -141,6 +143,8 @@ pub struct GpuWorkReport {
     pub refused_works: usize,
     /// Why a frame's work or a flush failed, by message.
     pub errors: BTreeMap<String, usize>,
+    /// The `--read-target` reads that wrote no file.
+    pub reads_unwritten: usize,
     /// How the first dispatches were bound and what came of them.
     pub traces: Vec<DispatchTrace>,
     /// Camera renders, the draws they recorded and the draws left out for want of a pass.
@@ -495,6 +499,8 @@ pub struct PlayerGpu {
     drawn_screen: Cell<Option<u64>>,
     /// The size the screen has been asked to be, which a texture of another size no longer is.
     screen_size: Cell<Option<[u32; 2]>>,
+    /// The reads of a record's target the run was asked for, which the frames they name make.
+    reads: RefCell<Vec<crate::TargetRead>>,
 }
 
 impl PlayerGpu {
@@ -670,6 +676,7 @@ impl PlayerGpu {
             device,
             drawn_screen: Cell::new(None),
             screen_size: Cell::new(None),
+            reads: RefCell::new(Vec::new()),
         })
     }
 
@@ -682,6 +689,11 @@ impl PlayerGpu {
         if size.is_none() {
             self.drawn_screen.set(None);
         }
+    }
+
+    /// Asks for the reads of a record's target, each made by the player's own frame it names.
+    pub fn set_reads(&self, reads: Vec<crate::TargetRead>) {
+        *self.reads.borrow_mut() = reads;
     }
 
     /// The number of the last frame whose work (or a flush before it) drew into the screen,

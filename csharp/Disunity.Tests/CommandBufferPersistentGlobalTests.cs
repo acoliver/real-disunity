@@ -21,6 +21,12 @@ internal static unsafe class CommandBufferPersistentGlobalTests
         {
             ATextureGlobalOutlivesTheBufferAndItsTake();
             Console.WriteLine("PASS: SetGlobalTexture of a render texture, a Texture2D and none persists in the managed store and the world's global state after the buffer runs");
+            ALayeredTextureGlobalOutlivesTheBuffer();
+            Console.WriteLine("PASS: SetGlobalTexture of a Cubemap and a Texture2DArray persists in the managed store and the world's global state as the asset the host draws");
+            LayeredTexturesAreBlitAndCopySources();
+            Console.WriteLine("PASS: a Cubemap and a Texture2DArray named by an identifier are the source of a Blit and a CopyTexture, by the asset the host draws");
+            ALayeredTextureIsNeverARenderTarget();
+            Console.WriteLine("PASS: a Cubemap and a Texture2DArray as a render target throw NotSupportedException naming the render target");
             ScalarGlobalsPersist();
             Console.WriteLine("PASS: SetGlobalFloat, Int, Integer, Vector, Color and Matrix, by name and id, persist as the matching Shader.SetGlobal calls do");
             KeywordsPersist();
@@ -47,7 +53,7 @@ internal static unsafe class CommandBufferPersistentGlobalTests
     /// receive (a render texture that unloading destroyed) would be synced into it and noted as unsent there.</summary>
     private static void ForgetTextureGlobals()
     {
-        foreach (var name in new[] { "_GrabT", "_GrabById", "_GrabPlain", "_PgLazyT", "_PgTemp", "_PgGone" })
+        foreach (var name in new[] { "_GrabT", "_GrabById", "_GrabPlain", "_PgLazyT", "_PgTemp", "_PgGone", "_GrabCube", "_GrabArray" })
             Shader.SetGlobalTexture(name, (Texture?)null);
     }
 
@@ -89,6 +95,59 @@ internal static unsafe class CommandBufferPersistentGlobalTests
         cleared.SetGlobalTexture("_GrabT", BuiltinRenderTextureType.None);
         RunAndLetTheTakeEnd(cleared);
         Expect.That(Shader.GetGlobalTexture("_GrabT") is null && Read("_GrabT").texture_kind == 0, "setting none clears the managed and the world global");
+    }
+
+    private static void ALayeredTextureGlobalOutlivesTheBuffer()
+    {
+        var (cube, array) = (new Cubemap(2, TextureFormat.RGBA32, false), new Texture2DArray(2, 2, 3, TextureFormat.RGBA32, false));
+        var buffer = new CommandBuffer();
+        buffer.SetGlobalTexture("_GrabCube", new RenderTargetIdentifier(cube));
+        buffer.SetGlobalTexture(Shader.PropertyToID("_GrabArray"), new RenderTargetIdentifier(array));
+        RunAndLetTheTakeEnd(buffer);
+        Expect.That(ReferenceEquals(Shader.GetGlobalTexture("_GrabCube"), cube), "Shader.GetGlobalTexture reads the Cubemap a buffer set");
+        Expect.That(ReferenceEquals(Shader.GetGlobalTexture("_GrabArray"), array), "Shader.GetGlobalTexture reads the Texture2DArray a buffer set by id");
+        var (cubeRead, arrayRead) = (Read("_GrabCube"), Read("_GrabArray"));
+        Expect.That((cubeRead.present & HasTexture) != 0 && cubeRead.texture_kind == KindAsset && cubeRead.texture == cube.RendererIdentity,
+            $"the world holds the Cubemap as the asset the host draws: kind={cubeRead.texture_kind} texture={cubeRead.texture}");
+        Expect.That((arrayRead.present & HasTexture) != 0 && arrayRead.texture_kind == KindAsset && arrayRead.texture == array.RendererIdentity,
+            $"the world holds the Texture2DArray as the asset the host draws: kind={arrayRead.texture_kind} texture={arrayRead.texture}");
+    }
+
+    private static void LayeredTexturesAreBlitAndCopySources()
+    {
+        var (cube, array, target) = (new Cubemap(2, TextureFormat.RGBA32, false), new Texture2DArray(2, 2, 3, TextureFormat.RGBA32, false), Target());
+        var buffer = new CommandBuffer();
+        buffer.Blit(new RenderTargetIdentifier(cube), target);
+        buffer.CopyTexture(new RenderTargetIdentifier(array), 2, 0, target, 0, 0);
+        CommandWireReader.Take();
+        Graphics.ExecuteCommandBuffer(buffer);
+        var id = target.WorldId;
+        var expected = new[]
+        {
+            $"Blit source={KindAsset}:{cube.RendererIdentity} target={id} material=0 pass=-1",
+            $"Copy source={KindAsset}:{array.RendererIdentity}[2,0] target={id}[0,0]",
+        };
+        var taken = CommandWireReader.Take();
+        Expect.That(taken.SequenceEqual(expected), $"records:\n  {string.Join("\n  ", taken)}\nexpected\n  {string.Join("\n  ", expected)}");
+        var empty = new CommandBuffer();
+        empty.Blit(new RenderTargetIdentifier(new Texture2D(0, 0)), target);
+        Throws<NotSupportedException>(() => Graphics.ExecuteCommandBuffer(empty), "a blit of a texture the world cannot send", "CommandBuffer.Blit", "Texture2D");
+        var emptyCopy = new CommandBuffer();
+        emptyCopy.CopyTexture(new RenderTargetIdentifier(new Texture2D(0, 0)), 0, 0, target, 0, 0);
+        Throws<NotSupportedException>(() => Graphics.ExecuteCommandBuffer(emptyCopy), "a copy of a texture the world cannot send", "CommandBuffer.CopyTexture", "Texture2D");
+        CommandWireReader.Take();
+    }
+
+    private static void ALayeredTextureIsNeverARenderTarget()
+    {
+        var buffer = new CommandBuffer();
+        foreach (Texture texture in new Texture[] { new Cubemap(2, TextureFormat.RGBA32, false), new Texture2DArray(2, 2, 3, TextureFormat.RGBA32, false) })
+        {
+            var name = texture.GetType().Name;
+            Throws<NotSupportedException>(() => buffer.SetRenderTarget(new RenderTargetIdentifier(texture)), $"a {name} as a render target", name, "render target");
+            Throws<NotSupportedException>(() => buffer.Blit(Target(), new RenderTargetIdentifier(texture)), $"a blit into a {name}", "render texture");
+        }
+        Expect.Equal(0, buffer.commandCount, "a refused record leaves the buffer as it was");
     }
 
     private static void ScalarGlobalsPersist()

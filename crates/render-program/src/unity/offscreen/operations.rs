@@ -76,6 +76,14 @@ pub struct CameraDraws {
     pub missing_channel: usize,
 }
 
+impl CameraDraws {
+    /// The draws left out, for every reason.
+    #[must_use]
+    pub const fn left_out(&self) -> usize {
+        self.unmatched + self.missing_texture + self.missing_channel + self.feedback_loop
+    }
+}
+
 /// What one draw list recorded and left out. The draws left out are counted as a camera's are.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListDraws {
@@ -86,6 +94,14 @@ pub struct ListDraws {
     pub missing_texture: usize,
     pub missing_channel: usize,
     pub feedback_loop: usize,
+}
+
+impl ListDraws {
+    /// The draws left out, for every reason.
+    #[must_use]
+    pub const fn left_out(&self) -> usize {
+        self.unmatched + self.missing_texture + self.missing_channel + self.feedback_loop
+    }
 }
 
 /// Why one camera render left draws out: the texture properties no layer named and the

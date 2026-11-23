@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use worldrunner_play::{
     Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, ScreenOutput, StandInLook,
-    SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player_screens,
+    SuppliedGlobal, key_code, play_player_window, prepare, prepare_player, run_player,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -208,7 +208,7 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         size,
         files: arguments.screens.clone(),
     });
-    run_player_screens(
+    run_player(
         &prepared,
         arguments.frames.unwrap_or(1),
         dt,

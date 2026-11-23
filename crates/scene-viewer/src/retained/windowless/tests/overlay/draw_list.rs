@@ -24,6 +24,7 @@ fn draw(depth_test: bool) -> UiDraw {
         corner_colors: Some(COLORS),
         distance_field: None,
         texture: Some(UiTexture::Image(7)),
+        material: None,
         sorting_layer: 0,
         sorting_order: 0,
         hierarchy_order: 0,

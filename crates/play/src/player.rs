@@ -344,16 +344,7 @@ pub struct ScreenOutput {
 }
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
-/// player's offscreen work on a device. The error names the step that failed: the missing GPU,
-/// starting the scene or the frame that failed. The run has no screen.
-///
-/// # Errors
-/// As [`run_player_screens`] without a screen.
-pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
-    run_player_screens(prepared, frames, dt, None)
-}
-
-/// [`run_player`] with a screen, when `screen` is given: the offscreen work draws a
+/// player's offscreen work on a device. With `screen`, the offscreen work draws a
 /// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
 /// frame `screen` lists, the frame a window shows is written to that frame's file as an RGB PNG:
 /// the newest image of the screen with the game's UI over it. The offscreen work and the viewer
@@ -368,7 +359,7 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
 /// fails before the scene starts when a listed frame is not among the `frames` run, and at a
 /// listed frame that has no image yet because no work has drawn into the screen, or whose UI
 /// cannot be drawn.
-pub fn run_player_screens(
+pub fn run_player(
     prepared: &PreparedPlayer,
     frames: u64,
     dt: Duration,
@@ -462,12 +453,12 @@ fn screens_due<'a>(
     if files.is_empty() {
         return Ok((frame, files));
     }
-    let image = gpu.screen().ok_or_else(|| {
+    let drawn = gpu.drawn_screen().ok_or_else(|| {
         PlayError::Invalid(format!(
             "no screen image after frame {frame}: no work has drawn into the screen yet"
         ))
     })?;
-    Ok((image.frame, files))
+    Ok((drawn, files))
 }
 
 /// Writes the composed frame to the file `screen` lists for `frame`, if it lists one: the newest

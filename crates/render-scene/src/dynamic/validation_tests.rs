@@ -60,6 +60,7 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
             corner_colors: Some(colors),
             distance_field: None,
             texture: None,
+            material: None,
             sorting_layer: 0,
             sorting_order: 0,
             hierarchy_order: 0,

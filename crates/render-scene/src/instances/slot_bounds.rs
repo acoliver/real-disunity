@@ -1,8 +1,8 @@
 //! Per-slot storage for view-independent placement bounds, grouped for culling, the
-//! eye-independent inputs of each placement's level, and the level it draws at for the
-//! current eye.
+//! eye-independent inputs of each placement's level, and the level it draws at, kept while the
+//! eye stays near where it was computed.
 
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use glam::Vec3;
 
@@ -80,6 +80,7 @@ impl SlotBounds {
             self.inputs.reset(shape);
             self.boxes.clear();
             self.valid.clear();
+            self.levels.clear();
             self.stale = true;
         }
         let mut slots = Vec::new();
@@ -107,6 +108,7 @@ impl SlotBounds {
                     .into_iter()
                     .map(|position| (position, self.union(position)))
                     .collect(),
+                (&self.boxes, stride),
             );
             self.stale = false;
         }
@@ -168,44 +170,68 @@ pub(crate) struct LevelKey {
     pub fade_cull_disabled: bool,
 }
 
-/// Tells eyes apart for every batch's level memo: each new eye takes the next epoch, so an
-/// entry stored for an earlier eye reads as empty without anything being written to it.
+/// The farthest an entry's margin or the eye's travel may reach, in millimetres, so that an
+/// entry's limit fits the bits `Levels` keeps for it.
+const MAX_TRAVEL: u64 = 1 << 54;
+
+/// How far the eye has travelled across the eyes the memos have seen. The eye is no farther
+/// from where it was when an entry was computed than it has travelled since, however it
+/// wandered in between, so an entry whose margin covers that travel still holds.
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct LevelEpochs {
+pub(crate) struct EyePath {
     key: Option<LevelKey>,
-    /// The epoch of `key`, from 1; no entry holds epoch 0.
-    epoch: u8,
+    /// Millimetres travelled in all: every move of the eye adds at least its length, rounded
+    /// up, and at least one, so a new eye never shares the travel of an earlier one.
+    travelled: u64,
 }
 
-impl LevelEpochs {
-    /// The epoch of `key`, and whether the epochs wrapped to reach it, in which case entries of
-    /// every earlier epoch may still be stored and the caller must empty every memo.
-    pub fn advance(&mut self, key: LevelKey) -> (u8, bool) {
-        if self.key == Some(key) {
-            return (self.epoch, false);
-        }
-        self.key = Some(key);
-        let (epoch, wrapped) = match self.epoch.checked_add(1) {
-            Some(epoch) => (epoch, false),
-            None => (1, true),
+impl EyePath {
+    /// The travel at the eye `key` names, and whether it restarted to stay in range, in which
+    /// case entries stored under the earlier travel may still be stored and the caller must
+    /// empty every memo.
+    pub fn advance(&mut self, key: LevelKey) -> (u64, bool) {
+        let Some(previous) = self.key.replace(key) else {
+            return (self.travelled, false);
         };
-        self.epoch = epoch;
-        (epoch, wrapped)
+        if previous == key {
+            return (self.travelled, false);
+        }
+        let step = (0..3)
+            .map(|axis| previous.eye_millimeters[axis].abs_diff(key.eye_millimeters[axis]))
+            .try_fold(0_u128, |sum, delta| {
+                sum.checked_add(u128::from(delta) * u128::from(delta))
+            })
+            .map(|squared| {
+                let floor = squared.isqrt();
+                floor + u128::from(floor * floor < squared)
+            })
+            .and_then(|length| u64::try_from(length.max(1)).ok());
+        match step.and_then(|step| self.travelled.checked_add(step)) {
+            Some(travelled) if travelled <= MAX_TRAVEL => {
+                self.travelled = travelled;
+                (travelled, false)
+            }
+            _ => {
+                self.travelled = 0;
+                (0, true)
+            }
+        }
     }
 }
 
-/// What each slot draws at for one eye, filled during selection by whichever view needs it
-/// first. A slot's entry depends only on its placement, its batch's mesh and materials and
-/// the eye, so concurrent views may fill it in any order.
+/// What each slot draws at, kept from the eye it was computed for until the eye has moved too
+/// far for the outcome to be sure. A slot's entry depends only on its placement, its batch's
+/// mesh and materials and the eye, so concurrent views may fill it in any order.
 ///
-/// Each entry holds the epoch of the eye it was filled for above its outcome (see
-/// [`LevelEpochs`]), so a new eye empties every entry without a write to any of them.
+/// Each entry holds its outcome above the travel of the eye (see [`EyePath`]) up to which it
+/// holds, so a new eye empties no entry that its margin still covers, and an entry whose margin
+/// is nothing holds for the eye it was computed for alone.
 #[derive(Debug, Default)]
 pub(crate) struct Levels {
-    values: Vec<AtomicU16>,
+    values: Vec<AtomicU64>,
 }
 
-/// A slot's memoized selection outcome.
+/// A slot's selection outcome.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Level {
     /// Every fragment the placement could draw is faded out.
@@ -214,6 +240,16 @@ pub(crate) enum Level {
     Drawn(usize),
 }
 
+/// An outcome and how far the eye may move from where it was computed, in millimetres, without
+/// the outcome changing for any eye in reach.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Computed {
+    pub level: Level,
+    pub margin: u64,
+}
+
+const LIMIT_BITS: u32 = 56;
+const LIMIT_MASK: u64 = (1 << LIMIT_BITS) - 1;
 const FADED: u8 = 1;
 const DRAWN: u8 = 2;
 
@@ -221,7 +257,7 @@ impl Levels {
     /// Makes room for `slots` slots.
     fn grow(&mut self, slots: usize) {
         if self.values.len() < slots {
-            self.values.resize_with(slots, || AtomicU16::new(0));
+            self.values.resize_with(slots, || AtomicU64::new(0));
         }
     }
 
@@ -237,31 +273,33 @@ impl Levels {
         }
     }
 
-    /// The outcome of `position` for the eye of `epoch`, computed by `compute` unless an
-    /// earlier view stored it.
+    /// The outcome of `position` for the eye that has `travelled` so far, computed by `compute`
+    /// unless an earlier eye's entry still holds.
     pub fn get_or_compute(
         &self,
-        epoch: u8,
+        travelled: u64,
         position: usize,
-        compute: impl FnOnce() -> Level,
+        compute: impl FnOnce() -> Computed,
     ) -> Level {
         let value = &self.values[position];
-        let [stored_epoch, outcome] = value.load(Ordering::Relaxed).to_be_bytes();
-        if stored_epoch != epoch {
-            let level = compute();
-            let outcome = match level {
-                Level::Faded => FADED,
-                Level::Drawn(lod) => {
-                    u8::try_from(lod + usize::from(DRAWN)).expect("levels of detail fit the memo")
-                }
+        let stored = value.load(Ordering::Relaxed);
+        let (outcome, limit) = ((stored >> LIMIT_BITS) as u8, stored & LIMIT_MASK);
+        if outcome != 0 && travelled <= limit {
+            return match outcome {
+                FADED => Level::Faded,
+                drawn => Level::Drawn(usize::from(drawn - DRAWN)),
             };
-            value.store(u16::from_be_bytes([epoch, outcome]), Ordering::Relaxed);
-            return level;
         }
-        match outcome {
-            FADED => Level::Faded,
-            stored => Level::Drawn(usize::from(stored - DRAWN)),
-        }
+        let Computed { level, margin } = compute();
+        let outcome = match level {
+            Level::Faded => FADED,
+            Level::Drawn(lod) => {
+                u8::try_from(lod + usize::from(DRAWN)).expect("levels of detail fit the memo")
+            }
+        };
+        let limit = travelled + margin.min(MAX_TRAVEL);
+        value.store(u64::from(outcome) << LIMIT_BITS | limit, Ordering::Relaxed);
+        level
     }
 }
 

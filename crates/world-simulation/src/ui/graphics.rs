@@ -7,7 +7,7 @@ use crate::presentation::extraction::{
 };
 use crate::ui::clip::{CanvasClip, Clipped};
 use crate::ui::group::{effective_alpha, groups_by_object};
-use crate::ui::{CanvasRenderer, RectLayout, UiLayout, UiTexture};
+use crate::ui::{CanvasRenderer, RectLayout, UiLayout, UiMaterial, UiTexture};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use std::collections::BTreeMap;
 
@@ -31,6 +31,10 @@ pub struct UiGraphic {
     /// The texture the quads sample, or none for plain colour. A `Target` is kept when the world
     /// no longer holds it; the player decides what a missing render texture draws.
     pub texture: Option<UiTexture>,
+    /// The game's own material of the renderer, or none when the engine draws the graphic with its
+    /// own look: no material, a destroyed one, or one whose shader has no source or is the
+    /// engine's UI shader.
+    pub material: Option<UiMaterial>,
     pub quads: Vec<UiGraphicQuad>,
     /// Unpaired triangle-list vertices in the same drawn space as quads.
     pub triangles: Vec<[super::UiVertex; 3]>,
@@ -67,7 +71,8 @@ pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphi
             let root = rects.get(roots.get(&rect.canvas)?)?;
             CanvasClip::new(clip, root.local_to_world)
         });
-        if let Some(graphic) = graphic(renderer, rect, overlay, alpha, clip) {
+        let material = UiMaterial::of(world, renderer.world_material);
+        if let Some(graphic) = graphic(renderer, rect, (overlay, alpha, clip), material) {
             let at = order.get(&component.object).copied().unwrap_or(usize::MAX);
             found.push((at, graphic));
         }
@@ -79,9 +84,8 @@ pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphi
 fn graphic(
     renderer: &CanvasRenderer,
     rect: &RectLayout,
-    overlay: bool,
-    alpha: f32,
-    clip: Option<CanvasClip>,
+    (overlay, alpha, clip): (bool, f32, Option<CanvasClip>),
+    material: Option<UiMaterial>,
 ) -> Option<UiGraphic> {
     let found = renderer.geometry.as_ref()?.quads();
     let tint = [
@@ -117,6 +121,7 @@ fn graphic(
         sorting_layer: rect.sorting_layer,
         sorting_order: rect.sorting_order,
         texture: renderer.graphic_texture,
+        material,
         quads,
         triangles: found
             .triangles
@@ -179,7 +184,8 @@ pub fn append_graphics(
     plan: &mut WorldRenderPlan,
     graphics: Vec<UiGraphic>,
 ) -> Result<(), worldrunner_camera::ViewError> {
-    for mut graphic in graphics {
+    // A game's material has no path that draws it yet, and the plain quad would show it as white.
+    for mut graphic in graphics.into_iter().filter(|g| g.material.is_none()) {
         let texture = match graphic.texture {
             None => None,
             Some(UiTexture::Image(id)) => Some(id),

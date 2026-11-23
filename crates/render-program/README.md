@@ -275,12 +275,14 @@ The crate does not read bundles or translate shaders.
 - `StageProgram`
   - Adapter module: `unity::targets`
   - Converted to: The prepared set and binding that each constant buffer and texture of the stage fills: a `BufferLayout` and a `ParamName`.
-- `Program`, `SubProgram`, `PlayerSubProgram` and keyword indices
+- `PlayerSubProgram` and keyword indices
   - Adapter module: `unity::variant`
-  - Converted to: `select_sub_program` and `select_player_sub_program` choose by exact keyword set through the neutral `select_variant`.
+  - Converted to: `select_variant` chooses the variant whose keyword set equals the enabled keywords the stage declares, through the neutral `select_variant`.
     A keyword the stage does not declare is ignored.
-    `select_player_sub_program` declares the keywords its variants use, not the program's state mask.
-    When no variant has the set, each required group (two or more keywords that never occur together and of which every variant has exactly one) that the set has no member of is completed with its lowest-indexed keyword and the set is matched once more; any other missing set is `NoMatch`.
+    `declared_player_keywords` declares the keywords a pass's variants use, not the program's state mask.
+    The enabled keywords are completed with the lowest-indexed keyword of each required group (two or more keywords that never occur together and of which every variant has exactly one) they have no member of.
+    A set that has a variant already has a member of each such group, so completing it changes nothing.
+    Any other missing set is `NoMatch`.
 - `ShaderState` and property layers
   - Adapter module: `unity::state::resolve_state`
   - Converted to: A resolved target-zero state, which `RenderState::neutral(front_face)` turns into a neutral `RenderState`.
@@ -753,7 +755,7 @@ The walk is the one `unity-import`'s `player_variants` does (this crate does not
   No match is `ResolveError::NoPass`, never another pass.
   `OffscreenOperations` reports what the camera draws did: `camera_draws()` lists each camera render with the draws it recorded and the ones left out for want of a pass, `unmatched_passes()` counts the left-out draws by the tag values the shader's passes have against the ones selected, and `partial_mip_reads_by_pass()` counts the reads that bound only the levels written with the base level by texture property, levels and drawing pass.
 - **Keywords.** The material's keywords and the enabled global keywords are mapped to the shader's keyword indices by name.
-  `unity::variant::select_variant` then matches them exactly, as `select_player_sub_program` does, but only among the variants of the Vulkan platform.
+  `unity::variant::select_variant` then matches them exactly among the variants of the Vulkan platform.
   A keyword the shader does not list cannot change a variant and is ignored.
   The keywords a pass's variants differ by are the ones those variants use (`declared_player_keywords`); the vertex program's keyword state mask is not consulted, because in the Unity 6 player it names stereo keywords that no variant uses, and declaring it would select the variant with no keywords for every draw of such a pass.
   A pass whose variants all take one keyword of an exclusive group, such as the terrain passes' `_MAIN_LIGHT_SHADOWS` and `_MAIN_LIGHT_SHADOWS_CASCADE`, has no variant for a draw that enables neither; that draw takes the group's first (lowest-indexed) keyword, which is the keyword of the last variant in each such list of 128 or more variants in the Old World player.
@@ -866,8 +868,8 @@ Culling is the pass's, with clockwise front faces as the other draws here; mirro
 
 ### Blits
 
-A blit with a material binds its source under the main texture property name `OffscreenFrame::main_texture` (default `_MainTex`, the name the public blit API uses) and, when a constant buffer member of that name plus `_TexelSize` exists, a vector of the texel width, height, width and height of the source's mip 0 (`1/w, 1/h, w, h`).
-Every draw does the same for any texture a layer binds: a constant buffer member named `<texture>_TexelSize` holds `1/w, 1/h, w, h` of the first level of the texture bound under `<texture>`, below every layer, so a layer that sets the member wins (`DRAW_LAYERS` lists it last as `size of the bound texture`).
+A blit with a material binds its source under the main texture property name `OffscreenFrame::main_texture` (default `_MainTex`, the name the public blit API uses).
+Every draw, a blit included, fills texel sizes for the textures its layers bind: a constant buffer member named `<texture>_TexelSize` holds `1/w, 1/h, w, h` of the first level of the texture bound under `<texture>`, below every layer, so a layer that sets the member wins (`DRAW_LAYERS` lists it last as `size of the bound texture`).
 Old World's terrain PVT normal pass declares `_GlobalTerrainLastHeightmap_TexelSize`, which the game never sets; without it the pass wrote 0 to red and green of every texel of its normal.
 The vertex stage reads a quad of two triangles in clip space.
 `OffscreenFrame::blit_values` is a layer above the source and the material for every blit with a material: the host puts there what the blit call itself sets, such as the matrices a pass places its quad with.
@@ -1044,8 +1046,7 @@ Set `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json` to run them on lavapi
 Each has Unity-shaped `VariantParameters` and a vertex input table; the camera shader has two passes tagged with LightMode values and two keyword variants.
 Predicted pixels come from the placements, clear colors, tints and inversions, never from the output:
 
-- `resolve.rs`: pass by index and by tag list, exact keyword match, no fallback, missing pass and missing variant named, variants cached by content.
-  The one completion is the default keyword of a required group (`variant_required_group.rs`).
+- `resolve.rs`: pass by index and by tag list, exact keyword match completed with the default keyword of each required group (`variant_required_group.rs`), missing pass and missing variant named, variants cached by content.
 - `camera.rs`: two renderers filtered by layer over a clear color, render queue order, depth, a camera that does not clear, missing vertex channel and missing texture named, missing property listed.
 - `layers.rs` and `sampler.rs`: the four layers in priority order and the camera below the renderer; repeat, clamp and mirror against the fixed sampler at predicted texels; a texture input's state over the texture's.
 - `blit_values.rs`: a blit pass that places its quad by built-in matrices covers the target when the frame's blit values supply them, draws nothing when no layer does, and keeps them against a global of the same name.

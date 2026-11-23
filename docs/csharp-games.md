@@ -6,7 +6,7 @@ This page covers scripts, low-level hosting and built-player loading. The [play 
 
 ## How scripts run
 
-The native world decides when each message runs, using Unity's ordering: Awake and OnEnable when an object becomes active, Start before its first update, FixedUpdate and physics in each fixed step, collision and trigger messages after physics, Update, coroutine resumptions, work posted to the main thread's `SynchronizationContext` (including `await` continuations), LateUpdate, then OnDisable and OnDestroy at the end of the frame. The C# side only invokes the method the native scheduler hands it. There is no second managed scheduler.
+The native world decides when each message runs, using Unity's ordering: Awake and OnEnable when an object becomes active, Start before its first update, FixedUpdate and physics in each fixed step, collision and trigger messages after physics, Update, coroutine resumptions, work posted to the main thread's `SynchronizationContext` (including `await` continuations), LateUpdate, then OnDisable and OnDestroy at the end of the frame. The C# side only invokes the method the native scheduler hands it. There is no second managed scheduler. The one message the host sends on its own is `OnRectTransformDimensionsChange`, at the two ends of the canvas update (see [the MonoBehaviour messages](unity-api.md)); it compares rectangle sizes the managed side reads and orders nothing else.
 
 Script messages are found by name, including private methods, so the usual Unity style works without overrides. `Start` may return an `IEnumerator`.
 

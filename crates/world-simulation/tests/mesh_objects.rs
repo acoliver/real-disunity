@@ -8,7 +8,7 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::{Camera, mesh_objects::extract_mesh_objects};
 use worldrunner_world_simulation::{
     ComponentDesc, DrawnMaterial, LocalTransform, MeshFilter, MeshRenderer, ObjectDesc,
-    ObjectHandle, RendererKind, World, WorldSettings,
+    ObjectHandle, World, WorldSettings,
 };
 
 const MESH: u64 = (1 << 41) + 5;
@@ -135,16 +135,6 @@ fn a_renderer_that_only_casts_shadows_is_left_out_and_the_other_modes_stay() {
         }
     }
     assert_eq!(listed(&world), kept);
-}
-
-#[test]
-fn skinned_and_particle_renderers_are_left_out() {
-    let mut world = new_world();
-    for kind in [RendererKind::Skinned, RendererKind::Particle] {
-        let renderer = MeshRenderer::of_kind(kind);
-        add_mesh_object(&mut world, MESH, renderer, ObjectDesc::default());
-    }
-    assert!(listed(&world).is_empty());
 }
 
 #[test]

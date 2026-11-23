@@ -1,12 +1,12 @@
 //! The mesh renderers a frame shows, for a host that draws 3D objects next to the sprites.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use super::extraction::{selected_camera, view_basis};
 use crate::graphics::{
     BASE_COLOR, MAIN_COLOR, MAIN_TEXTURE, MaterialId, ShaderProperties, TextureRef,
 };
 use crate::shadows::SHADOWS_ONLY;
-use crate::{ComponentDesc, DrawnMaterial, ObjectHandle, RendererKind, World, WorldError};
+use crate::{ComponentDesc, DrawnMaterial, ObjectHandle, World, WorldError};
 
 /// One mesh renderer a frame shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -40,29 +40,26 @@ pub struct MeshObject {
 /// names a mesh the host has contents for and whose layer the presented camera's culling mask
 /// admits (every layer when no camera is presented). A renderer with `force_rendering_off` is
 /// left out, and so is one whose shadow casting mode is `ShadowsOnly`, which draws nothing
-/// visible, and every renderer that is not a plain mesh renderer: skinned and particle renderers
-/// draw from data a mesh filter does not hold.
+/// visible, and a particle renderer, which draws from data no mesh holds. A mesh renderer draws its
+/// mesh filter's mesh at its own matrix. A skinned renderer draws the mesh it names in its bind pose
+/// where its root bone puts it, and is left out when its skin names no root bone that is in the
+/// world.
 pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError> {
     let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
-    let mut meshes: HashMap<ObjectHandle, u64> = HashMap::new();
-    for component in world.published_components() {
-        if let ComponentDesc::MeshFilter(filter) = &component.desc
-            && filter.drawn_mesh != 0
-        {
-            meshes.insert(component.object, filter.drawn_mesh);
-        }
-    }
     let basis = view_basis();
     let mut objects = Vec::new();
     for component in world.published_components() {
         let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
             continue;
         };
-        let shown = renderer.kind == RendererKind::Mesh
-            && renderer.switches.enabled
-            && !renderer.switches.force_rendering_off
-            && renderer.shadow_casting_mode != SHADOWS_ONLY;
-        let Some(mesh) = meshes.get(&component.object).copied().filter(|_| shown) else {
+        let shown = renderer.shows() && renderer.shadow_casting_mode != SHADOWS_ONLY;
+        let Some(mesh) = world
+            .renderer_mesh(component.object, renderer)
+            .filter(|_| shown)
+        else {
+            continue;
+        };
+        let Some(placement) = world.renderer_placement(component.object, renderer)? else {
             continue;
         };
         let layer = world.object(component.object)?.layer;
@@ -89,7 +86,7 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
             .collect();
         objects.push(MeshObject {
             object: component.object,
-            local_to_world: (basis * world.presented_matrix(component.object)?).to_cols_array(),
+            local_to_world: (basis * placement).to_cols_array(),
             mesh,
             slots,
             layer: u32::from(layer),

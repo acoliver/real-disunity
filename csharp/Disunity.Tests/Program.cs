@@ -580,6 +580,7 @@ GraphicsTargetTests.Run();
 Texture3DTests.Run();
 FontEventTests.Run();
 TextGeneratorTests.Run();
+FontDynamicTests.Run();
 CursorTests.Run();
 PanelInputConfigurationTests.Run();
 UIElementsPanelTests.Run();

@@ -867,6 +867,7 @@ The encoding is version 19.
   The engine lays out no generated text yet: empty text gives an empty result, and any other text makes `Populate`, `PopulateWithErrors`, `GetPreferredWidth` and `GetPreferredHeight` throw `NotSupportedException` naming the member.
 - `UnityEngine.UI.Text`: `text`, `fontSize`, `font`, `color`, `alignment`, `lineSpacing`, `horizontalOverflow`, `verticalOverflow`, `supportRichText`; `fontStyle` Normal only and `resizeTextForBestFit` off only (the native world rejects the whole style write with `DisunityException` otherwise).
   `Font.material` is a copy of the default UI material named after the font, made on first use and replaceable; the engine builds no atlas for a `Font`, so it has no main texture (the engine's choice).
+  `Font.dynamic` is true for a font that holds its font file, whether the host registered it or a player stored it, because the engine draws that font's glyphs on demand from the file; a font with no file (a player font with an empty file) has only imported glyph data and reports false. UI Text reads it while it builds its generation settings.
   Fonts are TrueType files registered by the host with `DisunityHost.RegisterFont`; there is no built-in font.
   `Font` is a handle that keeps the file data it was registered with, which `FontEngine.LoadFontFace(Font)` loads a face from, and has the static event `textureRebuilt` (`Action<Font>`), which accepts and drops handlers and is never raised because the engine rebuilds no dynamic font atlas.
 

@@ -1,0 +1,365 @@
+// Disunity ABI surface. Generated from the exported functions, #[repr(C)] records and error
+// reasons of the ABI sources. Do not edit. The ABI revision is the FNV-1a hash of this file.
+fn disunity_abi_check(revision: u32) -> DisunityResult
+fn disunity_abi_version(out_version: *mut u32) -> DisunityResult
+fn disunity_active_pass_read(world: u64, output: *mut DisunityActivePass) -> DisunityResult
+fn disunity_asset_activate(world: u64, identity: u64, output: *mut crate::scheduling::DisunityAdvance) -> DisunityResult
+fn disunity_asset_alive(world: u64, identity: u64, alive: *mut u32) -> DisunityResult
+fn disunity_asset_create(world: u64, identity: u64) -> DisunityResult
+fn disunity_asset_destroy(world: u64, identity: u64) -> DisunityResult
+fn disunity_audio_listener_count(world: u64, output: *mut u32) -> DisunityResult
+fn disunity_body_interpolation_read(world: u64, handle: u64, interpolate: *mut u32) -> DisunityResult
+fn disunity_body_interpolation_write(world: u64, handle: u64, interpolate: u32) -> DisunityResult
+fn disunity_body_move_position(world: u64, body: u64, x: f32, y: f32) -> DisunityResult
+fn disunity_body_read(world: u64, handle: u64, output: *mut DisunityBody2d) -> DisunityResult
+fn disunity_body_set_sleeping(world: u64, handle: u64, sleeping: u32) -> DisunityResult
+fn disunity_body_sleeping(world: u64, handle: u64, sleeping: *mut u32) -> DisunityResult
+fn disunity_body_write(world: u64, handle: u64, value: *const DisunityBody2d) -> DisunityResult
+fn disunity_buffer_copy(handle: u64, output: *mut u8, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_buffer_free(handle: u64) -> DisunityResult
+fn disunity_callback_check(world: u64, ticket: u64) -> DisunityResult
+fn disunity_callback_read(world: u64, script: u64, output: *mut DisunityCallback) -> DisunityResult
+fn disunity_callback_wait(world: u64, ticket: u64, kind: u32, num: u64, den: u64) -> DisunityResult
+fn disunity_camera_create(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_camera_data_read(world: u64, handle: u64, property: u32, output: *mut u32) -> DisunityResult
+fn disunity_camera_data_write(world: u64, handle: u64, property: u32, value: u32) -> DisunityResult
+fn disunity_camera_layer_create(world: u64, object: u64, kind: u32, output: *mut u64) -> DisunityResult
+fn disunity_camera_layer_read(world: u64, handle: u64, output: *mut u32) -> DisunityResult
+fn disunity_camera_layer_write(world: u64, handle: u64, enabled: u32) -> DisunityResult
+fn disunity_camera_matrix_read(world: u64, handle: u64, kind: u32, matrix: *mut f32, is_set: *mut u32) -> DisunityResult
+fn disunity_camera_matrix_write(world: u64, handle: u64, kind: u32, matrix: *const f32) -> DisunityResult
+fn disunity_camera_read(world: u64, handle: u64, output: *mut DisunityCamera) -> DisunityResult
+fn disunity_camera_target_buffers_read(world: u64, handle: u64, colors: *mut u64, color_count: *mut u32, depth: *mut u64) -> DisunityResult
+fn disunity_camera_target_buffers_write(world: u64, handle: u64, colors: *const u64, color_count: u32, depth: u64) -> DisunityResult
+fn disunity_camera_write(world: u64, handle: u64, value: *const DisunityCamera) -> DisunityResult
+fn disunity_canvas_group_create(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_canvas_group_read(world: u64, handle: u64, output: *mut DisunityCanvasGroup) -> DisunityResult
+fn disunity_canvas_group_write(world: u64, handle: u64, value: *const DisunityCanvasGroup) -> DisunityResult
+fn disunity_canvas_pixel_perfect_read(world: u64, handle: u64, output: *mut u32) -> DisunityResult
+fn disunity_canvas_pixel_perfect_write(world: u64, handle: u64, value: u32) -> DisunityResult
+fn disunity_canvas_read(world: u64, handle: u64, output: *mut DisunityCanvas) -> DisunityResult
+fn disunity_canvas_renderer_create(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_canvas_renderer_geometry_read(world: u64, handle: u64, info: *mut DisunityUiGraphicInfo, vertices: *mut DisunityUiVertex, capacity: u32) -> DisunityResult
+fn disunity_canvas_renderer_geometry_write(world: u64, handle: u64, vertices: *const DisunityUiVertex, vertex_count: u32, indices: *const u32, index_count: u32) -> DisunityResult
+fn disunity_canvas_renderer_inherited_alpha(world: u64, handle: u64, output: *mut f32) -> DisunityResult
+fn disunity_canvas_renderer_material_read(world: u64, handle: u64, pop: u32, index: u32, output: *mut u64) -> DisunityResult
+fn disunity_canvas_renderer_material_write(world: u64, handle: u64, pop: u32, index: u32, instance: u64, world_material: u64) -> DisunityResult
+fn disunity_canvas_renderer_read(world: u64, handle: u64, output: *mut DisunityCanvasRenderer) -> DisunityResult
+fn disunity_canvas_renderer_texture_write(world: u64, handle: u64, identity: u64, kind: u32) -> DisunityResult
+fn disunity_canvas_renderer_write(world: u64, handle: u64, value: *const DisunityCanvasRenderer) -> DisunityResult
+fn disunity_canvas_scale_factor(world: u64, handle: u64, width: u32, height: u32, output: *mut f32) -> DisunityResult
+fn disunity_canvas_scale_read(world: u64, handle: u64, output: *mut DisunityCanvasScale) -> DisunityResult
+fn disunity_canvas_scale_write(world: u64, handle: u64, value: *const DisunityCanvasScale) -> DisunityResult
+fn disunity_canvas_write(world: u64, handle: u64, value: *const DisunityCanvas) -> DisunityResult
+fn disunity_cleanup_flush(world: u64, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_clone_abort(world: u64, root: u64) -> DisunityResult
+fn disunity_clone_activate(world: u64, root: u64, output: *mut crate::scheduling::DisunityAdvance) -> DisunityResult
+fn disunity_clone_bind(world: u64, root: u64, target: u64, identity: u64) -> DisunityResult
+fn disunity_clone_copy(world: u64, root: u64, rows: *mut DisunityCloneRow, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_clone_create(world: u64, template: u64, parent: u64, root: *mut u64, count: *mut u32) -> DisunityResult
+fn disunity_collider_read(world: u64, handle: u64, output: *mut DisunityCollider2d) -> DisunityResult
+fn disunity_collider_write(world: u64, handle: u64, value: *const DisunityCollider2d) -> DisunityResult
+fn disunity_command_buffer_submit(world: u64, commands: *const DisunityCommand, count: u32) -> DisunityResult
+fn disunity_component_destroy(world: u64, component: u64) -> DisunityResult
+fn disunity_compute_bindings_read(world: u64, token: u32, info: *mut DisunityComputeBindingsInfo, entries: *mut DisunityComputeBinding, floats: *mut f32, text: *mut u8) -> DisunityResult
+fn disunity_compute_buffer_bind(world: u64, shader: u64, kernel: u32, name: *const u8, length: u32, buffer: u64) -> DisunityResult
+fn disunity_compute_buffer_create(world: u64, desc: *const DisunityComputeBufferDesc, output: *mut u64) -> DisunityResult
+fn disunity_compute_buffer_destroy(world: u64, buffer: u64) -> DisunityResult
+fn disunity_compute_buffer_info(world: u64, buffer: u64, output: *mut DisunityComputeBufferInfo) -> DisunityResult
+fn disunity_compute_buffer_read(world: u64, buffer: u64, byte_offset: u64, output: *mut u8, length: u32) -> DisunityResult
+fn disunity_compute_buffer_write(world: u64, buffer: u64, byte_offset: u64, data: *const u8, length: u32) -> DisunityResult
+fn disunity_compute_dispatch(world: u64, shader: u64, kernel: u32, groups_x: u32, groups_y: u32, groups_z: u32) -> DisunityResult
+fn disunity_compute_float_write(world: u64, shader: u64, kernel: i32, name: *const u8, length: u32, value: f32) -> DisunityResult
+fn disunity_compute_int_write(world: u64, shader: u64, kernel: i32, name: *const u8, length: u32, value: i32) -> DisunityResult
+fn disunity_compute_kernel_size_write(world: u64, shader: u64, kernel: u32, x: u32, y: u32, z: u32) -> DisunityResult
+fn disunity_compute_matrix_write(world: u64, shader: u64, kernel: i32, name: *const u8, length: u32, values: *const f32) -> DisunityResult
+fn disunity_compute_shader_create(world: u64, desc: *const DisunityComputeShaderDesc, text: *const u8, text_length: u32, kernels: *const DisunityComputeKernel, output: *mut u64) -> DisunityResult
+fn disunity_compute_shader_destroy(world: u64, shader: u64) -> DisunityResult
+fn disunity_compute_shader_read(world: u64, shader: u64, info: *mut DisunityComputeShaderInfo, kernels: *mut DisunityComputeKernel, text: *mut u8) -> DisunityResult
+fn disunity_compute_texture_global_write(world: u64, shader: u64, kernel: i32, lengths: *const DisunityComputeGlobalTexture, names: *const u8) -> DisunityResult
+fn disunity_compute_texture_write(world: u64, shader: u64, kernel: i32, name: *const u8, length: u32, slot: *const DisunityTextureSlot) -> DisunityResult
+fn disunity_compute_vector_write(world: u64, shader: u64, kernel: i32, name: *const u8, length: u32, values: *const f32) -> DisunityResult
+fn disunity_construction_abort(world: u64, construction: u64) -> DisunityResult
+fn disunity_construction_activate(world: u64, construction: u64, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_construction_begin(world: u64, output: *mut u64) -> DisunityResult
+fn disunity_construction_object_create(world: u64, construction: u64, output: *mut u64) -> DisunityResult
+fn disunity_coroutine_cancelled(world: u64, output: *mut u64) -> DisunityResult
+fn disunity_coroutine_ready(world: u64, identity: u64) -> DisunityResult
+fn disunity_coroutine_start(world: u64, script: u64, kind: u32, num: u64, den: u64, output: *mut u64) -> DisunityResult
+fn disunity_coroutine_stop(world: u64, routine: u64) -> DisunityResult
+fn disunity_environment_read(world: u64, output: *mut DisunityEnvironment) -> DisunityResult
+fn disunity_environment_write(world: u64, input: *const DisunityEnvironment) -> DisunityResult
+fn disunity_error_message(world: u64, buffer: *mut u8, capacity: u32, out_len: *mut u32) -> DisunityResult
+fn disunity_error_take(world: u64, output: *mut DisunityBuffer) -> DisunityResult
+fn disunity_face_glyph_index(world: u64, face: u64, unicode: u32, out: *mut u32) -> DisunityResult
+fn disunity_face_glyph_metrics(world: u64, face: u64, glyph: u32, out: *mut DisunityGlyphMetrics) -> DisunityResult
+fn disunity_face_glyph_render(world: u64, face: u64, render: *const DisunityGlyphRender, atlas: *mut u8, atlas_length: u32) -> DisunityResult
+fn disunity_face_info(world: u64, face: u64, out: *mut DisunityFaceInfo) -> DisunityResult
+fn disunity_face_load(world: u64, bytes: *const u8, length: u32, face_index: u32, point_size: f32, out_face: *mut u64) -> DisunityResult
+fn disunity_face_name(world: u64, face: u64, which: u32, bytes: *mut u8, capacity: u32, length: *mut u32) -> DisunityResult
+fn disunity_face_pairs(world: u64, face: u64, glyphs: *const u32, glyph_count: u32, records: *mut DisunityGlyphPair, count: *mut u32) -> DisunityResult
+fn disunity_face_set_size(world: u64, face: u64, point_size: f32) -> DisunityResult
+fn disunity_face_unload(world: u64, face: u64) -> DisunityResult
+fn disunity_font_register(world: u64, bytes: *const u8, length: u32, output: *mut u64) -> DisunityResult
+fn disunity_gameobject_create(world: u64, out_object: *mut u64) -> DisunityResult
+fn disunity_gameobject_destroy(world: u64, object: u64) -> DisunityResult
+fn disunity_gameobject_destroy_after(world: u64, object: u64, numerator: u64, denominator: u64) -> DisunityResult
+fn disunity_gameobject_read(world: u64, object: u64, output: *mut crate::DisunityObjectState) -> DisunityResult
+fn disunity_gameobject_set_active(world: u64, object: u64, active: u32, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_gpu_flush(world: u64) -> DisunityResult
+fn disunity_gpu_flush_register(world: u64, callback: Option<unsafe extern "C" fn(u64, u64, *mut u8, u32, *mut u32) -> DisunityResult>, user: u64) -> DisunityResult
+fn disunity_gpu_flush_register_default(callback: Option<unsafe extern "C" fn(u64, u64, *mut u8, u32, *mut u32) -> DisunityResult>, user: u64) -> DisunityResult
+fn disunity_graphics_snapshot(world: u64, buffer: *mut u8, capacity: u32, length: *mut u32) -> DisunityResult
+fn disunity_input_axis_id(world: u64, bytes: *const u8, length: u32, output: *mut u32) -> DisunityResult
+fn disunity_input_axis_read(world: u64, phase: u32, bytes: *const u8, length: u32, raw: u32, output: *mut f32) -> DisunityResult
+fn disunity_input_axis_register(world: u64, id: u32, bytes: *const u8, length: u32, config: *const DisunityInputAxis) -> DisunityResult
+fn disunity_input_push(world: u64, num: u64, den: u64, kind: u32, code: u32, value: f32) -> DisunityResult
+fn disunity_input_read(world: u64, phase: u32, code: u32, keys: *mut u32, axis: *mut f32) -> DisunityResult
+fn disunity_light2d_color(world: u64, handle: u64, r: f32, g: f32, b: f32, a: f32) -> DisunityResult
+fn disunity_light2d_layers(world: u64, handle: u64, layers: *const i32, count: u32) -> DisunityResult
+fn disunity_light2d_layers_read(world: u64, handle: u64, output: *mut i32, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_light2d_read(world: u64, handle: u64, property: u32, output: *mut f32) -> DisunityResult
+fn disunity_light2d_write(world: u64, handle: u64, property: u32, value: f32) -> DisunityResult
+fn disunity_light_create(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_light_read(world: u64, handle: u64, output: *mut DisunityLight) -> DisunityResult
+fn disunity_light_write(world: u64, handle: u64, value: *const DisunityLight) -> DisunityResult
+fn disunity_material_create(world: u64, shader: u64, output: *mut u64) -> DisunityResult
+fn disunity_material_destroy(world: u64, material: u64) -> DisunityResult
+fn disunity_material_pass_write(world: u64, material: u64, name: *const u8, length: u32, enabled: u32) -> DisunityResult
+fn disunity_material_read(world: u64, material: u64, output: *mut DisunityMaterialInfo) -> DisunityResult
+fn disunity_material_render_queue_write(world: u64, material: u64, queue: i32) -> DisunityResult
+fn disunity_material_set_buffer(world: u64, material: u64, name: *const u8, length: u32, buffer: u64) -> DisunityResult
+fn disunity_material_set_pass(world: u64, material: u64, pass: u32) -> DisunityResult
+fn disunity_material_shader_write(world: u64, material: u64, shader: u64) -> DisunityResult
+fn disunity_mesh_channels_read(world: u64, info: *mut DisunityMeshChannelsInfo, channels: *mut DisunityMeshChannel, data: *mut f32, indices: *mut u32, ranges: *mut DisunityMeshRange) -> DisunityResult
+fn disunity_mesh_channels_store(world: u64, info: *const DisunityMeshChannelsInfo, channels: *const DisunityMeshChannel, data: *const f32, indices: *const u32, ranges: *const DisunityMeshRange) -> DisunityResult
+fn disunity_mesh_filter_create(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_mesh_filter_drawn_read(world: u64, handle: u64, output: *mut u64) -> DisunityResult
+fn disunity_mesh_filter_drawn_write(world: u64, handle: u64, identity: u64) -> DisunityResult
+fn disunity_mesh_filter_read(world: u64, handle: u64, output: *mut u64) -> DisunityResult
+fn disunity_mesh_filter_write(world: u64, handle: u64, mesh: u64) -> DisunityResult
+fn disunity_mesh_read(world: u64, identity: u64, info: *mut DisunityMeshInfo, vertices: *mut DisunityMeshVertex, indices: *mut u32, submeshes: *mut DisunityMeshSubMesh) -> DisunityResult
+fn disunity_mesh_renderer_create(world: u64, object: u64, kind: u32, output: *mut u64) -> DisunityResult
+fn disunity_mesh_renderer_materials_read(world: u64, handle: u64, materials: *mut u64, capacity: u32, count: *mut u32) -> DisunityResult
+fn disunity_mesh_renderer_materials_write(world: u64, handle: u64, materials: *const u64, count: u32) -> DisunityResult
+fn disunity_mesh_renderer_read(world: u64, handle: u64, output: *mut DisunityMeshRenderer) -> DisunityResult
+fn disunity_mesh_renderer_slot_block_target(world: u64, renderer_handle: u64, material_index: u32, target: *mut u64) -> DisunityResult
+fn disunity_mesh_renderer_write(world: u64, handle: u64, value: *const DisunityMeshRenderer) -> DisunityResult
+fn disunity_mesh_store(world: u64, identity: u64, info: *const DisunityMeshInfo, vertices: *const DisunityMeshVertex, indices: *const u32, submeshes: *const DisunityMeshSubMesh) -> DisunityResult
+fn disunity_object_alive(world: u64, object: u64, alive: *mut u32) -> DisunityResult
+fn disunity_object_flags(world: u64, object: u64, output: *mut u32) -> DisunityResult
+fn disunity_object_layer_read(world: u64, object: u64, output: *mut u32) -> DisunityResult
+fn disunity_object_layer_write(world: u64, object: u64, layer: u32) -> DisunityResult
+fn disunity_object_text_read(world: u64, object: u64, field: u32, bytes: *mut u8, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_object_text_write(world: u64, object: u64, field: u32, bytes: *const u8, length: u32) -> DisunityResult
+fn disunity_object_wake(world: u64, object: u64, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_offscreen_allocate_temporary(world: u64, name_id: i32, desc: *const DisunityRenderTexture) -> DisunityResult
+fn disunity_offscreen_clear_render_target(world: u64, flags: u32, value: *const f32, depth_value: f32, stencil_value: u32) -> DisunityResult
+fn disunity_offscreen_cull(world: u64, id: u64, camera: u64, culling_mask: u32, planes: *const f32, plane_count: u32, options: u32) -> DisunityResult
+fn disunity_offscreen_detail(world: u64, token: u32, buffer: *mut u8, capacity: u32, length: *mut u32) -> DisunityResult
+fn disunity_offscreen_disable_scissor(world: u64) -> DisunityResult
+fn disunity_offscreen_draw_mesh(world: u64, mesh: u64, matrix: *const f32, material: u64, submesh: u32, pass: i32) -> DisunityResult
+fn disunity_offscreen_draw_mesh_batch(world: u64, batch: *const DisunityDrawBatch, names: *const u8, words: *const u32, visible: *const u32, tags: *const u8) -> DisunityResult
+fn disunity_offscreen_draw_mesh_instanced(world: u64, mesh: u64, matrix: *const f32, material: u64, submesh: u32, pass: i32, instances: u32) -> DisunityResult
+fn disunity_offscreen_draw_procedural(world: u64, matrix: *const f32, material: u64, pass: i32, topology: u32, vertex_count: i32, instance_count: i32) -> DisunityResult
+fn disunity_offscreen_draw_renderer_list(world: u64, list: u64) -> DisunityResult
+fn disunity_offscreen_enable_scissor(world: u64, x: f32, y: f32, width: f32, height: f32) -> DisunityResult
+fn disunity_offscreen_generate_mips(world: u64, texture: u64) -> DisunityResult
+fn disunity_offscreen_record(world: u64, work: *const DisunityOffscreenWork) -> DisunityResult
+fn disunity_offscreen_release_temporary(world: u64, name_id: i32) -> DisunityResult
+fn disunity_offscreen_set_depth_bias(world: u64, bias: f32, slope_bias: f32) -> DisunityResult
+fn disunity_offscreen_set_global_texture(world: u64, name: *const u8, length: u32, slot: *const DisunityTextureSlot) -> DisunityResult
+fn disunity_offscreen_set_render_target(world: u64, colors: *const DisunityTargetRef, color_count: u32, depth: *const DisunityTargetRef, mip: u32, face: i32, slice: i32) -> DisunityResult
+fn disunity_offscreen_set_view_projection(world: u64, view: *const f32, projection: *const f32) -> DisunityResult
+fn disunity_offscreen_set_viewport(world: u64, x: f32, y: f32, width: f32, height: f32) -> DisunityResult
+fn disunity_offscreen_setup_camera(world: u64, camera: u64, matrices: *const f32, target: *const DisunityTargetRef, buffer_colors: *const u64, buffer_count: u32, buffer_depth: u64) -> DisunityResult
+fn disunity_offscreen_take(world: u64, records: *mut DisunityOffscreenWork, capacity: u32, count: *mut u32) -> DisunityResult
+fn disunity_physics_create(world: u64, object: u64, kind: u32, output: *mut u64) -> DisunityResult
+fn disunity_physics_material_create(world: u64, output: *mut u64) -> DisunityResult
+fn disunity_physics_material_read(world: u64, handle: u64, output: *mut DisunityPhysicsMaterial2d) -> DisunityResult
+fn disunity_physics_material_write(world: u64, handle: u64, value: *const DisunityPhysicsMaterial2d) -> DisunityResult
+fn disunity_physics_overlap_circle(world: u64, x: f32, y: f32, radius: f32, layers: u32, output: *mut u64) -> DisunityResult
+fn disunity_physics_raycast(world: u64, x: f32, y: f32, dx: f32, dy: f32, distance: f32, layers: u32, output: *mut DisunityRayHit) -> DisunityResult
+fn disunity_presentation_coverage(world: u64, index: u32, output: *mut DisunityCoverage, bytes: *mut u8, capacity: u32) -> DisunityResult
+fn disunity_presentation_light(world: u64, index: u32, output: *mut DisunityLight, object: *mut u64, matrix: *mut DisunityMatrix) -> DisunityResult
+fn disunity_presentation_light_count(world: u64, count: *mut u32) -> DisunityResult
+fn disunity_presentation_mesh_object(world: u64, index: u32, output: *mut DisunityMeshObject, matrix: *mut DisunityMatrix, slots: *mut crate::mesh_renderer::DisunityDrawnMaterial, capacity: u32) -> DisunityResult
+fn disunity_presentation_prepare(world: u64, width: u32, height: u32, next_texture: u64, output: *mut DisunityPresentation) -> DisunityResult
+fn disunity_presentation_quad(world: u64, index: u32, output: *mut DisunityQuad) -> DisunityResult
+fn disunity_presentation_render_shadows(world: u64, value: *mut u32) -> DisunityResult
+fn disunity_presentation_ui_count(world: u64, draws: *mut u32, textures: *mut u32) -> DisunityResult
+fn disunity_presentation_ui_coverage(world: u64, index: u32, output: *mut DisunityCoverage, bytes: *mut u8, capacity: u32) -> DisunityResult
+fn disunity_presentation_ui_draw(world: u64, index: u32, output: *mut DisunityUiDraw, quad: *mut DisunityQuad) -> DisunityResult
+fn disunity_rect_read(world: u64, handle: u64, output: *mut DisunityRect) -> DisunityResult
+fn disunity_rect_write(world: u64, handle: u64, value: *const DisunityRect) -> DisunityResult
+fn disunity_render_texture_create(world: u64, desc: *const DisunityRenderTexture, output: *mut u64) -> DisunityResult
+fn disunity_render_texture_destroy(world: u64, texture: u64) -> DisunityResult
+fn disunity_render_texture_pixels_take(world: u64, request: u64, data: *mut f32, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_render_texture_pixels_write(world: u64, request: u64, data: *const f32, count: u32) -> DisunityResult
+fn disunity_render_texture_read(world: u64, texture: u64, output: *mut DisunityRenderTexture) -> DisunityResult
+fn disunity_render_texture_read_pixels(world: u64, texture: u64, x: u32, y: u32, width: u32, height: u32, request: *mut u64) -> DisunityResult
+fn disunity_render_texture_write(world: u64, texture: u64, desc: *const DisunityRenderTexture) -> DisunityResult
+fn disunity_renderer_list_create_draw(world: u64, desc: *const DisunityDrawRendererList, tags: *const u8, list: *mut u64) -> DisunityResult
+fn disunity_renderer_list_create_shadow(world: u64, desc: *const DisunityShadowRendererList, planes: *const f32, list: *mut u64) -> DisunityResult
+fn disunity_rotation_read(world: u64, object: u64, x: *mut f32, y: *mut f32, z: *mut f32, w: *mut f32) -> DisunityResult
+fn disunity_rotation_write(world: u64, object: u64, x: f32, y: f32, z: f32, w: f32) -> DisunityResult
+fn disunity_script_destroy(world: u64, identity: u64) -> DisunityResult
+fn disunity_script_enabled(world: u64, identity: u64, output: *mut u32) -> crate::DisunityResult
+fn disunity_script_execution_order(world: u64, identity: u64, order: i32) -> DisunityResult
+fn disunity_script_messages(world: u64, identity: u64, messages: u32) -> DisunityResult
+fn disunity_script_register(world: u64, object: u64, identity: u64, output: *mut u64) -> DisunityResult
+fn disunity_script_retained(world: u64, identity: u64, retained: *mut u32) -> DisunityResult
+fn disunity_script_set_enabled(world: u64, identity: u64, enabled: u32, output: *mut crate::scheduling::DisunityAdvance) -> crate::DisunityResult
+fn disunity_shader_create(world: u64, name: *const u8, length: u32, output: *mut u64) -> DisunityResult
+fn disunity_shader_destroy(world: u64, shader: u64) -> DisunityResult
+fn disunity_shader_float_write(world: u64, scope: u32, target: u64, name: *const u8, length: u32, value: f32) -> DisunityResult
+fn disunity_shader_global_matrix_array_write(world: u64, name: *const u8, length: u32, values: *const f32, count: u32) -> DisunityResult
+fn disunity_shader_global_vector_array_write(world: u64, name: *const u8, length: u32, values: *const f32, count: u32) -> DisunityResult
+fn disunity_shader_int_write(world: u64, scope: u32, target: u64, name: *const u8, length: u32, value: i32) -> DisunityResult
+fn disunity_shader_keyword_read(world: u64, scope: u32, target: u64, name: *const u8, length: u32, enabled: *mut u32) -> DisunityResult
+fn disunity_shader_keyword_write(world: u64, scope: u32, target: u64, name: *const u8, length: u32, enabled: u32) -> DisunityResult
+fn disunity_shader_matrix_write(world: u64, scope: u32, target: u64, name: *const u8, length: u32, values: *const f32) -> DisunityResult
+fn disunity_shader_properties_clear(world: u64, scope: u32, target: u64) -> DisunityResult
+fn disunity_shader_property_read(world: u64, scope: u32, target: u64, name: *const u8, length: u32, output: *mut DisunityPropertyRead) -> DisunityResult
+fn disunity_shader_read(world: u64, shader: u64, info: *mut DisunityShaderInfo, text: *mut u8) -> DisunityResult
+fn disunity_shader_source_write(world: u64, shader: u64, file: *const u8, length: u32, path_id: i64) -> DisunityResult
+fn disunity_shader_texture_write(world: u64, scope: u32, target: u64, name: *const u8, length: u32, slot: *const DisunityTextureSlot) -> DisunityResult
+fn disunity_shader_vector_write(world: u64, scope: u32, target: u64, name: *const u8, length: u32, values: *const f32) -> DisunityResult
+fn disunity_shadow_query(request: *const DisunityShadowRequest, matrices: *const f32, casters: *const DisunityShadowCaster, result: *mut DisunityShadowResult, output: *mut f32) -> DisunityResult
+fn disunity_shared_material_read(world: u64, handle: u64, output: *mut u64) -> DisunityResult
+fn disunity_shared_material_write(world: u64, handle: u64, asset: u64) -> DisunityResult
+fn disunity_skinned_renderer_write(world: u64, handle: u64, drawn_mesh: u64, root_bone: u64, root_bind_pose: *const f32) -> DisunityResult
+fn disunity_sorting_group_read(world: u64, handle: u64, output: *mut DisunitySortingGroup) -> DisunityResult
+fn disunity_sorting_group_write(world: u64, handle: u64, value: *const DisunitySortingGroup) -> DisunityResult
+fn disunity_sprite_bounds(world: u64, handle: u64, output: *mut DisunityBounds) -> DisunityResult
+fn disunity_sprite_create(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_sprite_read(world: u64, handle: u64, output: *mut DisunitySprite) -> DisunityResult
+fn disunity_sprite_register(value: *mut DisunitySprite) -> DisunityResult
+fn disunity_sprite_validate(value: *const DisunitySprite) -> DisunityResult
+fn disunity_sprite_write(world: u64, handle: u64, value: *const DisunitySprite) -> DisunityResult
+fn disunity_store_statistics(out_live: *mut u64, out_allocated: *mut u64) -> DisunityResult
+fn disunity_text_read(world: u64, handle: u64, buffer: *mut u8, capacity: u32, written: *mut u32, size: *mut f32) -> DisunityResult
+fn disunity_text_style_read(world: u64, handle: u64, output: *mut DisunityTextStyle) -> DisunityResult
+fn disunity_text_style_write(world: u64, handle: u64, value: *const DisunityTextStyle) -> DisunityResult
+fn disunity_text_write(world: u64, handle: u64, size: f32, bytes: *const u8, length: u32) -> DisunityResult
+fn disunity_texture_read(world: u64, identity: u64, out: *mut DisunityTextureInfo, bytes: *mut u8, capacity: u32) -> DisunityResult
+fn disunity_texture_sampler_read(world: u64, identity: u64, out: *mut DisunitySampler) -> DisunityResult
+fn disunity_texture_sampler_write(world: u64, identity: u64, sampler: *const DisunitySampler) -> DisunityResult
+fn disunity_texture_store(world: u64, identity: u64, info: *const DisunityTextureInfo, bytes: *const u8, length: u32) -> DisunityResult
+fn disunity_tilemap_create(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_tilemap_lighting_read(world: u64, handle: u64, output: *mut u32) -> DisunityResult
+fn disunity_tilemap_lighting_write(world: u64, handle: u64, value: u32) -> DisunityResult
+fn disunity_tilemap_read(world: u64, handle: u64, output: *mut DisunityTilemap) -> DisunityResult
+fn disunity_tilemap_set_cells(world: u64, handle: u64, cells: *const DisunityTileCell, count: u32) -> DisunityResult
+fn disunity_tilemap_set_tile(world: u64, handle: u64, index: u32, tile: *const DisunityTile, sprite: *const DisunitySprite) -> DisunityResult
+fn disunity_tilemap_set_tile_shape(world: u64, handle: u64, index: u32, points: *const f32, lengths: *const u32, path_count: u32) -> DisunityResult
+fn disunity_tilemap_write(world: u64, handle: u64, value: *const DisunityTilemap) -> DisunityResult
+fn disunity_transform_children(world: u64, object: u64, buffer: *mut u64, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_transform_get_parent(world: u64, object: u64, output: *mut u64) -> DisunityResult
+fn disunity_transform_parent(world: u64, object: u64, parent: u64, space: u32, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_transform_read(world: u64, object: u64, output: *mut DisunityTransform) -> DisunityResult
+fn disunity_transform_set_position(world: u64, object: u64, x: f32, y: f32, z: f32) -> DisunityResult
+fn disunity_transform_set_rotation_y(world: u64, object: u64, radians: f32) -> DisunityResult
+fn disunity_transform_write(world: u64, object: u64, value: *const DisunityTransform) -> DisunityResult
+fn disunity_ui_create(world: u64, object: u64, kind: u32, font: u64, output: *mut u64) -> DisunityResult
+fn disunity_ui_rect(world: u64, object: u64, width: u32, height: u32, output: *mut DisunityRect) -> DisunityResult
+fn disunity_world_advance(world: u64, numerator: u64, denominator: u64, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_world_advance_teardown(world: u64, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_world_clock(world: u64, output: *mut DisunityClock) -> DisunityResult
+fn disunity_world_create(out_world: *mut u64) -> DisunityResult
+fn disunity_world_delayed_tasks(world: u64, identity: u64, enabled: u32) -> DisunityResult
+fn disunity_world_destroy(world: u64) -> DisunityResult
+fn disunity_world_export_objects(world: u64, states: *mut crate::DisunityObjectState, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_world_export_sprites(world: u64, sprites: *mut DisunitySprite, matrices: *mut DisunityMatrix, capacity: u32, written: *mut u32) -> DisunityResult
+fn disunity_world_fixed_delta(world: u64, output: *mut f64) -> DisunityResult
+fn disunity_world_resume(world: u64, ticket: u64, outcome: u32, message: *const u8, length: u32, output: *mut DisunityAdvance) -> DisunityResult
+fn disunity_world_time_read(world: u64, output: *mut DisunityTime) -> DisunityResult
+fn disunity_world_time_write(world: u64, setting: u32, numerator: u64, denominator: u64) -> DisunityResult
+reason AbortedScope = 6
+reason AdvanceInProgress = 11
+reason CallbackFailed = 4
+reason Capacity = 7
+reason Faulted = 5
+reason InvalidArgument = 1
+reason InvalidComponent = 12
+reason InvalidTime = 2
+reason NotReady = 14
+reason Physics = 9
+reason SingularParent = 8
+reason StaleHandle = 10
+reason Ui = 13
+reason WrongCallback = 3
+record DisunityActivePass: size 16, align 8 { material: u64 @0, pass: u32 @8, active: u32 @12 }
+record DisunityAdvance: size 32, align 8 { kind: u32 @0, message: u32 @4, ticket: u64 @8, script: u64 @16, frame: u64 @24 }
+record DisunityBody2d: size 40, align 4 { kind: u32 @0, enabled: u32 @4, mass: f32 @8, velocity_x: f32 @12, velocity_y: f32 @16, angular_velocity: f32 @20, gravity_scale: f32 @24, freeze_rotation: u32 @28, freeze_position: u32 @32, restitution: f32 @36 }
+record DisunityBounds: size 24, align 4 { min_x: f32 @0, min_y: f32 @4, min_z: f32 @8, max_x: f32 @12, max_y: f32 @16, max_z: f32 @20 }
+record DisunityBuffer: size 16, align 8 { handle: u64 @0, length: u32 @8 }
+record DisunityCallback: size 72, align 8 { ticket: u64 @0, script: u64 @8, routine: u64 @16, collider: u64 @24, other: u64 @32, phase: u32 @40, trigger: u32 @44, input_phase: u32 @48, point_x: f32 @52, point_y: f32 @56, normal_x: f32 @60, normal_y: f32 @64 }
+record DisunityCamera: size 104, align 8 { enabled: u32 @0, clear_flags: u32 @4, orthographic: u32 @8, depth: i32 @12, orthographic_size: f32 @16, near: f32 @20, far: f32 @24, r: f32 @28, g: f32 @32, b: f32 @36, a: f32 @40, field_of_view: f32 @44, target_texture: u64 @48, culling_mask: u32 @56, viewport_x: f32 @60, viewport_y: f32 @64, viewport_width: f32 @68, viewport_height: f32 @72, depth_texture_mode: u32 @76, allow_hdr: u32 @80, allow_msaa: u32 @84, allow_dynamic_resolution: u32 @88, use_occlusion_culling: u32 @92, target_display: u32 @96, camera_type: u32 @100 }
+record DisunityCanvas: size 48, align 8 { mode: u32 @0, enabled: u32 @4, camera: u64 @8, orthographic_size: f32 @16, plane_distance: f32 @20, sorting_order: i32 @24, sorting_layer: i32 @28, override_sorting: u32 @32, target_display: u32 @36, additional_shader_channels: u32 @40, reference_pixels_per_unit: f32 @44 }
+record DisunityCanvasGroup: size 20, align 4 { enabled: u32 @0, alpha: f32 @4, interactable: u32 @8, blocks_raycasts: u32 @12, ignore_parent_groups: u32 @16 }
+record DisunityCanvasRenderer: size 96, align 8 { mesh: u64 @0, texture: u64 @8, alpha_texture: u64 @16, r: f32 @24, g: f32 @28, b: f32 @32, a: f32 @36, alpha: f32 @40, cull: u32 @44, cull_transparent_mesh: u32 @48, has_pop_instruction: u32 @52, has_rect_clipping: u32 @56, clip_x: f32 @60, clip_y: f32 @64, clip_width: f32 @68, clip_height: f32 @72, softness_x: f32 @76, softness_y: f32 @80, material_count: u32 @84, pop_material_count: u32 @88 }
+record DisunityCanvasScale: size 24, align 4 { mode: u32 @0, screen_match: u32 @4, factor: f32 @8, reference_x: f32 @12, reference_y: f32 @16, match_height: f32 @20 }
+record DisunityClock: size 24, align 8 { delta: f64 @0, time: f64 @8, frame: u64 @16 }
+record DisunityCloneRow: size 32, align 8 { source: u64 @0, target: u64 @8, owner: u64 @16, kind: u32 @24 }
+record DisunityCollider2d: size 36, align 4 { kind: u32 @0, enabled: u32 @4, trigger: u32 @8, layers: u32 @12, offset_x: f32 @16, offset_y: f32 @20, size_x: f32 @24, size_y: f32 @28, radius: f32 @32 }
+record DisunityCommand: size 24, align 8 { object: u64 @0, kind: u32 @8, x: f32 @12, y: f32 @16, z: f32 @20 }
+record DisunityComputeBinding: size 32, align 8 { kind: u32 @0, name_offset: u32 @4, name_length: u32 @8, float_offset: u32 @12, int_value: i32 @16, texture_kind: u32 @20, resource: u64 @24 }
+record DisunityComputeBindingsInfo: size 12, align 4 { entry_count: u32 @0, float_count: u32 @4, text_length: u32 @8 }
+record DisunityComputeBufferDesc: size 12, align 4 { count: u32 @0, stride: u32 @4, kind: u32 @8 }
+record DisunityComputeBufferInfo: size 24, align 8 { count: u32 @0, stride: u32 @4, kind: u32 @8, generation: u64 @16 }
+record DisunityComputeGlobalTexture: size 8, align 4 { name_length: u32 @0, global_length: u32 @4 }
+record DisunityComputeKernel: size 20, align 4 { name_offset: u32 @0, name_length: u32 @4, size_x: u32 @8, size_y: u32 @12, size_z: u32 @16 }
+record DisunityComputeShaderDesc: size 24, align 8 { path_id: i64 @0, name_length: u32 @8, file_length: u32 @12, kernel_count: u32 @16 }
+record DisunityComputeShaderInfo: size 32, align 8 { path_id: i64 @0, name_length: u32 @8, file_length: u32 @12, kernel_count: u32 @16, text_length: u32 @20, generation: u64 @24 }
+record DisunityCoverage: size 24, align 8 { identity: u64 @0, width: u32 @8, height: u32 @12, length: u32 @16 }
+record DisunityDrawBatch: size 64, align 8 { mesh: u64 @0, material: u64 @8, buffer: u64 @16, offset: u64 @24, size: u64 @32, submesh: u32 @40, pass: i32 @44, metadata_count: u32 @48, names_len: u32 @52, visible_count: u32 @56, tags_len: u32 @60 }
+record DisunityDrawRendererList: size 48, align 8 { cull: u64 @0, override_material: u64 @8, queue_min: i32 @16, queue_max: i32 @20, layer_mask: u32 @24, rendering_layer_mask: u32 @28, sorting: u32 @32, per_object: u32 @36, override_pass: i32 @40, tags_len: u32 @44 }
+record DisunityDrawnMaterial: size 24, align 8 { r: f32 @0, g: f32 @4, b: f32 @8, a: f32 @12, texture: u64 @16 }
+record DisunityEnvironment: size 224, align 8 { ambient_set: u32 @0, ambient_mode: u32 @4, ambient_intensity: f32 @8, reflection_set: u32 @12, reflection_mode: u32 @16, reflection_intensity: f32 @20, custom_kind: u32 @24, skybox_kind: u32 @28, custom_texture: u64 @32, skybox_texture: u64 @40, ambient_sky: [f32; 4] @48, ambient_equator: [f32; 4] @64, ambient_ground: [f32; 4] @80, ambient_flat: [f32; 4] @96, ambient_probe: [f32; 27] @112, padding: u32 @220 }
+record DisunityFaceInfo: size 76, align 4 { face_index: u32 @0, units_per_em: u32 @4, point_size: f32 @8, scale: f32 @12, line_height: f32 @16, ascent_line: f32 @20, cap_line: f32 @24, mean_line: f32 @28, baseline: f32 @32, descent_line: f32 @36, superscript_offset: f32 @40, superscript_size: f32 @44, subscript_offset: f32 @48, subscript_size: f32 @52, underline_offset: f32 @56, underline_thickness: f32 @60, strikethrough_offset: f32 @64, strikethrough_thickness: f32 @68, tab_width: f32 @72 }
+record DisunityGlyphMetrics: size 20, align 4 { width: f32 @0, height: f32 @4, bearing_x: f32 @8, bearing_y: f32 @12, advance: f32 @16 }
+record DisunityGlyphPair: size 12, align 4 { first: u32 @0, second: u32 @4, x_advance: f32 @8 }
+record DisunityGlyphRender: size 36, align 4 { glyph: u32 @0, mode: u32 @4, padding: u32 @8, x: u32 @12, y: u32 @16, width: u32 @20, height: u32 @24, atlas_width: u32 @28, atlas_height: u32 @32 }
+record DisunityInputAxis: size 32, align 4 { negative: u32 @0, positive: u32 @4, alt_negative: u32 @8, alt_positive: u32 @12, gravity: f32 @16, sensitivity: f32 @20, dead: f32 @24, flags: u32 @28 }
+record DisunityLight: size 104, align 8 { cookie_texture: u64 @0, enabled: u32 @8, kind: u32 @12, r: f32 @16, g: f32 @20, b: f32 @24, a: f32 @28, intensity: f32 @32, range: f32 @36, spot_angle: f32 @40, inner_spot_angle: f32 @44, shadows: u32 @48, shadow_strength: f32 @52, shadow_bias: f32 @56, shadow_normal_bias: f32 @60, shadow_near_plane: f32 @64, culling_mask: u32 @68, rendering_layer_mask: u32 @72, bounce_intensity: f32 @76, color_temperature: f32 @80, use_color_temperature: u32 @84, cookie_size: f32 @88, lightmap_bake_type: u32 @92, shadow_resolution: i32 @96 }
+record DisunityMaterialInfo: size 32, align 8 { shader: u64 @0, render_queue: i32 @8, keyword_count: u32 @12, disabled_pass_count: u32 @16, generation: u64 @24 }
+record DisunityMatrix: size 64, align 4 { m0: f32 @0, m1: f32 @4, m2: f32 @8, m3: f32 @12, m4: f32 @16, m5: f32 @20, m6: f32 @24, m7: f32 @28, m8: f32 @32, m9: f32 @36, m10: f32 @40, m11: f32 @44, m12: f32 @48, m13: f32 @52, m14: f32 @56, m15: f32 @60 }
+record DisunityMeshChannel: size 12, align 4 { number: u32 @0, dimension: u32 @4, offset: u32 @8 }
+record DisunityMeshChannelsInfo: size 48, align 8 { identity: u64 @0, generation: u64 @8, present: u32 @16, changed: u32 @20, copied: u32 @24, vertex_count: u32 @28, channel_count: u32 @32, float_count: u32 @36, index_count: u32 @40, range_count: u32 @44 }
+record DisunityMeshInfo: size 48, align 8 { identity: u64 @0, generation: u64 @8, present: u32 @16, changed: u32 @20, copied: u32 @24, channels: u32 @28, vertex_count: u32 @32, index_count: u32 @36, submesh_count: u32 @40, left_out: u32 @44 }
+record DisunityMeshObject: size 24, align 8 { object: u64 @0, mesh: u64 @8, slot_count: u32 @16 }
+record DisunityMeshRange: size 16, align 4 { start: u32 @0, count: u32 @4, base_vertex: u32 @8, topology: u32 @12 }
+record DisunityMeshRenderer: size 60, align 4 { kind: u32 @0, enabled: u32 @4, force_rendering_off: u32 @8, receive_shadows: u32 @12, allow_occlusion_when_dynamic: u32 @16, static_shadow_caster: u32 @20, shadow_casting_mode: u32 @24, motion_vector_mode: u32 @28, light_probe_usage: u32 @32, reflection_probe_usage: u32 @36, rendering_layer_mask: u32 @40, renderer_priority: i32 @44, sorting_layer: i32 @48, sorting_order: i32 @52, material_count: u32 @56 }
+record DisunityMeshSubMesh: size 12, align 4 { slot: u32 @0, first_index: u32 @4, index_count: u32 @8 }
+record DisunityMeshVertex: size 48, align 4 { x: f32 @0, y: f32 @4, z: f32 @8, nx: f32 @12, ny: f32 @16, nz: f32 @20, u: f32 @24, v: f32 @28, r: f32 @32, g: f32 @36, b: f32 @40, a: f32 @44 }
+record DisunityObjectState: size 32, align 8 { object: u64 @0, x: f32 @8, y: f32 @12, z: f32 @16, rotation_y_radians: f32 @20, material_slot: u32 @24 }
+record DisunityOffscreenWork: size 104, align 8 { kind: u32 @0, camera: u64 @8, target: u64 @16, target_kind: u32 @24, source_kind: u32 @28, source: u64 @32, material: u64 @40, pass: i32 @48, source_element: u32 @52, source_mip: u32 @56, target_element: u32 @60, target_mip: u32 @64, shader: u64 @72, kernel: u32 @80, groups_x: u32 @84, groups_y: u32 @88, groups_z: u32 @92, bindings: u32 @96 }
+record DisunityPhysicsMaterial2d: size 8, align 4 { friction: f32 @0, bounciness: f32 @4 }
+record DisunityPresentation: size 168, align 8 { present: u32 @0, quads: u32 @4, textures: u32 @8, mesh_objects: u32 @12, width: u32 @16, height: u32 @20, lens: u32 @24, eye_x: f64 @32, eye_y: f64 @40, eye_z: f64 @48, forward_x: f64 @56, forward_y: f64 @64, forward_z: f64 @72, up_x: f64 @80, up_y: f64 @88, up_z: f64 @96, half_height: f64 @104, near: f64 @112, far: f64 @120, vertical_fov: f64 @128, r: f64 @136, g: f64 @144, b: f64 @152, a: f64 @160 }
+record DisunityPropertyRead: size 56, align 8 { present: u32 @0, float_value: f32 @4, int_value: i32 @8, vector_x: f32 @12, vector_y: f32 @16, vector_z: f32 @20, vector_w: f32 @24, texture_kind: u32 @28, texture: u64 @32, scale_x: f32 @40, scale_y: f32 @44, offset_x: f32 @48, offset_y: f32 @52 }
+record DisunityQuad: size 112, align 8 { texture: u64 @0, textured: u32 @8, overlay: u32 @12, lighting: u32 @16, sorting_layer: i32 @20, sorting_order: i32 @24, p0_x: f32 @28, p0_y: f32 @32, p0_z: f32 @36, p1_x: f32 @40, p1_y: f32 @44, p1_z: f32 @48, p2_x: f32 @52, p2_y: f32 @56, p2_z: f32 @60, p3_x: f32 @64, p3_y: f32 @68, p3_z: f32 @72, u0: f32 @76, v0: f32 @80, u1: f32 @84, v1: f32 @88, r: f32 @92, g: f32 @96, b: f32 @100, a: f32 @104 }
+record DisunityRayHit: size 32, align 8 { collider: u64 @0, point_x: f32 @8, point_y: f32 @12, normal_x: f32 @16, normal_y: f32 @20, distance: f32 @24 }
+record DisunityRect: size 40, align 4 { min_x: f32 @0, min_y: f32 @4, max_x: f32 @8, max_y: f32 @12, pivot_x: f32 @16, pivot_y: f32 @20, size_x: f32 @24, size_y: f32 @28, position_x: f32 @32, position_y: f32 @36 }
+record DisunityRenderTexture: size 72, align 8 { width: u32 @0, height: u32 @4, format: u32 @8, depth_bits: u32 @12, mip_count: u32 @16, srgb: u32 @20, dimension: u32 @24, volume_depth: u32 @28, auto_generate_mips: u32 @32, wrap_u: u32 @36, wrap_v: u32 @40, wrap_w: u32 @44, filter: u32 @48, aniso_level: u32 @52, mip_bias: f32 @56, padding: u32 @60, generation: u64 @64 }
+record DisunityResult: size 16, align 8 { code: i32 @0, detail: u64 @8 }
+record DisunitySampler: size 40, align 8 { generation: u64 @0, wrap_u: u32 @8, wrap_v: u32 @12, wrap_w: u32 @16, filter: u32 @20, aniso_level: u32 @24, present: u32 @28, changed: u32 @32, mip_bias: f32 @36 }
+record DisunityShaderInfo: size 24, align 8 { path_id: i64 @0, name_length: u32 @8, file_length: u32 @12, has_source: u32 @16, text_capacity: u32 @20 }
+record DisunityShadowCaster: size 32, align 4 { min_x: f32 @0, min_y: f32 @4, min_z: f32 @8, max_x: f32 @12, max_y: f32 @16, max_z: f32 @20, casting_mode: u32 @24, layer: u32 @28 }
+record DisunityShadowRendererList: size 48, align 8 { sphere_x: f32 @0, sphere_y: f32 @4, sphere_z: f32 @8, sphere_radius: f32 @12, light_index: i32 @16, plane_count: u32 @20, objects_filter: u32 @24, projection: u32 @28, rendering_layer_test: u32 @32, padding: u32 @36, cull: u64 @40 }
+record DisunityShadowRequest: size 76, align 4 { query: u32 @0, light_kind: u32 @4, light_range: f32 @8, light_spot_angle: f32 @12, camera_x: f32 @16, camera_y: f32 @20, camera_z: f32 @24, shadow_distance: f32 @28, culling_mask: u32 @32, caster_count: u32 @36, split_index: u32 @40, split_count: u32 @44, ratio_x: f32 @48, ratio_y: f32 @52, ratio_z: f32 @56, resolution: u32 @60, near_plane_offset: f32 @64, face: u32 @68, fov_bias: f32 @72 }
+record DisunityShadowResult: size 48, align 4 { found: u32 @0, plane_count: u32 @4, min_x: f32 @8, min_y: f32 @12, min_z: f32 @16, max_x: f32 @20, max_y: f32 @24, max_z: f32 @28, sphere_x: f32 @32, sphere_y: f32 @36, sphere_z: f32 @40, sphere_radius: f32 @44 }
+record DisunitySortingGroup: size 16, align 4 { enabled: u32 @0, sorting_layer: i32 @4, sorting_order: i32 @8, sort_at_root: u32 @12 }
+record DisunitySprite: size 96, align 8 { identity: u64 @0, texture: u64 @8, present: u32 @16, width: u32 @20, height: u32 @24, x: f32 @28, y: f32 @32, w: f32 @36, h: f32 @40, pivot_x: f32 @44, pivot_y: f32 @48, pixels_per_unit: f32 @52, r: f32 @56, g: f32 @60, b: f32 @64, a: f32 @68, enabled: u32 @72, flip_x: u32 @76, flip_y: u32 @80, sorting_layer: i32 @84, sorting_order: i32 @88, lighting: u32 @92 }
+record DisunityTargetRef: size 16, align 8 { kind: u32 @0, name_id: i32 @4, render: u64 @8 }
+record DisunityTextStyle: size 56, align 8 { font: u64 @0, alignment: u32 @8, horizontal_overflow: u32 @12, vertical_overflow: u32 @16, font_style: u32 @20, rich_text: u32 @24, best_fit: u32 @28, line_spacing: f32 @32, r: f32 @36, g: f32 @40, b: f32 @44, a: f32 @48 }
+record DisunityTextureInfo: size 64, align 8 { identity: u64 @0, generation: u64 @8, format: u32 @16, width: u32 @20, height: u32 @24, mips: u32 @28, linear: u32 @32, length: u32 @36, present: u32 @40, distance_spread: u32 @44, depth: u32 @48, graphics_format: u32 @52, dimension: u32 @56, reserved: u32 @60 }
+record DisunityTextureSlot: size 32, align 8 { kind: u32 @0, texture: u64 @8, scale_x: f32 @16, scale_y: f32 @20, offset_x: f32 @24, offset_y: f32 @28 }
+record DisunityTile: size 44, align 4 { collider: u32 @0, r: f32 @4, g: f32 @8, b: f32 @12, a: f32 @16, m00: f32 @20, m01: f32 @24, m10: f32 @28, m11: f32 @32, tx: f32 @36, ty: f32 @40 }
+record DisunityTileCell: size 12, align 4 { x: i32 @0, y: i32 @4, tile: u32 @8 }
+record DisunityTilemap: size 52, align 4 { enabled: u32 @0, sorting_layer: i32 @4, sorting_order: i32 @8, r: f32 @12, g: f32 @16, b: f32 @20, a: f32 @24, cell_x: f32 @28, cell_y: f32 @32, gap_x: f32 @36, gap_y: f32 @40, anchor_x: f32 @44, anchor_y: f32 @48 }
+record DisunityTime: size 40, align 8 { unscaled_delta: f64 @0, unscaled_time: f64 @8, smooth_delta: f64 @16, time_scale: f64 @24, maximum_delta: f64 @32 }
+record DisunityTransform: size 40, align 4 { x: f32 @0, y: f32 @4, z: f32 @8, qx: f32 @12, qy: f32 @16, qz: f32 @20, qw: f32 @24, sx: f32 @28, sy: f32 @32, sz: f32 @36 }
+record DisunityUiDraw: size 176, align 8 { kind: u32 @0, hierarchy_order: u64 @8, clip_x: u32 @16, clip_y: u32 @20, clip_width: u32 @24, clip_height: u32 @28, triangle_u0: f32 @32, triangle_v0: f32 @36, triangle_u1: f32 @40, triangle_v1: f32 @44, triangle_u2: f32 @48, triangle_v2: f32 @52, corner_colors_present: u32 @56, corner_0_r: f32 @60, corner_0_g: f32 @64, corner_0_b: f32 @68, corner_0_a: f32 @72, corner_1_r: f32 @76, corner_1_g: f32 @80, corner_1_b: f32 @84, corner_1_a: f32 @88, corner_2_r: f32 @92, corner_2_g: f32 @96, corner_2_b: f32 @100, corner_2_a: f32 @104, corner_3_r: f32 @108, corner_3_g: f32 @112, corner_3_b: f32 @116, corner_3_a: f32 @120, distance_mode: u32 @124, distance_spread: f32 @128, distance_radius: f32 @132, effect_r: f32 @136, effect_g: f32 @140, effect_b: f32 @144, effect_a: f32 @148, texture_kind: u32 @152, padding: u32 @156, material: u64 @160, material_generation: u64 @168 }
+record DisunityUiGraphicInfo: size 24, align 8 { texture: u64 @0, vertex_count: u32 @8, index_count: u32 @12, texture_kind: u32 @16, padding: u32 @20 }
+record DisunityUiVertex: size 36, align 4 { x: f32 @0, y: f32 @4, z: f32 @8, u: f32 @12, v: f32 @16, r: f32 @20, g: f32 @24, b: f32 @28, a: f32 @32 }

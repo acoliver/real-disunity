@@ -76,67 +76,19 @@ After an intentional ABI change:
    directory, including `NativeBindings.2.g.cs` when imports move between parts and
    `NativeRecords.g.cs`. Every generated file has a byte-for-byte drift check.
    Do not guess an old build directory: use the path from this invocation.
-3. Update `crates/disunity-ffi/disunity_interface.json` for new exports and
-   record the current ABI revision. Removing or changing an export requires a new
-   revision in `DISUNITY_ABI_VERSION`. The build generates that number into
-   `native.g.rs` (and its numbered parts) and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
-   managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 11 carries distance mode (0 coverage, 1 fill, 2 outline, 3 glow),
-   atlas-pixel spread, physical-pixel effect radius and linear effect RGBA in the
-   152-byte `DisunityUiDraw`. Distance draws require textured affine text quads.
-   The record also carries optional BL/BR/TR/TL linear RGBA corner multipliers in
-   `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
-   and all channels must be finite and in 0..=1. Revision 12 adds the camera target
-   buffers calls (`disunity_camera_target_buffers_write` and `_read`) and the buffer
-   arguments of `disunity_offscreen_setup_camera`. Revision 16 adds `auto_generate_mips`
-   and a `padding` word (which keeps `generation` 8-byte aligned) to
-   `DisunityRenderTexture`, and `disunity_offscreen_generate_mips`, which records a
-   generate-mips request for a render texture with more than one level (offscreen
-   kind 19). Revision 17 adds `depth`,
-   `graphics_format`, `dimension` and a zero `reserved` word to the stored-texture
-   record `DisunityTextureInfo` (48 to 64 bytes): a 2D array, a cube or a 3D texture
-   states its layer count, `GraphicsFormat` and shader dimension code (2 2D, 3 3D,
-   4 cube, 5 2D array), and a writer that sets none stores a plain 2D texture. Revision 18 adds
-   `disunity_offscreen_enable_scissor`, `disunity_offscreen_disable_scissor` and
-   `disunity_offscreen_set_depth_bias` (offscreen kinds 20 to 22) and the shadow
-   caster query `disunity_shadow_query`.
-   Revision 19 adds `disunity_environment_read` and `disunity_environment_write`, which move the
-   world's environment lighting (the ambient light and the default reflection, with a set flag
-   for each section) in the 224-byte `DisunityEnvironment`, and carries the environment in the
-   graphics snapshot. Revision 20 adds the property block of one material slot of a mesh
-   renderer: shader property scope 4 and `disunity_mesh_renderer_slot_block_target`,
-   which gives the target of a renderer's slot. Revision 21 adds texture slot kind 5 (a texture
-   the data names that the engine did not send), which every texture slot, environment cube and
-   offscreen source accepts with texture identity 0; the world reads it as no texture, and the
-   graphics snapshot wire version is 17 to carry it. Revision 22 adds
-   `disunity_world_advance_teardown`, an advance that runs only the `OnDisable` and
-   `OnDestroy` messages and the asset cleanup that destruction queued. Revision 23 removes
-   `disunity_offscreen_set_global`, `disunity_offscreen_set_global_keyword`,
-   `disunity_offscreen_set_global_vector_array` and `disunity_offscreen_set_global_matrix_array`
-   and adds `disunity_offscreen_set_global_texture`: a command buffer's global value, array or
-   keyword is a direct write of the world's global state (`disunity_shader_*`), and only a global
-   texture set to a temporary render texture is recorded. Revision 24 removes
-   `disunity_mesh_renderer_slots_write` and `disunity_mesh_renderer_slots_read`: a mesh
-   object slot draws from the slot's world material alone. Revision 25 gives
-   `disunity_canvas_renderer_texture_write` a texture kind (0 a stored image identity, 1 a
-   render texture the world holds) and adds `texture_kind` and a padding word to
-   `DisunityUiGraphicInfo` (16 to 24 bytes) and `DisunityUiDraw` (152 to 160 bytes); the quad
-   texture of a draw whose kind is 1 is the render texture id. Revision 26 adds the
-   `world_material` argument of `disunity_canvas_renderer_material_write` (the world material
-   of main slot 0, 0 for none) and the `material` and `material_generation` fields of
-   `DisunityUiDraw` (160 to 176 bytes). Revision 27 adds `disunity_script_execution_order`, the execution order of a script (a 32-bit signed
-   integer, 0 by default), which a lifecycle phase uses to deliver messages to the lowest order first and,
-   for equal orders, in registration order. Revision 28 adds `disunity_skinned_renderer_write`, which names the mesh
-   identity and the root bone of a skinned mesh renderer with the root bone's bind pose (16
-   column-major floats); the renderer is drawn where the root bone's matrix times that pose
-   puts it, and one with no root bone is left out. The graphics snapshot, at wire version 19,
-   carries the count of skinned renderers it leaves out for want of a root bone. Revision 29 adds
-   `disunity_offscreen_draw_mesh_batch` and the 64-byte `DisunityDrawBatch` (offscreen kind 23): a
-   draw of the instances a shader reads from a window of a compute buffer, with the game's metadata
-   words by property name and the visible instance indexes, carried in the graphics snapshot from
-   wire version 20. Revision 30 makes the stored-texture `dimension` 2 the only spelling of a 2D
-   texture: `disunity_texture_store` refuses a record whose `dimension` is 0, and the host reads
-   only 2, 3, 4 and 5. Native and managed hosts reject
+3. For a new export, add its entry (`name`, `since`, `rets`) to
+   `crates/disunity-ffi/disunity_interface.json`. Describe the change in a new file
+   under `crates/disunity-ffi/abi/`, named for its topic and not for a number (see
+   `abi/README.md`); never edit the file of another change. Nobody writes the ABI
+   revision. The build generates `abi/surface.g.txt`: the signature of every export,
+   the size and field offsets of every `#[repr(C)]` record and the error reason tags,
+   one sorted line each. The revision is the 32-bit FNV-1a hash of that text. Prose,
+   formatting and the source file an export lives in never move it, and any change to
+   a signature, a record layout or a reason does. The library (`DISUNITY_ABI_VERSION`),
+   the runtime (`native.g.rs`) and the managed assembly (`NativeAbi.Version`, which embeds
+   `surface.g.txt`) each hash that checked-in file, so no file stores the number. If
+   `surface.g.txt`, `native.g.rs` (and its numbered parts) or `NativeLayouts.g.cs` drift,
+   copy them the same way as the bindings. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,
@@ -425,11 +377,11 @@ prevent failure teardown. The Rust host retains the full managed diagnostic.
 
 Regeneration covers these checked outputs: NativeErrors.g.cs,
 crates/disunity-runtime/src/native.g.rs and its numbered parts, NativeLayouts.g.cs, every NativeBindings
-part and NativeRecords.g.cs.
+part, NativeRecords.g.cs and crates/disunity-ffi/abi/surface.g.txt.
 Build first, inspect the generated output named by the drift failure, copy that
 artifact explicitly, and rebuild until every drift check passes. Builds do not
 rewrite these files. Managed imports and records are checked first, followed by
-reasons, native records and layouts.
+reasons, the ABI surface, native records and layouts.
 
 Dependency regressions inspect cargo metadata's resolved runtime edges,
 evaluated MSBuild project/package references, resolved assembly paths and the

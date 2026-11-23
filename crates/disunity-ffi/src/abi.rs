@@ -3,8 +3,9 @@
 //! requires explicitly updating `csharp/Disunity/NativeBindings.g.cs` (see
 //! `csharp/README.md`) and a matching `disunity_interface.json` entry.
 //!
-//! The interface is append-only: never change an existing export's signature;
-//! add a new export and bump the manifest.
+//! The ABI revision is the hash of the exported surface in `abi/surface.g.txt`, so any change to
+//! an export, a C record layout or an error reason moves it and nothing is bumped by hand.
+//! Describe the change in a new file under `abi/`.
 
 pub use crate::DisunityCommand;
 
@@ -130,8 +131,22 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
     result
 }
 
-/// The ABI version of this library; see `disunity_interface.json`.
-pub const DISUNITY_ABI_VERSION: u32 = 30;
+/// The revision of an ABI surface: the 32-bit FNV-1a hash of its text. Native and managed
+/// consumers hash the same `abi/surface.g.txt`, so none of them stores the number.
+pub const fn abi_revision(surface: &[u8]) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    let mut index = 0;
+    while index < surface.len() {
+        hash ^= surface[index] as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+        index += 1;
+    }
+    hash
+}
+
+/// The ABI revision of this library: the hash of the surface the build generated from its
+/// exports and records and checked against `abi/surface.g.txt`.
+pub const DISUNITY_ABI_VERSION: u32 = abi_revision(include_bytes!("../abi/surface.g.txt"));
 
 pub(crate) fn translate_error(
     world: Option<u64>,

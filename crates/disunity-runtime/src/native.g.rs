@@ -636,8 +636,23 @@ pub struct DisunityMeshRange {
     pub base_vertex: u32,
     pub topology: u32,
 }
-/// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 30;
+/// The revision of an ABI surface: the 32-bit FNV-1a hash of its text. Native and managed
+/// consumers hash the same `abi/surface.g.txt`, so none of them stores the number.
+pub const fn abi_revision(surface: &[u8]) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    let mut index = 0;
+    while index < surface.len() {
+        hash ^= surface[index] as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+        index += 1;
+    }
+    hash
+}
+
+/// The ABI revision these records belong to: the hash of the ABI surface the library
+/// build checked against `abi/surface.g.txt`.
+pub const DISUNITY_ABI_VERSION: u32 =
+    abi_revision(include_bytes!("../../disunity-ffi/abi/surface.g.txt"));
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

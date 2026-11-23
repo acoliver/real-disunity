@@ -620,7 +620,7 @@ scene-depth variants share the same interpretation. Geometry derivatives, not
 sampled-distance derivatives, provide the minimum singular scale. Distance is
 `(alpha-0.5)*2*spread*scale`, positive inside.
 
-ABI revision 11 carries scalar distance mode/spread/radius and effect RGBA in the
+The ABI carries scalar distance mode/spread/radius and effect RGBA in the
 152-byte `DisunityUiDraw`. Mode 0 means coverage, 1 fill, 2 outline and 3 glow.
 Copy-out/decode validate style and geometry. Managed records and native host
 records/layout assertions are generated from those same fields. Before creating
@@ -628,7 +628,7 @@ a world or accessing versioned records, managed startup compares the native
 revision with its generated revision. A mismatch throws
 `DisunityAbiRevisionException` with both expected and actual revisions.
 
-ABI revision 23 adds the material of a graphic. `disunity_canvas_renderer_material_write`
+A graphic carries a material. `disunity_canvas_renderer_material_write`
 takes the world material of the slot (0 for none); only main slot 0 holds one, a
 non-zero value for another slot is rejected, and lowering `material_count` to 0
 clears it. The extraction resolves it once per renderer. A draw names a `UiMaterial`
@@ -736,7 +736,7 @@ in `GeometryQuads::triangles`. Graphic extraction transforms them alongside quad
 `UiDraw::triangle_uv` marks a three-index draw using its first three corners. The
 shared dynamic upload uses three vertices and three indices for these draws, with
 the existing per-draw scissor and straight-alpha composition after tone mapping.
-As with graphic quads, a triangle uses its first vertex's colour. ABI revision 8
+As with graphic quads, a triangle uses its first vertex's colour. The ABI
 copies this topology and all three UV pairs through the generated UI records.
 Managed `CanvasRenderer` meshes follow this same path through presentation export
 and `DisunityHost::ui_presentation`, including draw order, texture identity and clip

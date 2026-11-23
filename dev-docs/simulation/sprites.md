@@ -22,7 +22,7 @@ pixel clip x/y/width/height. Text draws reference the separate R8 coverage table
 The sequence sorts by layer, order, hierarchy and then kind, with graphics before
 text on a shared object. Signed canvas priorities and empty clips are valid;
 descending keys and overflowing clip endpoints return an ABI error without
-changing the output records. These records use ABI revision 7.
+changing the output records.
 `PlayerUi` converts the snapshot to the existing `UiOverlay` and retained UI update,
 which draws after scene tone mapping. World-space canvas draws remain in the
 ordinary scene presentation. See [UI composition](ui.md#text-contract).

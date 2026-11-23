@@ -76,7 +76,7 @@ mod time_input_tests;
 pub mod ui;
 mod views;
 
-pub use abi::{DISUNITY_ABI_VERSION, DisunityResult, result_code};
+pub use abi::{DISUNITY_ABI_VERSION, DisunityResult, abi_revision, result_code};
 pub use store::{store_statistics, with_native_world};
 pub use views::{DisunityObject, DisunityWorld, export_object_states, with_world};
 

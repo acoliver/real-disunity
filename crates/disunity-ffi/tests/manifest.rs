@@ -136,15 +136,6 @@ fn every_manifest_entry_records_since_and_result() {
 }
 
 #[test]
-fn manifest_abi_version_matches_the_library_constant() {
-    let manifest_version = manifest()["abi_version"].as_u64().expect("u64") as u32;
-    assert_eq!(
-        manifest_version,
-        worldrunner_disunity_ffi::DISUNITY_ABI_VERSION
-    );
-}
-
-#[test]
 fn checked_bindings_match_complete_generated_signatures_and_layouts() {
     let generated = binding_parts(Path::new(env!("OUT_DIR")));
     let names = |parts: &[(String, Vec<u8>)]| {

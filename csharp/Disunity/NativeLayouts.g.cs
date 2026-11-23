@@ -782,12 +782,3 @@ internal static class NativeLayouts
         if (Marshal.SizeOf<DisunityUiDraw>() != 176 || typeof(DisunityUiDraw).GetFields().Length != 40) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
-/// The native ABI revision this assembly was built against.
-internal static class NativeAbi
-{
-    internal const uint Version = 30;
-    internal static void VerifyRevision(uint actual)
-    {
-        if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);
-    }
-}

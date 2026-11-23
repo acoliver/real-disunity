@@ -379,6 +379,7 @@ if (args is ["screen-identity"])
 }
 if (args.Length != 1) { throw new ArgumentException("explicit native library path required"); }
 DisunityHost.ConfigureNativeLibrary(args[0]);
+AbiRevisionTests.RunAgainstNative();
 MathTests.Run();
 MathGeometryTests.Run();
 ParticipantRegressionTests.Run();

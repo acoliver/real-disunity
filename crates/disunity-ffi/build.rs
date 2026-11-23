@@ -1,6 +1,7 @@
 //! Generates bindings in Cargo's output directory and rejects checked-in ABI drift.
 
 use std::path::PathBuf;
+mod build_abi;
 mod build_bindings;
 mod build_errors;
 mod build_layout;
@@ -61,6 +62,7 @@ const ABI_SOURCES: &[&str] = &[
 fn main() {
     for input in ABI_SOURCES.iter().copied().chain([
         "build.rs",
+        "build_abi.rs",
         "build_bindings.rs",
         "build_layout.rs",
         "build_errors.rs",
@@ -69,16 +71,39 @@ fn main() {
         println!("cargo:rerun-if-changed={input}");
     }
     let output = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
+    let sources: Vec<String> = ABI_SOURCES
+        .iter()
+        .map(|file| std::fs::read_to_string(file).expect("read ABI definitions"))
+        .collect();
     build_bindings::generate(&output);
     build_errors::generate(&output);
-    generate_native_records();
+    generate_surface(&output, &sources);
+    generate_native_records(&sources);
     build_layout::generate(&output);
 }
 
-fn generate_native_records() {
+/// Writes the ABI surface of `sources` and rejects a checked-in `abi/surface.g.txt` that differs.
+/// The library, the runtime and the managed assembly hash that file into the ABI revision.
+fn generate_surface(output: &std::path::Path, sources: &[String]) {
+    let surface = build_abi::surface(sources.iter().map(String::as_str));
+    let generated = output.join("surface.g.txt");
+    std::fs::write(&generated, &surface).expect("write the ABI surface");
+    let checked = PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets manifest directory"),
+    )
+    .join("abi/surface.g.txt");
+    println!("cargo:rerun-if-changed={}", checked.display());
+    assert!(
+        std::fs::read_to_string(&checked).unwrap_or_default() == surface,
+        "the ABI surface changed; review the diff, then copy {} to {}",
+        generated.display(),
+        checked.display()
+    );
+}
+
+fn generate_native_records(sources: &[String]) {
     let mut parts = vec![NATIVE_HEADER.to_owned()];
-    for file in ABI_SOURCES {
-        let source = std::fs::read_to_string(file).expect("read ABI definitions");
+    for source in sources {
         for record in source.split("#[repr(C)]").skip(1) {
             let end = record.find("\n}").expect("flat C record ends") + 2;
             let record = format!("#[repr(C)]{}\n", &record[..end]);
@@ -89,14 +114,11 @@ fn generate_native_records() {
         }
     }
     let output = &mut parts[0];
-    output.push_str(&format!(
-        "/// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = {};
-
-",
-        abi_version()
-    ));
     let source = std::fs::read_to_string("src/abi.rs").expect("ABI reasons");
+    output.push_str(&format!(
+        "{}\n\n/// The ABI revision these records belong to: the hash of the ABI surface the library\n/// build checked against `abi/surface.g.txt`.\npub const DISUNITY_ABI_VERSION: u32 =\n    abi_revision(include_bytes!(\"../../disunity-ffi/abi/surface.g.txt\"));\n\n",
+        revision_function(&source)
+    ));
     let reason = source.split("#[repr(u64)]").nth(1).expect("reason enum");
     let end = reason.find("\n}").expect("enum end") + 2;
     output.push_str("#[repr(u64)]");
@@ -147,15 +169,13 @@ fn write_native_parts(parts: Vec<String>) {
     }
 }
 
-/// The revision declared by `DISUNITY_ABI_VERSION` in `src/abi.rs`, so generated consumers never
-/// repeat the number.
-pub(crate) fn abi_version() -> u32 {
-    let source = std::fs::read_to_string("src/abi.rs").expect("ABI version source");
-    let line = source
-        .lines()
-        .find_map(|line| line.strip_prefix("pub const DISUNITY_ABI_VERSION: u32 = "))
-        .expect("ABI version constant");
-    line.trim_end_matches(';')
-        .parse()
-        .expect("numeric ABI version")
+/// The `abi_revision` function of `src/abi.rs` with its documentation, so the runtime derives the
+/// revision with the code the library does.
+fn revision_function(abi: &str) -> &str {
+    let start = abi
+        .find("pub const fn abi_revision")
+        .expect("revision function");
+    let documentation = abi[..start].rfind("\n\n").expect("revision documentation") + 2;
+    let end = start + abi[start..].find("\n}\n").expect("function end") + 2;
+    &abi[documentation..end]
 }

@@ -468,7 +468,7 @@ mod tests {
     fn accepts_only_the_generated_revision() {
         let current = super::native::DISUNITY_ABI_VERSION;
         assert!(super::check_revision(current).is_ok());
-        for other in [0, current - 1, current + 1] {
+        for other in [0, current.wrapping_sub(1), current.wrapping_add(1)] {
             assert!(super::check_revision(other).is_err(), "{other}");
         }
     }

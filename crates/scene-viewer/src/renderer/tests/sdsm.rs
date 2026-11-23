@@ -9,7 +9,7 @@ pub(super) fn retained_depth_fitting(event_loop: &EventLoop<()>, window: &Arc<Wi
         window.clone(),
         &scene,
         shadows,
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         2.into(),
     ))
     .unwrap();

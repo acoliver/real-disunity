@@ -66,8 +66,7 @@ struct SceneShadingSurface {
 }
 
 // The constant material values that shading reads besides the surface's own channels: the
-// lighting record. A forward draw reads its material's record; the deferred lighting pass
-// reads the same values from the frame's record table, at the index the G-buffer stores.
+// lighting record, read from the material uniform.
 struct SceneLightingRecord {
     // Back-scattering distortion, falloff, sun scale and ambient scale.
     scattering_shape: vec4<f32>,
@@ -82,12 +81,6 @@ struct SceneLightingRecord {
 fn scene_material_lighting_record() -> SceneLightingRecord {
     return SceneLightingRecord(material.scattering_shape, material.scattering_colour,
         material.scattering_mode, vec4<f32>(bitcast<f32>(material.geometry_flags.y), 0.0, 0.0, 0.0));
-}
-
-// The material's index in the frame's lighting-record table, which G-buffer producers store
-// as SceneGbufferSurface.lighting_record. The renderer writes it into scattering_mode.z.
-fn scene_material_lighting_record_index() -> u32 {
-    return u32(material.scattering_mode.z);
 }
 
 // Whether a record's back-scattering term applies. Forward draws test their material through
@@ -130,9 +123,9 @@ fn scene_record_transmission(normal: vec3<f32>, albedo: vec3<f32>, record: Scene
         * visibility;
 }
 
-// An object fragment's material after projected decals: the values the forward path lights and
-// the G-buffer stores, evaluated once by either. surface.properties holds roughness, metalness
-// and AO; masked_amount is the per-pixel scattering amount.
+// An object fragment's material after projected decals: the values the forward path lights.
+// surface.properties holds roughness, metalness and AO; masked_amount is the per-pixel
+// scattering amount.
 struct SceneObjectMaterial {
     geometric_normal: vec3<f32>,
     surface: SceneShadingSurface,

@@ -12,20 +12,23 @@ internal static class SyntheticFont
         for (var i = 0; i < words.Length; i++) U16(result, i * 2, words[i]);
         return result;
     }
-    /// <summary>The font, with a <c>kern</c> table of format 0 holding the (left, right, units) pairs when given.</summary>
-    public static byte[] Bytes((int Left, int Right, int Value)[]? kern = null)
+    /// <summary>The font, with a <c>kern</c> table of format 0 holding the (left, right, units) pairs when given. With
+    /// <paramref name="emptySpace"/> the space maps to a glyph with no outline and an advance of 300 units, as a real font's does.</summary>
+    public static byte[] Bytes((int Left, int Right, int Value)[]? kern = null, bool emptySpace = false)
     {
+        var glyphCount = emptySpace ? 3 : 2;
         var head = new byte[54];
         U32(head, 0, 0x10000); U32(head, 12, 0x5f0f3cf5); U16(head, 18, 1000);
         var hhea = new byte[36];
-        U32(hhea, 0, 0x10000); U16(hhea, 4, 800); U16(hhea, 6, -200); U16(hhea, 34, 2);
+        U32(hhea, 0, 0x10000); U16(hhea, 4, 800); U16(hhea, 6, -200); U16(hhea, 34, glyphCount);
         var maxp = new byte[32];
-        U32(maxp, 0, 0x10000); U16(maxp, 4, 2);
+        U32(maxp, 0, 0x10000); U16(maxp, 4, glyphCount);
         var glyph = Words(1, 0, 0, 500, 700, 2, 0).Concat(new byte[] { 1, 1, 1 })
             .Concat(Words(0, 500, -500, 0, 0, 700)).Append((byte)0).ToArray();
         var tables = new List<(string Tag, byte[] Data)> {
-            ("cmap", Cmap()), ("glyf", glyph), ("head", head), ("hhea", hhea),
-            ("hmtx", Words(500, 0, 600, 0)), ("loca", Words(0, 0, glyph.Length / 2)), ("maxp", maxp),
+            ("cmap", Cmap(emptySpace)), ("glyf", glyph), ("head", head), ("hhea", hhea),
+            ("hmtx", emptySpace ? Words(500, 0, 600, 0, 300, 0) : Words(500, 0, 600, 0)),
+            ("loca", emptySpace ? Words(0, 0, glyph.Length / 2, glyph.Length / 2) : Words(0, 0, glyph.Length / 2)), ("maxp", maxp),
         };
         if (kern is not null)
         {
@@ -47,7 +50,7 @@ internal static class SyntheticFont
         for (var i = 0; i < header.Length; i++) output[i] = header[i];
         return output.ToArray();
     }
-    private static byte[] Cmap()
+    private static byte[] Cmap(bool emptySpace)
     {
         var result = Words(0, 1, 3, 1).Concat(new byte[] { 0, 0, 0, 12 }).ToList();
         result.AddRange(Words(4, 16 + 96 * 8, 0, 96 * 2, 128, 6, 96 * 2 - 128));
@@ -55,7 +58,7 @@ internal static class SyntheticFont
         result.AddRange(Words(65535, 0));
         for (var c = 32; c <= 126; c++) result.AddRange(Words(c));
         result.AddRange(Words(65535));
-        for (var c = 32; c <= 126; c++) result.AddRange(Words(1 - c));
+        for (var c = 32; c <= 126; c++) result.AddRange(Words((emptySpace && c == 32 ? 2 : 1) - c));
         result.AddRange(Words(1));
         result.AddRange(new byte[96 * 2]);
         return result.ToArray();

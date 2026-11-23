@@ -97,12 +97,20 @@ fn accumulated_capture_keeps_offscreen_packet_when_admission_is_blocked() {
     let before = authority.submitted_serial();
     let first = renderer
         .execution
-        .acquire_capture(&renderer.context, [64, 64])
+        .acquire_capture(
+            &renderer.context,
+            [64, 64],
+            renderer.presentation.output_format(),
+        )
         .unwrap()
         .unwrap();
     let second = renderer
         .execution
-        .acquire_capture(&renderer.context, [64, 64])
+        .acquire_capture(
+            &renderer.context,
+            [64, 64],
+            renderer.presentation.output_format(),
+        )
         .unwrap()
         .unwrap();
 

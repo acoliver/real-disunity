@@ -134,38 +134,6 @@ fn a_prepass_a_later_opaque_reuses_marks_the_stencil_and_one_it_does_not_reuse_d
 }
 
 #[test]
-fn an_observation_gbuffer_pass_tests_the_completed_depth_read_only_into_all_four_targets() {
-    let formats = [
-        TextureFormat::Rgb10a2Unorm,
-        COLOR,
-        TextureFormat::Rgba8Unorm,
-        TextureFormat::R16Uint,
-    ];
-    let mut gbuffer = pass(
-        PassSlot::OpaqueGbuffer,
-        Some(attachment("g0", formats[0], clear_color(), false)),
-        Some(depth(AttachmentLoad::Load, true)),
-    );
-    gbuffer.additional_colors = formats[1..]
-        .iter()
-        .zip(["g1", "g2", "g3"])
-        .map(|(format, name)| attachment(name, *format, clear_color(), false))
-        .collect();
-    let passes = [prepass(), gbuffer, opaque(AttachmentLoad::Load)];
-    let target = target(&passes, PassEntry::new(PassSlot::OpaqueGbuffer));
-    assert_eq!(target.color_formats(), formats);
-    assert_eq!(
-        target.signature().unwrap(),
-        TargetSignature::attachments(&formats, Some(COMBINED), 1).unwrap()
-    );
-    let state = target.render_state(raster());
-    assert_eq!(state.colors.len(), 4);
-    let depth = state.depth.unwrap();
-    assert_eq!(depth.test, CompareFunction::Equal);
-    assert!(!depth.write);
-}
-
-#[test]
 fn a_shadow_caster_pass_has_depth_only_attachments() {
     let caster = pass(
         PassSlot::ShadowCasters(1),

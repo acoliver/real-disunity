@@ -37,7 +37,9 @@ fn every_pipeline_variant_compiles_against_the_declared_layout() {
     let context = context();
     let device = context.device();
 
-    let (pipelines, error) = validation_error(device, || ScenePipelines::new(device, COLOR_FORMAT));
+    let (pipelines, error) = validation_error(device, || {
+        ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap()
+    });
 
     assert!(
         error.is_none(),
@@ -66,7 +68,7 @@ fn the_frame_layout_the_pipelines_expose_accepts_the_frame_uniform() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
 
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some("frame"),

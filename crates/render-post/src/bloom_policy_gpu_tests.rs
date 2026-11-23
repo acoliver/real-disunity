@@ -167,6 +167,7 @@ fn host_with_levels(
             upload: buffer(wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST),
             exposure: buffer(wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST),
         },
+        crate::SceneDepth::Independent,
     )
     .unwrap()
 }
@@ -423,6 +424,7 @@ fn gpu_bloom_stock_hdr_uses_fixed_and_adaptive_exposure_inputs() {
             FrameConfig::new([17, 11], wgpu::TextureFormat::Rgba16Float, 1),
             Resources::default(),
             factory,
+            crate::SceneDepth::Independent,
         )
         .unwrap();
         crate::chain::post_effect_tests::step(

@@ -219,10 +219,10 @@ fn pending_preparation_keeps_rendering_then_publishes_whole_generations() {
         height: 64,
     };
     let mut host = host(&source);
-    let mut resident = Resident::new(&context, &source, None, FrameProfile::Legacy).unwrap();
+    let mut resident = Resident::new(&context, &source, None, crate::tests::CLAMP).unwrap();
     let mut presentation =
         crate::presentation::fixtures::presentation(&context, crate::presentation::COLOR, size);
-    let mut streaming = Streaming::new(None, FrameProfile::Legacy);
+    let mut streaming = Streaming::new(None, crate::tests::CLAMP);
     let mut target = OffscreenTarget::new(context.device(), size).unwrap();
     let before_view = host.view().unwrap().unwrap().view_matrix();
     let textures = host.scene().resources().textures().as_ptr();
@@ -347,7 +347,7 @@ fn asynchronous_rebuilds_complete_in_reverse_but_publish_in_order() {
     .unwrap();
     let source = super::super::retained_tests::source();
     let mut host = host(&source);
-    let mut resident = Resident::new(&context, &source, None, FrameProfile::Legacy).unwrap();
+    let mut resident = Resident::new(&context, &source, None, crate::tests::CLAMP).unwrap();
     let mut presentation = crate::presentation::fixtures::presentation(
         &context,
         crate::presentation::COLOR,
@@ -356,7 +356,7 @@ fn asynchronous_rebuilds_complete_in_reverse_but_publish_in_order() {
             height: 64,
         },
     );
-    let mut streaming = Streaming::new(None, FrameProfile::Legacy);
+    let mut streaming = Streaming::new(None, crate::tests::CLAMP);
     let (release, gate) = std::sync::mpsc::sync_channel(1);
     host.readiness.preparation_hook = Some(Box::new(move || gate.recv().unwrap()));
     for _ in 0..2 {

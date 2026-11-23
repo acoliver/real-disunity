@@ -41,21 +41,14 @@ fn output(
     settings: &RendererConfiguration,
     history: Option<&ToneMapOutput>,
 ) -> Result<FrameOutput, PostError> {
-    let device = context.device();
-    if let Some((exposure, tone)) = settings.hdr {
-        Ok(FrameOutput::Hdr(
-            ToneMapOutput::new(settings.output_format, exposure, tone)?.with_retained_effects(
-                device,
-                settings.post,
-                history,
-            )?,
-        ))
-    } else {
-        Ok(FrameOutput::Copy(worldrunner_render_post::CopyOutput::new(
-            device,
-            settings.output_format,
-        )))
-    }
+    let (exposure, tone) = settings.hdr;
+    Ok(FrameOutput::Hdr(
+        ToneMapOutput::new(settings.output_format, exposure, tone)?.with_retained_effects(
+            context.device(),
+            settings.post,
+            history,
+        )?,
+    ))
 }
 
 fn new_renderer(
@@ -72,7 +65,6 @@ fn new_renderer(
             .get_texture_format_features(crate::contours::FORMAT),
         overlay: super::super::overlay::OverlayStage::default(),
         output_format: settings.output_format,
-        producer_draw: std::rc::Rc::default(),
         plan_cache: std::rc::Rc::default(),
         game: crate::compositor::game::Installed::default(),
         game_camera: super::super::FrameCameraHandle::default(),
@@ -103,12 +95,6 @@ fn new_renderer(
         ssr: None,
         ssao_requested: settings.ssao,
         ssr_requested: settings.ssr,
-        gbuffer: super::super::opaque::allocate_path(
-            device,
-            settings.opaque_path,
-            settings.frame,
-            settings.ssr.is_some_and(|ssr| ssr.enabled),
-        )?,
     })
 }
 
@@ -118,7 +104,7 @@ fn scene_chain(
     factory: FrameOutput,
 ) -> Result<PostChain<FrameOutput>, PostError> {
     let device = context.device();
-    PostChain::with_scene_depth(
+    PostChain::new(
         device,
         settings.frame,
         Resources::default(),
@@ -139,7 +125,6 @@ fn finish_renderer(
 ) -> Result<(), PostError> {
     let device = context.device();
     renderer.install_reflections(device)?;
-    renderer.install_gbuffer_producer(device);
     renderer.share_metadata_depth(device);
     install_jitter(renderer, settings)?;
     // The inventory installs first: what its factories draw decides whether the stock water

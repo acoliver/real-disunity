@@ -381,8 +381,9 @@ fn gpu_full_pyramid_runs_in_the_existing_frame_schedule() {
             context.device(),
             &mut encoder,
             (&[opaque], &[color, depth]),
+            None,
             &mut [],
-            (frame(), None),
+            &(frame(), None),
         )
         .unwrap();
     encoder.finish().submit().unwrap();

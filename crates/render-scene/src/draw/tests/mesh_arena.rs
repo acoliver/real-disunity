@@ -80,7 +80,7 @@ fn mixed(rigid: SceneMesh) -> RenderScene {
 }
 
 fn upload(context: &GpuContext, scene: &RenderScene) -> SceneGpu {
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap()
 }
 

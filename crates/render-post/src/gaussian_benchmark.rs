@@ -81,6 +81,7 @@ fn gaussian_bloom_stage_timestamps() {
         FrameConfig::new([1600, 900], wgpu::TextureFormat::Rgba16Float, 1),
         Resources::default(),
         BenchmarkFactory,
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     chain

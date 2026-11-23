@@ -74,7 +74,11 @@ fn cmaa2_is_a_resolve_that_enables_the_display_path_and_excludes_the_others() {
     assert!(resolve.active_fxaa().is_none());
     assert!(resolve.active_smaa().is_none());
     assert!(resolve.active_cmaa2().is_some());
-    assert!(PostResolve::fxaa(1.0).active_cmaa2().is_none());
+    assert!(
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default())
+            .active_cmaa2()
+            .is_none()
+    );
     assert!(PostResolve::smaa(SmaaPreset::High).active_cmaa2().is_none());
     assert!(PostResolve::None.active_cmaa2().is_none());
 }
@@ -86,7 +90,7 @@ fn the_display_intermediate_is_half_precision_and_storage_capable_for_cmaa2() {
         wgpu::TextureFormat::Rgba16Float
     );
     assert_eq!(
-        PostResolve::fxaa(1.0).display_format(),
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default()).display_format(),
         wgpu::TextureFormat::Rgba16Float
     );
 }

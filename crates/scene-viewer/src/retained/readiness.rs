@@ -164,25 +164,10 @@ impl RetainedHost {
         Ok(())
     }
 
-    pub(crate) fn validate_streamed_effects(
-        effects: &SceneEffects,
-        options: &ViewerOptions,
-    ) -> Result<(), ViewerError> {
-        worldrunner_render_scene::compositor::opaque::validate_receiver_reservation(
-            effects.opaque_path(),
-            crate::presentation::receiver_reservation(options.shadows),
-        )
-        .map_err(worldrunner_render_post::PostError::from)?;
+    pub(crate) fn validate_streamed_effects(effects: &SceneEffects) -> Result<(), ViewerError> {
         worldrunner_render_scene::post_settings(effects)?;
         if let Some(water) = effects.water() {
             worldrunner_render_scene::water::validate_settings(water)?;
-        }
-        if matches!(options.frame_profile, crate::FrameProfile::Legacy)
-            && (effects.ssao().is_some() || effects.ssr().is_some() || effects.water().is_some())
-        {
-            return Err(ViewerError::UnsupportedScene(
-                "water, SSAO and SSR streaming require HDR",
-            ));
         }
         Ok(())
     }

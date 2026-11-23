@@ -415,7 +415,9 @@ mod tests {
         let scene = crate::renderer::ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
-        );
+            1,
+        )
+        .unwrap();
         let family = scene.object_context().family();
         let authority = context.submission();
         for physical in [false, true] {

@@ -3,12 +3,19 @@
 use super::frame_start;
 use super::snapshots::SnapshotReads;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::PoisonError;
 use worldrunner_render_gpu::configuration::AllocationSet;
-use worldrunner_render_gpu::submission::{Publications, capture::WriteKey};
-use worldrunner_render_post::{
-    AttachmentView, FrameError, PassDeclaration, PostError, PrepareContext, ResourceRef,
-};
+use worldrunner_render_gpu::submission::Publications;
+use worldrunner_render_gpu::submission::capture::WriteKey;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::PassDeclaration;
+use worldrunner_render_post::PostError;
+use worldrunner_render_post::PrepareContext;
+use worldrunner_render_post::ResourceRef;
 
 /// How large a declared target is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

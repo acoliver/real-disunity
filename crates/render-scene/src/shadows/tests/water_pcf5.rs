@@ -1,4 +1,7 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 const PHASES: [f64; 16] = [
     0.0, 0.001, 0.0625, 0.125, 0.2, 0.25, 0.333, 0.499, 0.5, 0.501, 0.666, 0.75, 0.8, 0.875, 0.999,
@@ -12,11 +15,12 @@ fn gpu_water_pcf5_matches_binary_map_oracle_across_phases_and_clamped_edges() {
     let source = scene(&[], 600_000, None);
     let renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             resolution: 256,
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let depth_pipeline = binary_pipeline(context.device(), false);
@@ -203,7 +207,7 @@ fn gpu_water_pcf5_preserves_cascade_selection_coverage_and_boundary_blends() {
         &scene(&[], 600_000, None),
         SceneShadowCascades::camera_splits(vec![2_000, 4_000, 6_000, 8_000], 250_000).unwrap(),
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let probe = super::selection::PROBE.replace(
         "sunlight_visibility(",
         "water_filtered_raw_sunlight_visibility(",
@@ -241,11 +245,12 @@ fn gpu_water_pcf5_depth_equality_is_lit_with_less_equal() {
     let source = scene(&[], 600_000, None);
     let renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             resolution: 256,
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let pipeline = binary_pipeline(context.device(), true);

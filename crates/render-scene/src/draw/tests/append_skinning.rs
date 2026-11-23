@@ -5,6 +5,7 @@ use super::*;
 use crate::draw::{DrawError, PreparedAppend, PreparedMeshReplacement};
 use crate::instances::InstanceError;
 use crate::instances::skin::SkinTables;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneAppend, SceneSkinInfluence, SceneSkinPose, SkeletonHandle, SkinPoseHandle,
 };
@@ -80,7 +81,7 @@ fn an_append_naming_skins_the_scene_lacks_is_refused_and_changes_nothing() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu = SceneGpu::upload(context.device(), context.submission(), &scene(), &pipelines)
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene(), &pipelines)
         .expect("the scene uploads");
     let base = gpu.resource_base();
     // Skeleton 9 is not resident, and joint 3 is beyond the two joints of skeleton 0.
@@ -121,7 +122,7 @@ fn a_replacement_naming_skins_the_scene_lacks_is_refused_before_a_placement_can_
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let generation = gpu.caster_generation();
     for (skeleton, last_joint) in [(9, 1), (0, 3)] {
         let replacement = PreparedMeshReplacement::new(
@@ -150,7 +151,7 @@ fn a_replacement_that_a_live_pose_cannot_drive_is_refused_and_changes_nothing() 
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu
         .add_instance(placed(0, 0), true)
         .expect("the two-joint pose drives the two-joint mesh");

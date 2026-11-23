@@ -1,5 +1,6 @@
 //! Numeric image deltas for the selected-plane terrain receiver against hardware dP.
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 fn comparison_pipelines(
     context: &GpuContext,
@@ -33,7 +34,7 @@ fn quad_seam(image: &RgbaImage, pixel: usize) -> bool {
 }
 
 fn compare(context: &GpuContext, source: &RenderScene, name: &str, cascades: usize) {
-    let mut renderer = ShadowedScene::new(context, source, settings()).unwrap();
+    let mut renderer = shadowed(context, source, settings()).unwrap();
     let selected = resources::shadowed_terrain_source();
     let hardware = crate::scene_metadata::receiver::hardware_receiver_reference(selected);
     assert_ne!(selected, hardware);

@@ -1,6 +1,7 @@
 use super::fixture;
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture};
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     compositor::{FeatureTarget, FrameRenderer},
     device::GpuContext,
@@ -28,8 +29,14 @@ impl Scene {
             1,
         )
         .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(source).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         let mut frame = FrameRenderer::hdr(
             context,
             [view.viewport().width, view.viewport().height],

@@ -17,6 +17,7 @@
 //! [`scenes::base_specs`] cards to the pipeline of the key `index ^ mask`. The keys a capture
 //! drew are read from the selection it made, through the same walk the pass records.
 
+use crate::test_support::upload_scene;
 use std::collections::BTreeSet;
 
 use wgpu::{BindGroup, RenderPass, TextureFormat};
@@ -80,7 +81,7 @@ impl<'a> Rig<'a> {
         moving: bool,
     ) -> Self {
         let mut gpu =
-            SceneGpu::upload(context.device(), context.submission(), scene, pipelines).unwrap();
+            upload_scene(context.device(), context.submission(), scene, pipelines).unwrap();
         let motion = pipelines.writes_velocity().then(|| {
             gpu.track_previous_transforms(true);
             if moving {

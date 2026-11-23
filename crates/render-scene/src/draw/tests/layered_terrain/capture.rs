@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use crate::{compositor::FrameRenderer, offscreen::OffscreenTarget};
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
 use worldrunner_render_post::FrameError;
@@ -11,7 +12,7 @@ fn layered_production_capture_bakes_cold_and_invalidated_pages() {
     let authority = SubmissionAuthority::new(context.queue().clone());
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
     let scene = layered_scene(TerrainSplatFilter::Bilinear);
-    let mut gpu = SceneGpu::upload(device, &authority, &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(device, &authority, &scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), matching_frame());
     gpu.enable_terrain_pages(device, &authority, page_source())
         .unwrap();

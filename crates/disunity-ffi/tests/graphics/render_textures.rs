@@ -1,6 +1,8 @@
 //! Render textures, the cameras that draw into them, offscreen work and shader reads through the ABI:
 //! validation, and that accepted calls reach the world.
+use super::frame::snapshot;
 use super::*;
+use worldrunner_world_simulation::graphics::{OffscreenWork, RenderTextureId, TargetRef};
 
 #[test]
 fn a_render_texture_round_trips_and_a_write_raises_its_generation() {
@@ -163,21 +165,6 @@ fn work(kind: u32) -> DisunityOffscreenWork {
     }
 }
 
-/// The fields a record carries are the fields it was recorded with.
-fn assert_same_work(given: &DisunityOffscreenWork, read: &DisunityOffscreenWork) {
-    assert_eq!(given.kind, read.kind);
-    assert_eq!((given.camera, given.target), (read.camera, read.target));
-    assert_eq!(
-        (given.source_kind, given.source),
-        (read.source_kind, read.source)
-    );
-    assert_eq!((given.material, given.pass), (read.material, read.pass));
-    assert_eq!(
-        (given.source_mip, given.target_mip),
-        (read.source_mip, read.target_mip)
-    );
-}
-
 #[test]
 fn offscreen_work_is_recorded_in_order_and_taken_once() {
     let world = new_world();
@@ -212,32 +199,45 @@ fn offscreen_work_is_recorded_in_order_and_taken_once() {
     for record in &records {
         unsafe { assert_eq!(disunity_offscreen_record(world, record).code, 0) };
     }
-    let mut count = 0;
-    let mut taken = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, std::ptr::null_mut(), 0, &mut count).code,
-            0
+    let frame = snapshot(world);
+    let target_id = RenderTextureId::from_bits(target);
+    let [
+        OffscreenWork::CameraRender {
+            camera: drawn_by,
+            target: drawn_into,
+        },
+        blit,
+        copy,
+    ] = frame.work.as_slice()
+    else {
+        panic!(
+            "expected a camera render, a blit and a copy, got {:?}",
+            frame.work
         );
-        assert_eq!(count, 3);
-        let small = disunity_offscreen_take(world, taken.as_mut_ptr(), 2, &mut count);
-        assert_ne!(small.code, 0);
-        assert_eq!(
-            disunity_offscreen_take(world, taken.as_mut_ptr(), 4, &mut count).code,
-            0
-        );
-    }
-    assert_eq!(count, 3);
-    for (given, read) in records.iter().zip(&taken) {
-        assert_same_work(given, read);
-    }
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, taken.as_mut_ptr(), 4, &mut count).code,
-            0
-        )
     };
-    assert_eq!(count, 0);
+    assert!(frame.cameras.contains_key(drawn_by), "the camera is listed");
+    assert_eq!(*drawn_into, target_id);
+    assert_eq!(
+        *blit,
+        OffscreenWork::Blit {
+            source: TextureRef::Render(target_id),
+            target: TargetRef::Render(target_id),
+            material: Some(MaterialId::from_bits(material)),
+            pass: 1,
+        }
+    );
+    assert_eq!(
+        *copy,
+        OffscreenWork::CopyTexture {
+            source: TextureRef::Asset(PLAYER_TEXTURE),
+            source_element: 0,
+            source_mip: 2,
+            target: TargetRef::Render(target_id),
+            target_element: 0,
+            target_mip: 1,
+        }
+    );
+    assert!(snapshot(world).work.is_empty(), "the work is taken once");
 }
 
 #[test]
@@ -286,14 +286,7 @@ fn offscreen_work_is_validated_before_it_is_recorded() {
     }
     let null = unsafe { disunity_offscreen_record(world, std::ptr::null()) };
     assert_ne!(null.code, 0);
-    let mut count = 9;
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, std::ptr::null_mut(), 0, &mut count).code,
-            0
-        )
-    };
-    assert_eq!(count, 0);
+    assert!(snapshot(world).work.is_empty());
 }
 
 #[test]

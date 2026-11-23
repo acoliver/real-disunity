@@ -2,6 +2,7 @@ use super::lod_material::scene;
 use super::*;
 use crate::draw::{PreparedMeshReplacement, ResourceBase};
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::MeshHandle;
 
 #[test]
@@ -11,7 +12,7 @@ fn replacing_a_mesh_changes_the_casters_and_keeps_the_placements() {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handles: Vec<_> = gpu.instance_handles().collect();
     let generation = gpu.caster_generation();
     let handle = MeshHandle::from_raw(0);
@@ -30,7 +31,7 @@ fn a_replacement_for_a_missing_mesh_is_refused_and_changes_nothing() {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let base: ResourceBase = gpu.resource_base();
     let generation = gpu.caster_generation();
     let stale = {
@@ -85,7 +86,7 @@ fn a_still_view_selects_again_after_its_mesh_is_replaced() {
     );
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {

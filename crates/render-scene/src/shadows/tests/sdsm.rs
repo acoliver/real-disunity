@@ -5,6 +5,9 @@ mod history;
 mod ssr;
 mod velocity;
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::cascades::CascadeViews;
 use worldrunner_render_shadow::{DepthRange, RangeFit};
 pub(super) fn policy() -> RangeFit {
@@ -23,7 +26,7 @@ fn depth_fit_keeps_offscreen_casters_and_rescales_bias_with_extent() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000]], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let mut fits = Vec::new();
     for far in [10.0, 18.0] {
         let mut fit = CascadeViews::new(
@@ -61,7 +64,7 @@ fn fitted_cascades_equal_declared_cascades_refitted() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000], [-800, 300, 4_000]], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let sun = Vec3::new(0.6, 0.0, 0.8);
     let recurrence = RangeFit {
         split_policy: worldrunner_render_shadow::SplitPolicy::OverlapRecurrence {
@@ -133,7 +136,7 @@ fn empty_depth_has_explicit_zero_receiver_uniform() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let mut fit = CascadeViews::new(
         &renderer.gpu,
         &view(),
@@ -172,7 +175,7 @@ fn gpu_depth_fitted_shadow_retains_camera_invisible_caster() {
         view().viewport(),
     )
     .unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
@@ -224,7 +227,7 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let view = view();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut outputs = Vec::new();
     for adoption in [
@@ -452,12 +455,11 @@ pub(super) fn screen_renderers(
         source.effects(),
     )
     .unwrap();
-    let renderer = ShadowedScene::with_target(
+    let renderer = ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     (frame, renderer)

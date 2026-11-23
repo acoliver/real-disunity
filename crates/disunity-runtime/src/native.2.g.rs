@@ -101,24 +101,6 @@ pub struct DisunityComputeGlobalTexture {
     pub global_length: u32,
 }
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisunityComputeBinding {
-    pub kind: u32,
-    pub name_offset: u32,
-    pub name_length: u32,
-    pub float_offset: u32,
-    pub int_value: i32,
-    pub texture_kind: u32,
-    pub resource: u64,
-}
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisunityComputeBindingsInfo {
-    pub entry_count: u32,
-    pub float_count: u32,
-    pub text_length: u32,
-}
-#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DisunityEnvironment {
     pub ambient_set: u32,
@@ -221,12 +203,6 @@ pub struct DisunityOffscreenWork {
     pub source_mip: u32,
     pub target_element: u32,
     pub target_mip: u32,
-    pub shader: u64,
-    pub kernel: u32,
-    pub groups_x: u32,
-    pub groups_y: u32,
-    pub groups_z: u32,
-    pub bindings: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

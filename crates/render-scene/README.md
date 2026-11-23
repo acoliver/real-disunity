@@ -843,7 +843,7 @@ bias remains in world metres.
 `FrameRenderer::hdr` compiles a fixed scene-exposure profile into the retained
 post executor. Its scene target is `Rgba16Float`; choose one or four samples.
 Object, masked and terrain receiver pipelines must use the same colour attachment
-and sample count (`ScenePipelines::new` or `ShadowedScene::with_target`).
+and sample count (`ScenePipelines::new` or `ShadowedScene::new` with a `ShadowedTarget`).
 Shadow depth arrays stay single-sample. `FrameTargets::depth` supplies the matching
 camera depth attachment. Resizing builds colour, depth and output bindings before
 replacing the live generation; a rejected extent leaves the old generation usable.
@@ -947,7 +947,7 @@ with an empty write mask (`velocity::masked_targets`), which covers the unlit dy
 and the celestial composition. The policy table is in `src/velocity.rs`. Wind on objects is produced;
 per-instance transforms and billboards do not write velocity yet.
 
-Shadow receivers and SSR. `ShadowedScene::with_taa_velocity` applies the same rewrite to the shadow
+Shadow receivers and SSR. A `ShadowedScene` whose `ShadowedTarget` sets `velocity` applies the same rewrite to the shadow
 receiver object and terrain pipelines; the caster depth pipelines need none. With SSR on, the
 reflection forward pipelines (`ssr::forward`) write the residual at `@location(3)` after the three
 reflection targets, which costs 3 x 8 + 4 = 28 bytes per sample on an HDR target. `velocity::reflection_velocity`
@@ -1300,7 +1300,7 @@ A pass that samples the occlusion declares it with `GamePassSpec::sampling_frame
 `GamePlace::BeforePost` is the last place of the forward frame. Its passes run after every pass that writes the lit scene colour: Opaque, the water and transparent passes, the reflection trace and the stock screen-space pass after transparency, and the game's passes at every other place. The post chain (resolve, bloom, tone mapping) then reads the colour they leave. The place is named for what follows it rather than for the stock screen-space pass, which a frame has only with screen-space reflections; with or without it, nothing in the frame draws over a pass here. It is where a game draws what the original drew over the finished scene, such as blended particles. In a frame without HDR post the colour is copied to the output as it is, so the place is still its last writer.
 
 - **Where it sits.** The forward order puts it after `ScreenSpaceAfterTransparent` in every route, unshadowed, shadowed, resident and in the suffix of a same-frame capture. A frozen plan must list it after every other role, or it is refused with `FrameError::StockOrder` naming the pass and the later writer (`render-post` `frame/frozen.rs`). Its passes take the frame's attachments from Opaque, as every place but `AfterDepthPrepass` does, so a frame without Opaque refuses it with `FrameError::MissingPass(Opaque)`, and the depth-prefix feature planning it is `FrameError::UnsupportedEffect`.
-- **Blending.** `ColorOutput::Frame` loads the colour every earlier pass left. Blending is the state of the pass's draws: `PassTarget::render_state_with(raster, &[ColorState { blend, write_mask }])` keeps the pass's depth and stencil rules and sets one colour state per attachment (`FrameError::AttachmentContract` naming the entry for a different count). The original's alpha blend over RGB only is `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which leaves the colour's alpha as it was.
+- **Blending.** `ColorOutput::Frame` loads the colour every earlier pass left. Blending is the state of the pass's draws: `PassTarget::render_state(raster)` keeps the pass's depth and stencil rules and has one colour state per attachment in `colors`, which the draw sets to its blend and write mask. The original's alpha blend over RGB only is `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which leaves the colour's alpha as it was.
 - **Testing and sampling the depth in one pass.** `DepthAccess::ReadOnlySampled` attaches the frame's depth read-only and loaded, as `ReadOnly` does, and adds it to the pass's reads, so frame validation orders the pass after the depth's writers and admits the sampled read of a read-only loaded attachment. wgpu allows a texture to be a read-only depth attachment and a sampled texture of the same pass, and render-post's contracts accept it on every backend except GL, which lacks read-only depth attachment transitions and refuses it with `ContractError::DepthSampling` (`contracts_read_only_depth.rs`). In `prepare`, `PassTarget::sampled_depth(context, entry)` returns the frame's `AttachmentView` of that depth: bind `sampled_view()`, which selects the depth aspect of a combined depth-stencil format, with `texture()`, as `texture_depth_2d` (or `texture_depth_multisampled_2d` in a multisampled frame), and do not keep it past the frame. A pass cannot write a depth and sample it: listing the frame's depth in `GamePassSpec::sampling_frame` of a `DepthAccess::ReadWrite` pass is refused at planning with `FrameError::AttachmentHazard` naming the depth, and `sampled_depth` refuses an entry whose depth is writable or cleared the same way. The depth holds what every earlier writer of the frame depth left: the prepass or Opaque, the stock water surface, which writes it, and any game pass with `ReadWrite`.
 - **What it does not write.** A pass here writes no velocity and no temporal mask; under temporal antialiasing its pixels carry the motion of the surface behind them.
 
@@ -1313,15 +1313,16 @@ declared.push(targets.plan_pass(&particles, passes, views)?);
 
 // Inside `prepare`: blend over RGB only, test the depth and sample it.
 let target = PassTarget::of(context, particles.entry())?;
-let state = target.render_state_with(raster, &[ColorState {
+let mut state = target.render_state(raster);
+state.colors[0] = Some(ColorState {
     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
     write_mask: wgpu::ColorWrites::COLOR,
-}])?;
+});
 let depth = PassTarget::sampled_depth(context, particles.entry())?;
 let scene_depth = Import::texture(semantic, depth.texture().clone(), depth.sampled_view());
 ```
 
-Tests: the forward-order test `the_place_before_post_follows_every_other_pass_of_the_frame`, `src/compositor/game/before_post_tests.rs` (the planned pass loads the colour an `AfterTransparent` game pass and the stock screen-space pass wrote, attaches the depth read-only and reads it, validates as a frame; the missing-Opaque, depth-prefix, write-and-sample and colour-count refusals), the frozen-order test in `render-post` `frame/game_tests.rs`, and the Metal frames in `tests/game_passes/before_post.rs`: a quad blended at alpha 0.25 over a game fill drawn after the transparent passes and over the stock quad equals the blend of the two to half precision with the alpha kept; a pass that tests the depth read-only and samples it writes the expected fade, sampled depth and fragment depth in front of the stock quad and off it, and leaves the stock colour where the test rejects it; and a game that plans nothing before post, or blends nothing there, leaves the HDR frame bit for bit as the stock frame.
+Tests: the forward-order test `the_place_before_post_follows_every_other_pass_of_the_frame`, `src/compositor/game/before_post_tests.rs` (the planned pass loads the colour an `AfterTransparent` game pass and the stock screen-space pass wrote, attaches the depth read-only and reads it, validates as a frame; the missing-Opaque, depth-prefix and write-and-sample refusals), the frozen-order test in `render-post` `frame/game_tests.rs`, and the Metal frames in `tests/game_passes/before_post.rs`: a quad blended at alpha 0.25 over a game fill drawn after the transparent passes and over the stock quad equals the blend of the two to half precision with the alpha kept; a pass that tests the depth read-only and samples it writes the expected fade, sampled depth and fragment depth in front of the stock quad and off it, and leaves the stock colour where the test rejects it; and a game that plans nothing before post, or blends nothing there, leaves the HDR frame bit for bit as the stock frame.
 
 ## Native-resolution RCAS
 

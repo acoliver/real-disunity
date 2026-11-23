@@ -4,6 +4,7 @@
 //! instance transform between frames. The camera is fixed, so the previous unjittered
 //! view-projection is the current one and only the instance motion contributes.
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::SceneTransform;
 
 fn at(millimetres: i16) -> SceneTransform {
@@ -62,7 +63,7 @@ impl Moving {
                 ScenePipelines::with_taa_velocity(device, HDR, samples.count()).unwrap();
             (scene, effects, pipelines)
         };
-        let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
         let renderer = FrameRenderer::hdr_antialiased(
             &context,
             [TARGET, TARGET],

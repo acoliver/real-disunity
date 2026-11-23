@@ -7,6 +7,7 @@
 //! offset, which the tests compute on the CPU.
 use super::super::foliage::cutout_texture;
 use super::*;
+use crate::test_support::upload_scene;
 use glam::Mat3;
 use worldrunner_render_plan::SceneTransform;
 
@@ -112,7 +113,7 @@ impl Card {
             };
             (scene, effects, pipelines)
         };
-        let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
         let (renderer, color, depth) = taa_target(&context, &effects, samples);
         let handle = gpu.instance_handles().next().unwrap();
         Self {

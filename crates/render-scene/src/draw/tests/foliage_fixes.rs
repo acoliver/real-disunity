@@ -1,5 +1,7 @@
 use super::foliage::{contact_scene, geometry_sources, pass_color, pass_depth};
 use super::*;
+use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 
 fn transition_scene(coverage: u32) -> RenderScene {
     use worldrunner_render_plan::SceneCard;
@@ -73,7 +75,7 @@ fn screen_pixel_transition_is_exclusive_and_complete_on_overlapping_geometry() {
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for coverage in [0, 123_457, 500_000, 1_000_000] {
-        let gpu = SceneGpu::upload(
+        let gpu = upload_scene(
             context.device(),
             context.submission(),
             &transition_scene(coverage),
@@ -145,7 +147,7 @@ fn unused_contact_keeps_only_inactive_binding_with_reduced_terrain() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &reduced_contact_scene(false, 1),
@@ -160,7 +162,7 @@ fn enabled_contact_retains_reduced_samples_with_triangle_source() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &reduced_contact_scene(true, 2),
@@ -197,12 +199,8 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
     let reduced_scene = reduced_contact_scene(true, 2);
     let reduced = upload_contact_materials(&device, &authority, &layouts, &reduced_scene).unwrap();
     assert_eq!(reduced.size(), 48);
-    let rejected = SceneGpu::upload(
-        &device,
-        &authority,
-        &reduced_contact_scene(true, 1),
-        &layouts,
-    );
+    let rejected = PreparedScene::new(&reduced_contact_scene(true, 1))
+        .and_then(|prepared| SceneGpu::upload(&device, &authority, prepared, &layouts, None));
     assert!(matches!(
         rejected,
         Err(DrawError::ContactHeightLimit {
@@ -329,7 +327,7 @@ fn fitted_normals_match_baked_geometry_in_shading_and_normal_metadata() {
         let mut reference: Option<Vec<u8>> = None;
         for scene in [&fitted, &baked] {
             let gpu =
-                SceneGpu::upload(context.device(), context.submission(), scene, &layouts).unwrap();
+                upload_scene(context.device(), context.submission(), scene, &layouts).unwrap();
             gpu.set_frame(context.queue(), frame);
             let pixels = pass_color(&context, &gpu, &layouts, source, "fs_opaque");
             assert!(pixels.chunks_exact(4).any(|pixel| pixel[2] != 0));
@@ -378,7 +376,7 @@ fn assert_flat_lit_pixels_match_model(context: &GpuContext, layouts: &ScenePipel
         assert_display_matches_radiance, overhead_rough_radiance, pixel_view_towards_eye,
     };
     let scene = scene(SceneAlphaMode::Opaque, true, 1);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, layouts).unwrap();
     let mut frame = frame_from(pose());
     assert_eq!(
         frame.sun_direction,
@@ -440,8 +438,7 @@ fn feature_off_output_matches_stock_shader_snapshot_within_derived_bounds() {
             "fs_opaque",
         ),
     ] {
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         gpu.set_frame(context.queue(), frame_from(pose()));
         let expected = pass_color(&context, &gpu, &layouts, stock, entry);
         assert!(expected.chunks_exact(4).any(|pixel| pixel[..3] != [0; 3]));

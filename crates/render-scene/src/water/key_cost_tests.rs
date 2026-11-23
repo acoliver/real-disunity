@@ -25,7 +25,9 @@ fn later_frames_compute_no_pipeline_key() {
     let stats = || water.programs.borrow().runtime().stats();
     let prepare = |slot| {
         let encoder = authority.begin(&device).unwrap();
-        let feature = water.feature(&encoder, &frame, (0.0, slot), None);
+        let feature = water
+            .feature(&encoder, &frame, (0.0, slot), None, DepthMode::Independent)
+            .unwrap();
         assert!(feature.draws.iter().all(Option::is_some));
         drop(feature);
         encoder.finish().cancel();

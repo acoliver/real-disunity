@@ -4,6 +4,7 @@
 
 use super::super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
+use crate::test_support::upload_scene;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
@@ -164,7 +165,7 @@ impl Fixture {
         let mut renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 26)).unwrap();
         let pipelines = pipelines(device);
-        let mut gpu = SceneGpu::upload(device, context.submission(), scene, &pipelines).unwrap();
+        let mut gpu = upload_scene(device, context.submission(), scene, &pipelines).unwrap();
         gpu.post = renderer.configuration().post;
         let reservation = renderer
             .reserve(&context, ProgramRuntime::arena_allocations(ARENA))

@@ -1,4 +1,7 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 #[test]
 fn gpu_water_response_leaves_opaque_receivers_and_refraction_snapshot_identical() {
@@ -57,12 +60,11 @@ fn water_capture(context: &GpuContext, response: Option<SceneWaterShadowResponse
         source.effects(),
     )
     .unwrap();
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let color = AttachmentView::new(
@@ -119,7 +121,7 @@ fn gpu_water_geometric_lookup_removes_normal_map_structure_along_shadow_edge() {
         &scene(&[], 600_000, None),
         SceneShadowCascades::new(vec![2_000, 4_000, 6_000, 8_000], 0).unwrap(),
     );
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     super::selection::upload_probe(&context, &renderer, false, 1, 0.0);
     let matrix = glam::Mat4::from_cols(
         Vec4::new(1.0, 0.0, 0.2, 0.0),

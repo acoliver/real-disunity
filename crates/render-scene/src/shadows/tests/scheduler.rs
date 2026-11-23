@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 use worldrunner_render_post::{BufferReadback, FrameError as ScheduleError};
 
 pub(super) fn uniforms(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<u8>> {
@@ -29,7 +30,7 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let before = uniforms(&context, &renderer);
@@ -99,7 +100,7 @@ fn rejected_cascade_reconfiguration_keeps_the_old_array_and_uniforms() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let effects = with_cascades(
         source.effects().unwrap(),

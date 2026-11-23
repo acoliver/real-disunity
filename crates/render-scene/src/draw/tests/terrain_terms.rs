@@ -1,6 +1,7 @@
 use super::*;
 use crate::compositor::terms::{CaptureTerm, TermCapture};
 use crate::offscreen::LinearRgbaImage;
+use crate::test_support::upload_scene;
 
 #[test]
 fn terrain_albedo_capture_matches_two_layer_cpu_blend() {
@@ -20,8 +21,7 @@ fn terrain_albedo_capture_matches_two_layer_cpu_blend() {
     )
     .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let frame = FrameUniform::new(&view, source.effects()).unwrap();
     gpu.set_frame(context.queue(), frame);
     let capture = TermCapture::new(context.device(), [32, 32], CaptureTerm::Albedo);

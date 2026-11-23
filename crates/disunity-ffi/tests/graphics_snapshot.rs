@@ -70,15 +70,6 @@ fn snapshot(world: u64) -> GraphicsSnapshot {
     snapshot_wire::decode(&bytes).unwrap()
 }
 
-fn pending_records(world: u64) -> u32 {
-    let mut count = 0;
-    unsafe {
-        let result = disunity_offscreen_take(world, std::ptr::null_mut(), 0, &mut count);
-        assert_eq!(result.code, 0);
-    }
-    count
-}
-
 fn passes(snapshot: &GraphicsSnapshot) -> Vec<i32> {
     snapshot
         .work
@@ -101,11 +92,6 @@ fn a_size_query_then_a_copy_returns_the_records_once() {
         query(world),
         first,
         "asking again does not drain or change the size"
-    );
-    assert_eq!(
-        pending_records(world),
-        0,
-        "the first query took the records into the session"
     );
     let (result, bytes, written) = copy(world, first);
     assert_eq!((result.code, written), (0, first));

@@ -14,6 +14,8 @@ pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
 mod staged_uploads;
 #[cfg(test)]
+mod test_hooks;
+#[cfg(test)]
 pub(crate) mod test_owner;
 #[cfg(test)]
 mod tests;
@@ -277,21 +279,9 @@ impl Instances {
         travelled
     }
 
-    /// Makes the next view check every batch's cached bounds, as every view once did.
-    #[cfg(test)]
-    pub(crate) fn recheck_bounds(&self) {
-        self.bounds_current.set(None);
-    }
-
     /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
     pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
         self.ready.check(&self.batches, &self.totals, owner)
-    }
-
-    /// How many times `ready_for` has scanned the batches rather than reusing a passing scan.
-    #[cfg(test)]
-    pub fn ready_scans(&self) -> usize {
-        self.ready.scans()
     }
 
     /// Whether any batch draws a skinned mesh.
@@ -306,13 +296,6 @@ impl Instances {
     /// Rises whenever any batch stages buffer bytes or allocates a buffer, like `edits`.
     pub fn content_generation(&self) -> u64 {
         self.sum(&self.totals.content, InstanceBatch::content)
-    }
-
-    /// The sum of every batch's history version, which rises with each change `ready_for` reads
-    /// of the history.
-    #[cfg(test)]
-    pub fn history_versions(&self) -> u64 {
-        self.sum(&self.totals.history, InstanceBatch::history_version)
     }
 
     /// `tally`, which equals the sum of `counter` over the batches.
@@ -438,12 +421,6 @@ impl Instances {
                 vacant.insert(batch)
             }
         }
-    }
-
-    /// Makes the batch at `key` with no placement in it, as a batch left empty by removals is.
-    #[cfg(test)]
-    pub(crate) fn add_empty_batch(&mut self, key: BatchKey) {
-        self.batch_for(key);
     }
 
     pub fn set_contours(

@@ -4,16 +4,22 @@
 
 use std::collections::BTreeSet;
 
-use worldrunner_disunity_runtime::{PlayerTexture, TextureSampler};
+use worldrunner_disunity_runtime::PlayerTexture;
+use worldrunner_disunity_runtime::TextureSampler;
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::runtime::ProgramRuntime;
 use worldrunner_render_program::unity::offscreen::OffscreenState;
 
-use super::super::assets::{Assets, sampler_of_stored, texture_of};
+use super::super::assets::Assets;
+use super::super::assets::sampler_of_stored;
+use super::super::assets::texture_of;
 use super::super::frame::Report;
 use super::super::ids;
 use super::super::stand_ins::StandInReason;
-use super::{OffscreenAdapter, Settling, Stored, is_over_budget};
+use super::OffscreenAdapter;
+use super::Settling;
+use super::Stored;
+use super::is_over_budget;
 use crate::textures::PlayerTextureError;
 
 /// What uploading a texture the engine stored came to.

@@ -158,7 +158,9 @@ fn compose_layered(world: vec2<f32>, world_dx: vec2<f32>, world_dy: vec2<f32>) -
     var result = LayeredResult(vec3<f32>(0.0), 0.0, vec3<f32>(0.0), 0.0, 0.0);
     var total = 0.0;
     let spiral = layered_source.grid.w != 0u;
-    for (var index = 0u; index < arrayLength(&layered_source.layers); index++) {
+    // `layered_next(i)` is the first layer from `i` on whose coverage can be nonzero here. The
+    // includer defines it: every layer for a frame draw, the grid indices near the workgroup for a bake.
+    for (var index = layered_next(0u); index < arrayLength(&layered_source.layers); index = layered_next(index + 1u)) {
         let layer = layered_source.layers[index];
         let coverage = layered_coverage(index, world, layer.tint_radius.w);
         var strength = coverage * select(0.75, 1.0, spiral);

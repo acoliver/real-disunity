@@ -11,6 +11,8 @@ mod anisotropy_tests;
 #[cfg(test)]
 mod cached_tests;
 #[cfg(test)]
+mod candidate_tests;
+#[cfg(test)]
 mod channel_tests;
 #[cfg(test)]
 mod finite_footprint_tests;

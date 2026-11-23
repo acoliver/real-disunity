@@ -97,10 +97,10 @@ impl PlayerGpu {
         let host_assets: &dyn Assets = &*host;
         let ui_assets = ui.map(|ui| ui.assets(host_assets));
         let assets: &dyn Assets = ui_assets.as_ref().map_or(host_assets, |assets| assets);
-        let built = self
-            .offscreen
-            .borrow_mut()
-            .frame(&snapshot, assets, delivery.settling(), &reads);
+        let built =
+            self.offscreen
+                .borrow_mut()
+                .frame(&snapshot, assets, delivery.settling(), &reads);
         report.keep_traces(self.offscreen.borrow_mut().take_traces());
         let mut handed = None;
         match built {

@@ -251,11 +251,7 @@ fn direct(renderer: &mut Renderer, view: &SceneView, time: Duration) -> Retained
         .presentation
         .scheduler
         .select_frame_slot(ready.admission.slot());
-    renderer
-        .presentation
-        .scheduler
-        .set_frame_time_duration(time)
-        .unwrap();
+    renderer.presentation.scheduler.set_frame_time(time);
     let output = ready
         .frame
         .texture
@@ -269,13 +265,7 @@ fn direct(renderer: &mut Renderer, view: &SceneView, time: Duration) -> Retained
     )
     .unwrap();
     let prepared = renderer
-        .encode_frame(
-            view,
-            (None, None),
-            &output,
-            Some(&mut image),
-            ViewMisses::default(),
-        )
+        .encode_frame(view, None, &output, Some(&mut image), ViewMisses::default())
         .unwrap();
     renderer
         .execution

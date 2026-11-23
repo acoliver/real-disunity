@@ -4,9 +4,11 @@ use worldrunner_render_gpu::configuration::{AllocationBudget, ConfigurationError
 use worldrunner_render_plan::{SceneWaterSeedCoordinates, SceneWaterSurface};
 
 fn configuration(body: SceneWaterBody) -> RendererConfiguration {
-    let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
-    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
+    let mut settings = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.water = vec![body];
     settings
 }

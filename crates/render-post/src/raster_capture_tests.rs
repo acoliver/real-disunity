@@ -39,6 +39,7 @@ impl Fixture {
                 ResourceLifetime::PersistentMutable,
                 Semantic::LinearColor,
                 None,
+                &[],
             )
             .unwrap();
         Self {
@@ -222,6 +223,7 @@ fn stock_geometry_capture_latches_unowned_attachment_write() {
         config,
         crate::Resources::default(),
         crate::CopyOutput::new(&f.device, config.format),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let prefix = f.clear(0, wgpu::Color::GREEN);

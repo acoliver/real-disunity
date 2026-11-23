@@ -143,8 +143,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         device,
         &mut encoder,
         (&passes, &views),
+        None,
         &mut [],
-        (frame, None),
+        &(frame, None),
     )?;
     renderer.encode_output(&mut encoder, target.color_view())?;
     target.encode_readback(&mut encoder)?;

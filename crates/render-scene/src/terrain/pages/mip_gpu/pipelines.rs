@@ -60,10 +60,7 @@ fn pipeline(
         bind_group_layouts: &[Some(&group)],
         ..Default::default()
     });
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("terrain page kernel"),
-        source: wgpu::ShaderSource::Wgsl(shader.into()),
-    });
+    let module = super::super::kernel_module(device, "terrain page kernel", shader);
     worldrunner_render_post::compute_pipeline(
         device,
         worldrunner_render_post::ComputeDescriptor {

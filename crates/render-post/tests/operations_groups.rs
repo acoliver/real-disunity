@@ -168,6 +168,7 @@ impl Rig {
             FrameConfig::new(SIZE, FORMAT, 1),
             Resources::default(),
             CopyOutput::new(&device, FORMAT),
+            SceneDepth::Independent,
         )
         .unwrap();
         let entries = [

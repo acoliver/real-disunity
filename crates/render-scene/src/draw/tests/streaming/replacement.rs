@@ -65,7 +65,7 @@ fn advance(context: &GpuContext, gpu: &SceneGpu, submit: bool) -> bool {
 fn check_replacement(edits: &[(usize, i32)], expected: usize) {
     let context = context();
     let source = source();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let old =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     let frame = frame_from(pose());
@@ -153,7 +153,7 @@ fn tight_budget_pair(context: &GpuContext) -> (ScenePipelines, SceneGpu, SceneGp
     let source = initial
         .with_terrain(Some(std::sync::Arc::new(terrain)))
         .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let old =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
     prepare_completed(context, &old, &frame_from(pose()), 0)

@@ -212,8 +212,9 @@ fn begin(
                 context.device(),
                 encoder,
                 (&[], &[]),
+                None,
                 &mut [],
-                (prepared, None),
+                &(prepared, None),
             )
         })
         .unwrap()
@@ -308,8 +309,9 @@ fn a_frame_without_temporal_data_clears_the_pending_block() {
                 context.device(),
                 encoder,
                 (&[], &[]),
+                None,
                 &mut [],
-                (plain, None),
+                &(plain, None),
             )
         })
         .unwrap()

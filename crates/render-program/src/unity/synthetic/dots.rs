@@ -6,10 +6,11 @@
 
 use super::shaders::{no_cull, variant};
 use super::{
-    PassSpec, SyntheticShader, VERTEX, VariantSpec, binding, constant_buffer, shader, slot,
+    FRAGMENT, PassSpec, SyntheticShader, VERTEX, VariantSpec, binding, constant_buffer,
+    matrix_member, shader, slot, vector_member,
 };
 use worldrunner_unity_serialized::shader_parameters::{
-    BufferMember, ResourceKind, StructLayout, VariantParameters,
+    BufferMember, ConstantBuffer, ResourceBinding, ResourceKind, StructLayout, VariantParameters,
 };
 
 /// The keyword whose variant reads the batch.
@@ -30,8 +31,56 @@ struct VOut { @builtin(position) position: vec4<f32> }
 }
 @fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> { return vec4<f32>(0.0, 1.0, 1.0, 1.0); }";
 
-/// The WGSL of the DOTS variant, whose visible block holds `entries` entries.
-fn dots_wgsl(entries: usize, reads_indirect: bool) -> String {
+/// A plain variant that places the quad by the draw's `unity_ObjectToWorld` and draws
+/// `unity_LightData.z` in the red channel.
+const LIT_PLAIN: &str = "
+struct Draw { object_to_world: mat4x4<f32> }
+struct Light { data: vec4<f32> }
+@group(0) @binding(1) var<uniform> draw: Draw;
+@group(0) @binding(7) var<uniform> light: Light;
+struct VOut { @builtin(position) position: vec4<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>) -> VOut {
+    var out: VOut;
+    out.position = draw.object_to_world * vec4<f32>(position, 1.0);
+    return out;
+}
+@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(light.data.z, 0.0, 0.0, 1.0);
+}";
+
+/// The binding of the constant buffer that holds `unity_LightData`, read by a fragment stage.
+const LIGHT_BINDING: u16 = 7;
+
+/// The constant buffer and binding of `unity_LightData`.
+fn light_parameters() -> (ConstantBuffer, ResourceBinding) {
+    (
+        constant_buffer("UnityLight", 16, vec![vector_member("unity_LightData", 0)]),
+        binding(
+            "UnityLight",
+            slot(0, LIGHT_BINDING, FRAGMENT),
+            ResourceKind::ConstantBuffer,
+        ),
+    )
+}
+
+/// The parameters of [`LIT_PLAIN`].
+fn lit_plain_parameters() -> VariantParameters {
+    let (light, light_binding) = light_parameters();
+    VariantParameters {
+        constant_buffers: vec![
+            constant_buffer("Draw", 64, vec![matrix_member("unity_ObjectToWorld", 0)]),
+            light,
+        ],
+        bindings: vec![
+            binding("Draw", slot(0, 1, VERTEX), ResourceKind::ConstantBuffer),
+            light_binding,
+        ],
+    }
+}
+
+/// The WGSL of the DOTS variant, whose visible block holds `entries` entries. A `lit` variant's
+/// fragment stage returns `unity_LightData.z` in the red channel instead of the instance colour.
+fn dots_wgsl(entries: usize, reads_indirect: bool, lit: bool) -> String {
     let (indirect, skipped) = if reads_indirect {
         (
             "@group(0) @binding(6) var<storage, read> indirect: array<u32>;",
@@ -39,6 +88,15 @@ fn dots_wgsl(entries: usize, reads_indirect: bool) -> String {
         )
     } else {
         ("", "0.0")
+    };
+    let (light, fragment) = if lit {
+        (
+            "struct Light { data: vec4<f32> }
+@group(0) @binding(7) var<uniform> light: Light;",
+            "vec4<f32>(light.data.z, 0.0, 0.0, 1.0)",
+        )
+    } else {
+        ("", "in.color")
     };
     format!(
         "
@@ -49,6 +107,7 @@ struct Words {{ to_world: i32, to_object: i32 }}
 @group(1) @binding(3) var<uniform> words: Words;
 @group(0) @binding(5) var<storage, read> instances: array<f32>;
 {indirect}
+{light}
 struct VOut {{
     @builtin(position) position: vec4<f32>,
     @location(0) @interpolate(flat) color: vec4<f32>,
@@ -70,7 +129,7 @@ fn column(base: u32, k: u32) -> vec3<f32> {{
     out.color = vec4<f32>(f32(element) / 8.0, 0.4, 0.6, 1.0 + {skipped});
     return out;
 }}
-@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {{ return in.color; }}"
+@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {{ return {fragment}; }}"
     )
 }
 
@@ -88,7 +147,7 @@ fn member(name: &str, kind: i32, columns: i32, offset: i32) -> BufferMember {
 
 /// The parameters of a DOTS variant: the metadata block, and the visible block of `entries`
 /// entries of 16 bytes, which a player stores as a struct array.
-fn dots_parameters(entries: i32, reads_indirect: bool) -> VariantParameters {
+fn dots_parameters(entries: i32, reads_indirect: bool, lit: bool) -> VariantParameters {
     let metadata = constant_buffer(
         "UnityDOTSInstancing_BuiltinPropertyMetadata",
         8,
@@ -146,6 +205,11 @@ fn dots_parameters(entries: i32, reads_indirect: bool) -> VariantParameters {
             ResourceKind::Buffer,
         ));
     }
+    if lit {
+        let (light, light_binding) = light_parameters();
+        parameters.constant_buffers.push(light);
+        parameters.bindings.push(light_binding);
+    }
     parameters
 }
 
@@ -154,6 +218,17 @@ fn spec(keywords: &[&'static str], wgsl: &str, parameters: VariantParameters) ->
         channels: vec![[0, 0]],
         ..variant(keywords, wgsl, "fs_main", parameters)
     }
+}
+
+/// A one-pass shader with the `LIGHTMODE` tag `Alpha` of the `plain` variant and a `DOTS` variant.
+fn two_variants(plain: VariantSpec, dots: VariantSpec) -> SyntheticShader {
+    no_cull(shader(
+        &[KEYWORD],
+        &[PassSpec {
+            tags: vec![("LIGHTMODE", "Alpha")],
+            variants: vec![plain, dots],
+        }],
+    ))
 }
 
 /// A shader whose plain variant draws the whole target in [`MARKER`], and whose DOTS variant has
@@ -169,16 +244,23 @@ pub fn dots_passes(entries: usize, reads_indirect: bool) -> SyntheticShader {
     );
     let dots = spec(
         &[KEYWORD],
-        &dots_wgsl(entries, reads_indirect),
-        dots_parameters(i32::try_from(entries).unwrap(), reads_indirect),
+        &dots_wgsl(entries, reads_indirect, false),
+        dots_parameters(i32::try_from(entries).unwrap(), reads_indirect, false),
     );
-    no_cull(shader(
+    two_variants(plain, dots)
+}
+
+/// A shader that draws `unity_LightData.z` in the red channel. Its plain variant places the quad
+/// by the draw's `unity_ObjectToWorld`; its DOTS variant, with a visible block of `entries`
+/// entries, places it as [`dots_passes`] does.
+pub fn lit_dots_passes(entries: usize) -> SyntheticShader {
+    let plain = spec(&[], LIT_PLAIN, lit_plain_parameters());
+    let dots = spec(
         &[KEYWORD],
-        &[PassSpec {
-            tags: vec![("LIGHTMODE", "Alpha")],
-            variants: vec![plain, dots],
-        }],
-    ))
+        &dots_wgsl(entries, false, true),
+        dots_parameters(i32::try_from(entries).unwrap(), false, true),
+    );
+    two_variants(plain, dots)
 }
 
 /// The matrix that moves the quad of clip space into cell `cell` of `cells`: scale `1 / cells`

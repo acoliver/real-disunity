@@ -30,7 +30,7 @@ use crate::{
     gpu_player::PlayerGpu,
     player::{PreparedPlayer, window_gpu},
     player_textures::PlayerTextures,
-    player_ui::{PlayerUi, graphic_textures},
+    player_ui::{PlayerUi, Screen, graphic_textures},
     retained_driver::{PlayerWindow, viewer_options},
     scene_tables::SceneTables,
 };
@@ -247,9 +247,13 @@ impl ScreenComposer<'_> {
             .ui
             .offer_targets(&mut plan, offers, |message| eprintln!("{message}"));
         self.run.host_mut().show_ui_textures(targets);
+        let screen = Screen {
+            size: self.size,
+            max_texture: gpu.max_texture_side(),
+        };
         let update = self
             .ui
-            .update(plan, self.size, &self.sprites, &self.textures, |message| {
+            .update(plan, screen, &self.sprites, &self.textures, |message| {
                 eprintln!("{message}");
             })?;
         if let Some(update) = update {

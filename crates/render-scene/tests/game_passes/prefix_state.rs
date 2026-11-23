@@ -412,17 +412,6 @@ fn near(range: DepthRange) -> f32 {
     }
 }
 
-fn colour(rig: &mut Rig) -> Vec<[u8; 4]> {
-    let mut encoder = rig
-        .context
-        .submission()
-        .begin(rig.context.device())
-        .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
-    encoder.finish().submit().unwrap();
-    rig.read(rig.renderer.targets().texture())
-}
-
 #[test]
 fn a_shadowed_capture_admits_every_write_of_a_prefix_pass_over_several_frames() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
@@ -447,7 +436,7 @@ fn a_shadowed_capture_admits_every_write_of_a_prefix_pass_over_several_frames() 
         let fit = capture_fit(&mut rig, &mut scene, frame);
         assert_eq!(fit.depth, first.depth, "frame {frame} fits the same depth");
         assert_eq!(
-            Rig::pixel(&colour(&mut rig), 3, 20),
+            Rig::pixel(&rig.output(), 3, 20),
             [255, 0, 0, 255],
             "frame {frame} reads the target frame 0's prefix pass wrote"
         );

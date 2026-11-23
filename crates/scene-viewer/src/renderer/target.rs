@@ -37,20 +37,15 @@ impl Execution {
             }
         }
     }
-    pub fn acquire(
-        &mut self,
-        context: &GpuContext,
-        update: impl FnOnce() -> Result<(), ViewerError>,
-    ) -> Result<Option<ReadyFrame>, ViewerError> {
+    pub fn acquire(&mut self, context: &GpuContext) -> Result<Option<ReadyFrame>, ViewerError> {
         match self {
-            Self::Surface(surface) => surface.acquire(context, update),
+            Self::Surface(surface) => surface.acquire(context),
             Self::Offscreen { texture, flight } => {
                 let admission = match flight.try_acquire() {
                     Ok(admission) => admission,
                     Err(AdmissionError::WouldBlock) => return Ok(None),
                     Err(error) => return Err(ViewerError::Gpu(error.to_string())),
                 };
-                update()?;
                 Ok(Some(ReadyFrame {
                     admission,
                     frame: super::execution::OutputFrame {

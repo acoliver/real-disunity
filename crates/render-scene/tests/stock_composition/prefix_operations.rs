@@ -80,7 +80,7 @@ fn encode_suffix(
     views.extend([sampler_view, retained.clone()]);
     let (declaration, stock_frame) = (stock.declaration(), stock.frame());
     let offscreen = stock.take_offscreen_operations();
-    frame.renderer.encode_frame_with(
+    frame.renderer.encode_frame(
         device,
         encoder,
         (&passes, &views),

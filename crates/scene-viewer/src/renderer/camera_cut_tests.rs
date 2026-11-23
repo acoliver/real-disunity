@@ -75,7 +75,7 @@ fn prepare(renderer: &mut Renderer, host: &mut RetainedHost) -> (SceneView, exec
     renderer.drain().unwrap();
     let ready = renderer
         .execution
-        .acquire(&renderer.context, || Ok(()))
+        .acquire(&renderer.context)
         .unwrap()
         .unwrap();
     renderer.publish_retained(host).unwrap();
@@ -104,7 +104,7 @@ fn retained_cut_resets_warm_history_and_jitter_before_first_submission() {
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
     let prepared = renderer
-        .encode_frame(&view, (None, None), &output, None, ViewMisses::default())
+        .encode_frame(&view, None, &output, None, ViewMisses::default())
         .unwrap();
     renderer
         .execution
@@ -184,7 +184,7 @@ fn retained_cut_survives_abandoned_and_cancelled_frames() {
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
     renderer
-        .encode_frame(&view, (None, None), &output, None, ViewMisses::default())
+        .encode_frame(&view, None, &output, None, ViewMisses::default())
         .unwrap()
         .cancel();
     drop(ready);

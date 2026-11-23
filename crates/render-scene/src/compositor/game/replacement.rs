@@ -11,9 +11,9 @@ use crate::water::Water;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StockReplacement {
     /// The feature draws the scene's terrain surface. Every stock camera pass skips the terrain:
-    /// the opaque colour pass, the G-buffer and depth prepasses, the metadata prefixes and the
-    /// capture terms. The stock shadow casters keep drawing it into the cascades, so the
-    /// terrain's shadows stay in the lit frame.
+    /// the opaque colour pass, the depth prepass, the metadata prefixes and the capture terms.
+    /// The stock shadow casters keep drawing it into the cascades, so the terrain's shadows stay
+    /// in the lit frame.
     pub terrain_surface: bool,
     /// The feature draws the scene's water. The frame plans no stock water pass and no water
     /// receivers, and the screen-space reflections get no water inputs. The water bodies and the

@@ -31,6 +31,8 @@ mod residency_edge_tests;
 #[cfg(test)]
 mod residency_gpu_tests;
 #[cfg(test)]
+mod residency_pacing_tests;
+#[cfg(test)]
 mod residency_tests;
 pub mod scene;
 pub mod selection;
@@ -52,3 +54,25 @@ mod sampling_tests;
 
 #[cfg(test)]
 mod scene_tests;
+
+#[cfg(test)]
+thread_local! {
+    /// Page kernel modules this thread has compiled, for tests that prove a page bake compiles
+    /// none.
+    static KERNEL_MODULES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Compiles one of the page kernels' WGSL modules.
+fn kernel_module(device: &wgpu::Device, label: &str, wgsl: &str) -> wgpu::ShaderModule {
+    #[cfg(test)]
+    KERNEL_MODULES.with(|count| count.set(count.get() + 1));
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+    })
+}
+
+#[cfg(test)]
+fn kernel_modules_compiled() -> u64 {
+    KERNEL_MODULES.with(std::cell::Cell::get)
+}

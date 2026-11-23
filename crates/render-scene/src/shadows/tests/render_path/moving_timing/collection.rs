@@ -1,5 +1,6 @@
 use super::*;
 use crate::draw::PassDrawStatistics;
+use crate::draw::PreparedScene;
 use worldrunner_render_post::{PassEntry, PassSlot, StageId};
 
 struct FrameViews {
@@ -43,8 +44,9 @@ fn resident(
         gpu: crate::draw::SceneGpu::upload(
             context.device(),
             context.submission(),
-            source,
+            PreparedScene::new(source).unwrap(),
             pipelines,
+            None,
         )
         .unwrap(),
         renderer,

@@ -1,6 +1,7 @@
 // Receiver storage must not grow when queued frames retain earlier producer layouts.
 use super::*;
 use crate::compositor::{ReceiverGradientReservation, RendererConfiguration};
+use crate::draw::PreparedScene;
 use worldrunner_render_gpu::configuration::{AllocationBudget, Configuration};
 
 fn configured(
@@ -76,8 +77,12 @@ fn gpu_receiver_backing_stays_within_one_reservation_while_submissions_are_outst
     let source = sloped(true);
     let pipelines =
         ScenePipelines::with_ssao_taa_velocity(device, TextureFormat::Rgba16Float, 1).unwrap();
-    let gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
-    let front = SceneGpu::upload(device, context.submission(), &sloped(false), &pipelines).unwrap();
+    let upload = |scene: &RenderScene| {
+        let prepared = PreparedScene::new(scene).unwrap();
+        SceneGpu::upload(device, context.submission(), prepared, &pipelines, None).unwrap()
+    };
+    let gpu = upload(&source);
+    let front = upload(&sloped(false));
     assert!(!front.has_transmission());
     assert!(gpu.has_transmission());
     let empty = source
@@ -85,7 +90,7 @@ fn gpu_receiver_backing_stays_within_one_reservation_while_submissions_are_outst
         .unwrap()
         .with_objects_and_effects(Vec::new(), source.effects().cloned())
         .unwrap();
-    let empty = SceneGpu::upload(device, context.submission(), &empty, &pipelines).unwrap();
+    let empty = upload(&empty);
     let (mut state, reserved) = configured(&context, ReceiverGradientReservation::Opposing);
     state
         .current_mut()
@@ -162,7 +167,14 @@ fn gpu_receiver_front_reservation_retains_only_one_layer_across_bias_changes() {
     let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let device = context.device();
     let pipelines = ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, 1).unwrap();
-    let gpu = SceneGpu::upload(device, context.submission(), &sloped(false), &pipelines).unwrap();
+    let gpu = SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(&sloped(false)).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let (mut state, reserved) = configured(&context, ReceiverGradientReservation::Front);
     state
         .current_mut()

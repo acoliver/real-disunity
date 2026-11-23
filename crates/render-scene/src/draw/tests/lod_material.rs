@@ -1,5 +1,6 @@
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
+use crate::draw::PreparedScene;
 use crate::offscreen::OffscreenTarget;
 use worldrunner_render_plan::{SceneLodMaterialSlot, TexelFormat};
 
@@ -102,8 +103,14 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
     .unwrap();
     let mut reference = None;
     for source in [&default, &explicit] {
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(source).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         gpu.set_frame(context.queue(), selection_frame(5_000));
         let image = target.render(&context, &gpu, &pipelines).unwrap();
         assert!(image.pixels.chunks_exact(4).any(|p| p == [255, 0, 0, 255]));
@@ -122,8 +129,9 @@ fn selected_level_changes_material_topology_and_pipeline() {
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let mut target = OffscreenTarget::new(
@@ -158,8 +166,9 @@ fn the_runtime_path_records_the_commands_of_a_level_with_two_material_slots() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     gpu.flush_instances(context.device(), context.submission())
@@ -184,8 +193,9 @@ fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_001));
@@ -278,8 +288,9 @@ fn transition_complement_keeps_the_preceding_levels_material() {
         let gpu = SceneGpu::upload(
             context.device(),
             context.submission(),
-            &transition_scene(coverage),
+            PreparedScene::new(&transition_scene(coverage)).unwrap(),
             &pipelines,
+            None,
         )
         .unwrap();
         let mut frame = frame_from(pose());

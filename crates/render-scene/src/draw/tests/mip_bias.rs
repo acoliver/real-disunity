@@ -4,6 +4,7 @@
 //! the trilinear blend has no second level in it.
 use super::foliage::pass_color;
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::TexelFormat;
 
 pub(super) const LEVELS: [[u8; 3]; 7] = [
@@ -91,8 +92,9 @@ fn render_center(context: &GpuContext, source: &str, level: u32, bias: f32) -> [
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &plain_scene(),
+        PreparedScene::new(&plain_scene()).unwrap(),
         &layouts,
+        None,
     )
     .unwrap();
     let mut frame = frame_from(CameraPose {

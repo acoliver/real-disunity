@@ -6,6 +6,7 @@
 use super::*;
 use crate::compositor::FrameRenderer;
 use crate::draw::InstanceHandle;
+use crate::draw::PreparedScene;
 use crate::offscreen::{OffscreenTarget, RgbaImage};
 use worldrunner_render_plan::{SceneCard, SceneLodMaterialSlot};
 
@@ -97,8 +98,14 @@ impl Rig {
     pub(super) fn over(scene: &RenderScene, ranged_only: bool) -> Self {
         let context = context();
         let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(scene).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         gpu.views[0]
             .compaction
             .observed

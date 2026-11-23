@@ -29,6 +29,7 @@ fn gpu_depth_gather_runs_in_mesh_and_terrain_forward_draws() {
 
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::{SceneSsao, TexelFormat};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
 
@@ -91,8 +92,14 @@ fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
     let source = source(1_000_000, true, 255);
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let original = *source.effects().unwrap().ssao().unwrap();
     let before = gpu.frame.get();
     for changed in crate::ssao::tests::differing_settings(original) {
@@ -224,8 +231,14 @@ pub(super) fn capture_metadata(
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
             .unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),

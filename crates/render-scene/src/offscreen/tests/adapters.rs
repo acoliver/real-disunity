@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 
 #[test]
 fn gpu_capture_adapters_and_copy_output_match_direct_capture_bytes() {
@@ -7,7 +8,14 @@ fn gpu_capture_adapters_and_copy_output_match_direct_capture_bytes() {
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(65, 47));
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&scene).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform::new(&view, scene.effects()).unwrap(),

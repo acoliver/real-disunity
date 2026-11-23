@@ -1,4 +1,5 @@
 use super::{decal, maps::mapped_scene};
+use crate::draw::PreparedScene;
 use crate::draw::tests::{
     COLOR_FORMAT, context, foliage, frame_from,
     normal_frames::{assert_normal, diagnostic},
@@ -40,9 +41,14 @@ fn correction_frame_reaches_forward_and_metadata_on_rotated_planes_and_slopes() 
                 d.angle_fade_micro = 0;
                 d.mapping.normal_frame = frame;
                 let scene = mapped_scene(slope).with_decals(vec![d]).unwrap();
-                let mut gpu =
-                    SceneGpu::upload(context.device(), context.submission(), &scene, &layouts)
-                        .unwrap();
+                let mut gpu = SceneGpu::upload(
+                    context.device(),
+                    context.submission(),
+                    PreparedScene::new(&scene).unwrap(),
+                    &layouts,
+                    None,
+                )
+                .unwrap();
                 gpu.set_frame(context.queue(), frame_from(pose()));
                 gpu.frame_group = gpu.decals.group();
                 let expected = oracle(slope, rotation, frame);

@@ -1,5 +1,6 @@
 use super::lod_material::{scene, selection_frame};
 use super::*;
+use crate::draw::PreparedScene;
 use crate::draw::PreparedTextureReplacement;
 use crate::offscreen::OffscreenTarget;
 
@@ -26,8 +27,9 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let mut target = OffscreenTarget::new(
@@ -72,8 +74,9 @@ fn caster_fits_are_reused_until_a_placement_changes() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let receiver = glam::Mat4::from_scale(glam::Vec3::splat(0.05));
@@ -137,8 +140,9 @@ fn cascade_fits_follow_the_receivers_and_placements_frame_after_frame() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let computed = |gpu: &SceneGpu| gpu.caster_fits.computed.get();
@@ -196,8 +200,9 @@ fn drawn_pairs_follow_the_placements_and_match_a_fresh_collection() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let fresh = |gpu: &SceneGpu| gpu.collect_drawn_pairs().into_iter().collect::<Vec<_>>();
@@ -240,8 +245,9 @@ fn prepared_pair_lists_look_up_nothing_until_the_pairs_change() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let objects = pipelines.object_context();
@@ -307,8 +313,14 @@ fn replacing_a_materials_texture_prepares_the_pair_list_again() {
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = scene(true);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let objects = pipelines.object_context();
     gpu.prepare_object_context(objects).unwrap();
     let pairs = gpu.drawn_pairs().len();
@@ -345,8 +357,9 @@ fn a_context_prepared_for_a_list_is_prepared_on_its_own_and_dropped_with_it() {
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let first = pipelines.object_context();
@@ -380,8 +393,9 @@ fn passes_share_one_selection_of_a_view_instead_of_copying_it() {
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene(true),
+        PreparedScene::new(&scene(true)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_000));

@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use crate::draw::lod_material::FixedSink;
 use crate::draw::object_runtime::PreparedSink;
 use crate::pipeline::PipelineKey;
@@ -124,7 +125,14 @@ pub(super) fn capture(
 ) -> (Vec<Vec<u8>>, super::super::super::DrawCount) {
     let device = context.device();
     let setup = Setup::new(device, kind);
-    let mut gpu = SceneGpu::upload(device, context.submission(), scene, &setup.pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(scene).unwrap(),
+        &setup.pipelines,
+        None,
+    )
+    .unwrap();
     gpu.instances.fade_cull_disabled = cull != Cull::Enabled;
     let frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],

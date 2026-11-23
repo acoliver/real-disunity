@@ -132,6 +132,7 @@ fn check_normal(bytes: &[u8], samples: u32, sample: u32, time: f32) {
 }
 use super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
+use crate::draw::PreparedScene;
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::*;
 
@@ -243,8 +244,9 @@ fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
         let mut gpu = crate::draw::SceneGpu::upload(
             context.device(),
             context.submission(),
-            &source,
+            PreparedScene::new(&source).unwrap(),
             &pipelines,
+            None,
         )
         .unwrap();
         let mut renderer = ConfiguredFrameRenderer::new(
@@ -300,8 +302,9 @@ fn configured_environment_survives_extent_replacement() {
         let mut gpu = crate::draw::SceneGpu::upload(
             context.device(),
             context.submission(),
-            &source,
+            PreparedScene::new(&source).unwrap(),
             &pipelines,
+            None,
         )
         .unwrap();
         let mut config = configuration(samples, vec![body]);

@@ -1,5 +1,6 @@
 //! Chunk meshes are built by a worker, and a frame only uploads the ones that are finished.
 use super::*;
+use crate::draw::PreparedScene;
 use crate::terrain::streaming::TerrainChunk;
 
 /// Frames of the calling thread stop waiting for the builds they request, as in production.
@@ -41,8 +42,9 @@ impl Rig {
         let gpu = SceneGpu::upload(
             context.device(),
             context.submission(),
-            &streamed_scene(),
+            PreparedScene::new(&streamed_scene()).unwrap(),
             &pipelines,
+            None,
         )
         .unwrap();
         gpu.set_frame(context.queue(), frame_from(pose()));
@@ -130,8 +132,14 @@ fn dropping_the_gpu_scene_stops_the_mesh_worker() {
     let source = streamed_scene();
     let terrain = source.shared_terrain().unwrap().clone();
     let baseline = std::sync::Arc::strong_count(&terrain);
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let before = std::sync::Arc::strong_count(&terrain);
     prepare_completed(&context, &gpu, &frame_from(pose()), 0).cancel();
     assert_eq!(std::sync::Arc::strong_count(&terrain), before + 1);

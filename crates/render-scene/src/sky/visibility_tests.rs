@@ -1,4 +1,5 @@
 use super::scene_tests::*;
+use crate::draw::PreparedScene;
 use crate::{device::GpuContext, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines};
 use worldrunner_render_post::{AttachmentView, ResourceRef};
 
@@ -43,7 +44,14 @@ fn capture_celestial_target(
     let device = context.device();
     let pipelines =
         ScenePipelines::with_samples(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
-    let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let color = multisampled_target(device, wgpu::TextureFormat::Rgba16Float, samples);
     let depth = multisampled_target(device, wgpu::TextureFormat::Depth32Float, samples);
     let color = AttachmentView::new(ResourceRef::new("msaa color"), &color).unwrap();

@@ -5,6 +5,7 @@
 //! indices name joint 1. The camera stands on the `x = 0` plane, so everything left of that plane
 //! lands in the left half of the frame and everything right of it in the right half.
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::{
     SceneAffineMatrix, SceneSkeleton, SceneSkinInfluence, SceneSkinPose, SkeletonHandle,
     SkinPoseHandle,
@@ -186,8 +187,14 @@ fn a_skinned_object_without_a_pose_or_with_the_wrong_joint_count_is_refused() {
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let scene = ribbon_scene(0, None);
-    let mut gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
-        .expect("a scene with no placements uploads");
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&scene).unwrap(),
+        &pipelines,
+        None,
+    )
+    .expect("a scene with no placements uploads");
     let object = |pose: Option<SkinPoseHandle>| {
         let placed = SceneObject::new(
             identity(),
@@ -229,8 +236,9 @@ fn a_pass_that_writes_object_motion_refuses_skinned_geometry_until_it_has_a_prev
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &posed(SHIFT_MM),
+        PreparedScene::new(&posed(SHIFT_MM)).unwrap(),
         &pipelines,
+        None,
     )
     .expect("the scene uploads");
     let refusal = gpu

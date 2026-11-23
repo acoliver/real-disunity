@@ -1,5 +1,6 @@
 //! Relief frames keep independent metadata, then restore sharing on a later ordinary frame.
 use super::*;
+use crate::draw::PreparedScene;
 
 fn scenes() -> [RenderScene; 3] {
     let ordinary = source();
@@ -36,8 +37,14 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
         .zip([0.0, 0.125, 0.25])
         .enumerate()
         .map(|(index, (source, time))| {
-            let mut gpu =
-                SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+            let mut gpu = SceneGpu::upload(
+                device,
+                context.submission(),
+                PreparedScene::new(source).unwrap(),
+                &pipelines,
+                None,
+            )
+            .unwrap();
             stage_quad(context, &mut gpu, &pipelines);
             assert_eq!(gpu.has_relief(), index == 1);
             let mut shadowed = shadows.then(|| {
@@ -120,7 +127,14 @@ fn gpu_relief_ordinary_relief_retains_depth_without_draining_or_rebudgeting() {
     let mut scenes = [&relief, &ordinary, &relief].map(|source| {
         (
             source,
-            SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap(),
+            SceneGpu::upload(
+                device,
+                context.submission(),
+                PreparedScene::new(source).unwrap(),
+                &pipelines,
+                None,
+            )
+            .unwrap(),
         )
     });
     for (slot, (source, gpu)) in scenes.iter_mut().enumerate() {

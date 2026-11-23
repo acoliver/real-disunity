@@ -1,5 +1,6 @@
 use super::scene_tests::*;
 use super::*;
+use crate::draw::PreparedScene;
 use crate::view::{CameraPose, OrthographicLens, SceneView, Viewport};
 use crate::{device::GpuContext, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines};
 use worldrunner_render_plan::*;
@@ -187,8 +188,14 @@ fn regression_b4_resident_frame_fog_controls_objects_sky_and_discs() {
     );
     let source = custom(sky, quad(), vec![object]);
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let mut frame =
         FrameUniform::new(&perspective_view(60_000, [0, 1000, 0]), source.effects()).unwrap();
     frame.height_fog = None;

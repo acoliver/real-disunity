@@ -58,6 +58,7 @@ fn gpu_scalar(value: usize) -> f32 {
 
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::{
     SceneEnvironmentConsumers, SceneSsr, SceneWaterBody, SceneWaterSettings, SceneWaterSurface,
 };
@@ -222,8 +223,14 @@ fn render_selected_environment(
     let pipelines =
         ScenePipelines::with_samples(context.device(), TextureFormat::Rgba16Float, samples)
             .unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("custom color"),
         renderer.targets().scene().texture(),

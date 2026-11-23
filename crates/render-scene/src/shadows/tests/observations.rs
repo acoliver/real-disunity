@@ -1,5 +1,6 @@
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use crate::draw::{
     EffectEnabled, ObjectDraws, ObjectRecording, PassExecution, PassInstallation, ReceiverBinding,
 };
@@ -61,8 +62,14 @@ fn unshadowed(
     frame: &mut FrameRenderer,
 ) -> crate::draw::SsaoStatistics {
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         frame.targets().scene().texture(),

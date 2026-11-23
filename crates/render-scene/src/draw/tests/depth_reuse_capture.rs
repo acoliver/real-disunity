@@ -1,5 +1,6 @@
 use super::super::forward_rejection::{moving_frame, samples};
 use super::*;
+use crate::draw::PreparedScene;
 
 #[derive(Clone, Copy)]
 pub(super) enum Transform {
@@ -168,8 +169,9 @@ pub(super) fn positions_frame(
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &scene,
+        PreparedScene::new(&scene).unwrap(),
         &pair.forward,
+        None,
     )
     .unwrap();
     let mut frame = moving_frame(shot.1, scene.effects());

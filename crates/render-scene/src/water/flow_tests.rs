@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 
 fn phases(time: f32, period: f32) -> ([f32; 2], [f32; 2]) {
     let a = (time / period).rem_euclid(1.0);
@@ -209,8 +210,9 @@ fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh(
             let mut gpu = crate::draw::SceneGpu::upload(
                 context.device(),
                 context.submission(),
-                &source,
+                PreparedScene::new(&source).unwrap(),
                 &pipelines,
+                None,
             )
             .unwrap();
             let mut renderer = ConfiguredFrameRenderer::new(

@@ -2,6 +2,7 @@
 //! tables, and a refusal leaves the resident scene as it was.
 use super::skinning::{ribbon, shifted, skeleton};
 use super::*;
+use crate::draw::PreparedScene;
 use crate::draw::{DrawError, PreparedAppend, PreparedMeshReplacement};
 use crate::instances::InstanceError;
 use crate::instances::skin::SkinTables;
@@ -80,8 +81,14 @@ fn an_append_naming_skins_the_scene_lacks_is_refused_and_changes_nothing() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(context.device(), context.submission(), &scene(), &pipelines)
-        .expect("the scene uploads");
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&scene()).unwrap(),
+        &pipelines,
+        None,
+    )
+    .expect("the scene uploads");
     let base = gpu.resource_base();
     // Skeleton 9 is not resident, and joint 3 is beyond the two joints of skeleton 0.
     for (skeleton, last_joint) in [(9, 1), (0, 3)] {
@@ -120,8 +127,14 @@ fn a_replacement_naming_skins_the_scene_lacks_is_refused_before_a_placement_can_
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = scene();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let generation = gpu.caster_generation();
     for (skeleton, last_joint) in [(9, 1), (0, 3)] {
         let replacement = PreparedMeshReplacement::new(
@@ -149,8 +162,14 @@ fn a_replacement_that_a_live_pose_cannot_drive_is_refused_and_changes_nothing() 
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = scene();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let handle = gpu
         .add_instance(placed(0, 0), true)
         .expect("the two-joint pose drives the two-joint mesh");

@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use crate::terrain::pages::layered_gpu::{LayeredGpuError, LayeredGpuSource};
 use worldrunner_render_post::contracts::ResourceRegistry;
 
@@ -25,10 +26,15 @@ fn two_storage_bindings_preserve_linear_scene_and_reject_layered_upload() {
     assert!(!pipelines.layered_terrain_supported());
     let authority = SubmissionAuthority::new(queue);
     let linear = super::super::terrain_scene(1);
-    assert!(SceneGpu::upload(&device, &authority, &linear, &pipelines).is_ok());
+    assert!(
+        PreparedScene::new(&linear)
+            .and_then(|prepared| SceneGpu::upload(&device, &authority, prepared, &pipelines, None))
+            .is_ok()
+    );
     let scene = layered_scene(TerrainSplatFilter::Bilinear);
     assert!(matches!(
-        SceneGpu::upload(&device, &authority, &scene, &pipelines),
+        PreparedScene::new(&scene)
+            .and_then(|prepared| SceneGpu::upload(&device, &authority, prepared, &pipelines, None)),
         Err(DrawError::LayeredGpu(LayeredGpuError::Unsupported))
     ));
     assert!(pollster::block_on(scope.pop()).is_none());
@@ -47,7 +53,8 @@ fn source_binding_size_rejection_precedes_gpu_allocations_and_validation() {
     let authority = SubmissionAuthority::new(queue);
     let scene = layered_scene(TerrainSplatFilter::Bilinear);
     assert!(matches!(
-        SceneGpu::upload(&device, &authority, &scene, &pipelines),
+        PreparedScene::new(&scene)
+            .and_then(|prepared| SceneGpu::upload(&device, &authority, prepared, &pipelines, None)),
         Err(DrawError::LayeredGpu(LayeredGpuError::BufferLimit {
             buffer: "parameters",
             required: 192,

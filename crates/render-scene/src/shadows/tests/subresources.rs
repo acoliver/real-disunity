@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_post::{BufferReadback, FrameError as ScheduleError};
 
 fn texture(context: &GpuContext, format: wgpu::TextureFormat) -> wgpu::Texture {
@@ -179,8 +180,14 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut shadow_scheduler = crate::compositor::FrameRenderer::new(context.device());
     for shadows in [false, true] {

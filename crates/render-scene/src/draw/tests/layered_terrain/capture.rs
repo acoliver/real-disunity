@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use crate::{
     compositor::{FrameRenderer, encode_resident},
     offscreen::OffscreenTarget,
@@ -14,7 +15,14 @@ fn layered_production_capture_bakes_cold_and_invalidated_pages() {
     let authority = SubmissionAuthority::new(context.queue().clone());
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
     let scene = layered_scene(TerrainSplatFilter::Bilinear);
-    let mut gpu = SceneGpu::upload(device, &authority, &scene, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        device,
+        &authority,
+        PreparedScene::new(&scene).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     gpu.set_frame(context.queue(), matching_frame());
     gpu.enable_terrain_pages(device, &authority, page_source())
         .unwrap();

@@ -5,6 +5,7 @@ use super::compaction::{Rig, cards, pose_at, unlit};
 use super::skinning::{ribbon, shifted, skeleton};
 use super::*;
 use crate::draw::PreparedMeshReplacement;
+use crate::draw::PreparedScene;
 use crate::draw::mesh_arena::{MAX_CHUNK_BYTES, MeshArena};
 use crate::object::layout::GeometryLayout;
 use worldrunner_render_gpu::census::ResourceClass;
@@ -81,7 +82,14 @@ fn mixed(rigid: SceneMesh) -> RenderScene {
 
 fn upload(context: &GpuContext, scene: &RenderScene) -> SceneGpu {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap()
+    SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(scene).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap()
 }
 
 /// The vertices of level `level` of mesh `mesh` as the upload packs them.

@@ -1,5 +1,6 @@
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::{
     SceneFadeBand, SceneFadeCoverage, SceneFadeDirection, SceneFadeQuantization,
     SceneFadeReference, SceneImpostor, SceneImpostorLayout, TexelFormat,
@@ -85,7 +86,14 @@ pub(super) fn mask(
     shadow: bool,
     distance: i64,
 ) -> Vec<u8> {
-    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, layouts).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(scene).unwrap(),
+        layouts,
+        None,
+    )
+    .unwrap();
     gpu.set_frame(
         context.queue(),
         frame_from(CameraPose {
@@ -266,7 +274,14 @@ fn assert_reference_mask(
         effects: base.effects().cloned(),
     })
     .unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, layouts).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&scene).unwrap(),
+        layouts,
+        None,
+    )
+    .unwrap();
     let height = i64::try_from(placement.scale_millionths).unwrap() / 1000;
     gpu.set_frame(
         context.queue(),

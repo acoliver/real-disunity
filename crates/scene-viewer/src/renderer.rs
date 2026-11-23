@@ -574,7 +574,7 @@ impl Resident {
                 ScenePipelines::with_samples
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
-            let gpu = SceneGpu::upload_prepared_reusing(
+            let gpu = SceneGpu::upload(
                 context.device(),
                 context.submission(),
                 prepared,

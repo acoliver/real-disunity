@@ -152,11 +152,12 @@ fn render_with_source(
         source,
         None,
     );
-    let mut gpu = SceneGpu::upload_prepared(
+    let mut gpu = SceneGpu::upload(
         device,
         &authority,
         PreparedScene::new(scene).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     gpu.set_frame(context.queue(), *frame);
@@ -298,7 +299,9 @@ fn scene_policy_installs_layered_pages_and_enforces_allocation_budget() {
         let scene = source
             .with_terrain(Some(std::sync::Arc::new(terrain)))
             .unwrap();
-        let uploaded = SceneGpu::upload(context.device(), &authority, &scene, &pipelines);
+        let uploaded = PreparedScene::new(&scene).and_then(|prepared| {
+            SceneGpu::upload(context.device(), &authority, prepared, &pipelines, None)
+        });
         if budget != config.budget.0 {
             assert!(matches!(uploaded, Err(DrawError::TerrainPages(_))));
             continue;

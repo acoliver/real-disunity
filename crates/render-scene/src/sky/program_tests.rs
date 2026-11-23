@@ -4,6 +4,7 @@
 
 use super::capture_tests::{Case, render, scene, view};
 use super::meshes::Recorder;
+use crate::draw::PreparedScene;
 use crate::{device::GpuContext, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines};
 
 /// Pipelines the scene's object runtime built for one frame of `case`.
@@ -11,7 +12,14 @@ fn pipelines_built(context: &GpuContext, case: &Case) -> u64 {
     let device = context.device();
     let source = scene(case);
     let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let frame = FrameUniform::new(&view(false), source.effects()).unwrap();
     drop(render(
         context,

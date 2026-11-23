@@ -1,5 +1,6 @@
 //! Stock scheduling, temporal identity and immutable products across water, resize and slots.
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_post::{AttachmentView, ResourceRef, ToneMap};
 #[path = "receiver_gradients.rs"]
 mod receiver_gradients;
@@ -57,7 +58,14 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
     if independent {
         renderer.independent_depth_for_test(device);
     }
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     stage_quad(context, &mut gpu, &pipelines);
     let mut shadowed = shadows.then(|| {
         crate::shadows::ShadowedScene::with_taa_velocity(

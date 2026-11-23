@@ -5,6 +5,7 @@ use worldrunner_render_post::{
     AttachmentView, FrameTiming, PassEntry, PassId, PassSlot, ResourceRef, StageId, TimingMode,
     TimingSupport, ToneMap,
 };
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     SceneView,
     compositor::FrameRenderer,
@@ -150,7 +151,14 @@ fn resident(
         .unwrap();
     Resident {
         path,
-        gpu: SceneGpu::upload(context.device(), context.submission(), source, pipelines).unwrap(),
+        gpu: SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(source).unwrap(),
+            pipelines,
+            None,
+        )
+        .unwrap(),
         renderer,
         effects,
         output: worldrunner_render_post::color_texture(

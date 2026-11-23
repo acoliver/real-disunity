@@ -25,6 +25,7 @@ use worldrunner_render_program::runtime::{
     GraphicsProgram, Import, ImportedDraw, ImportedResource, PreparedProgramDraw,
 };
 use worldrunner_render_program::state::RasterState;
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, EngineConstants, FULLSCREEN_TRIANGLE_WGSL, GameBuild, GameFeatureFactory,
@@ -548,8 +549,9 @@ impl Run {
         self.rig.gpu = SceneGpu::upload(
             device,
             self.rig.context.submission(),
-            scene,
+            PreparedScene::new(scene).unwrap(),
             &self.rig.pipelines,
+            None,
         )
         .unwrap();
         let frame = FrameUniform::unlit(&view(SIZE));

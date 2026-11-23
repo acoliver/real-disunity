@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use crate::{
     device::GpuContext,
     draw::SceneGpu,
@@ -210,7 +211,14 @@ pub(super) fn render_at(
 ) -> Capture {
     let device = context.device();
     let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
-    let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let mut frame = FrameUniform::new(view, source.effects()).unwrap();
     frame.exposure = exposure;
     capture(context, |encoder, color, depth| {
@@ -449,8 +457,17 @@ fn dome_without_an_atmosphere_is_rejected_on_upload() {
     })
     .unwrap();
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-    let error =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap_err();
+    let error = PreparedScene::new(&source)
+        .and_then(|prepared| {
+            SceneGpu::upload(
+                context.device(),
+                context.submission(),
+                prepared,
+                &pipelines,
+                None,
+            )
+        })
+        .unwrap_err();
     assert!(matches!(
         error,
         crate::draw::DrawError::Frame(crate::frame::FrameError::UnsupportedEffect(

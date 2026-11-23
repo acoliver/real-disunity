@@ -1,5 +1,6 @@
 //! Frozen forward reference, compared before any resolve across every sample and MRT.
 use super::*;
+use crate::draw::PreparedScene;
 
 #[path = "forward_fixtures.rs"]
 pub(super) mod fixtures;
@@ -126,7 +127,14 @@ fn capture(
         Some(&screen_layout),
     );
     let scene = lit(shot.0, true);
-    let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+    let gpu = SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(&scene).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let group = samples::screen_group(context, &screen_layout);
     let targets = [
         TextureFormat::Rgba16Float,

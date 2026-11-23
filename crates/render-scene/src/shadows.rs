@@ -264,7 +264,7 @@ impl ShadowedScene {
         )?;
         let object_caster = resources::object_caster(&pipelines, settings, sampling);
         let terrain_caster = resources::terrain_caster(context, &pipelines, settings, sampling);
-        let gpu = SceneGpu::upload_prepared_reusing(
+        let gpu = SceneGpu::upload(
             context.device(),
             context.submission(),
             prepared,

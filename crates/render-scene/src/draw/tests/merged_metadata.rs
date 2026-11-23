@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use crate::scene_metadata::{MetadataOutput, SceneMetadata};
 use worldrunner_render_plan::{SceneDecal, SceneSsr, SceneTint};
 use worldrunner_render_post::{AttachmentView, PassSlot, ResourceRef, ToneMap};
@@ -119,8 +120,14 @@ fn draw_with(
     pipelines: &ScenePipelines,
 ) {
     let (scene, pose) = shot;
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), scene, pipelines).unwrap();
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(scene).unwrap(),
+        pipelines,
+        None,
+    )
+    .unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),

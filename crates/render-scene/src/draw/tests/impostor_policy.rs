@@ -1,5 +1,6 @@
 use super::foliage::{geometry_sources, pass_color, pass_depth};
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::{
     SceneAtlasSampling, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout, TexelFormat,
 };
@@ -50,7 +51,14 @@ fn scene(atlas: SceneImpostor, textures: Vec<SceneTexture>, packed: bool) -> Ren
     .unwrap()
 }
 fn upload(context: &GpuContext, layouts: &ScenePipelines, scene: &RenderScene) -> SceneGpu {
-    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, layouts).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(scene).unwrap(),
+        layouts,
+        None,
+    )
+    .unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],
         target_millimeters: [0, 0, 1000],

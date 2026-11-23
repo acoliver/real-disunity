@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use crate::draw::streaming::schedule_tests;
 use crate::draw::visibility::{Bounds, Frustum};
 use crate::terrain::streaming::{TerrainChunk, TerrainHeightBounds};
@@ -68,10 +69,22 @@ fn terrain_pixels_are_identical_after_different_completion_schedules() {
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = source();
-    let immediate =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
-    let delayed =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let immediate = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
+    let delayed = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let first = settle(&context, &immediate, 0);
     let second = settle(&context, &delayed, 4);
     assert_ne!(first, second, "completion schedules must change admission");
@@ -129,8 +142,14 @@ fn lender_reports_camera_order_and_keeps_offscreen_geometric_neighbors() {
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = source();
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        PreparedScene::new(&source).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     settle(&context, &gpu, 0);
     let frame = frame();
     let residents = keys(&gpu);

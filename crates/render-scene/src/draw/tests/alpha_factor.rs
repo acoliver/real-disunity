@@ -1,5 +1,6 @@
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 
 fn texture(alphas: &[u8], width: u32) -> SceneTexture {
@@ -52,7 +53,14 @@ fn depths(context: &GpuContext, scene: &RenderScene) -> Vec<Vec<u8>> {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
-    let gpu = SceneGpu::upload(context.device(), &authority, scene, &pipelines).unwrap();
+    let gpu = SceneGpu::upload(
+        context.device(),
+        &authority,
+        PreparedScene::new(scene).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     geometry_sources()
         .iter()
@@ -166,7 +174,14 @@ fn unlit_output_scales_only_alpha_before_blending() {
     let mut reference = None;
     for (factor, alpha) in [(1_000_000, 201), (300_000, 60), (0, 0)] {
         let scene = source(texture(&[201], 1), factor, 1, false);
-        let gpu = SceneGpu::upload(context.device(), &authority, &scene, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            &authority,
+            PreparedScene::new(&scene).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         gpu.set_frame(context.queue(), frame_from(pose()));
         let pixels = super::foliage::pass_color(&context, &gpu, &pipelines, forward, "fs_unlit");
         let interior: Vec<_> = pixels

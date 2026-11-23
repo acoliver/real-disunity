@@ -1,5 +1,6 @@
 //! The resident route lends its streamed terrain to the game's features.
 use super::*;
+use crate::draw::PreparedScene;
 
 #[test]
 fn resident_frames_lend_their_streamed_terrain_to_game_features() {
@@ -9,8 +10,9 @@ fn resident_frames_lend_their_streamed_terrain_to_game_features() {
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &streamed_scene(),
+        PreparedScene::new(&streamed_scene()).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));

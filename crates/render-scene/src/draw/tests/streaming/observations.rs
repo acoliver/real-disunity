@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use crate::draw::TerrainGeometryStatistics;
 
 fn source(budget: u32) -> RenderScene {
@@ -51,8 +52,9 @@ fn geometry_observations_publish_streaming_then_settled_and_camera_leaf_identity
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &source(1000),
+        PreparedScene::new(&source(1000)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let mut target = target(&context);
@@ -89,8 +91,9 @@ fn geometry_observations_budget_limit_and_cancellation_preserve_submission() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &source(9),
+        PreparedScene::new(&source(9)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let mut target = target(&context);

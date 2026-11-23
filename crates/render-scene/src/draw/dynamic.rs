@@ -2,7 +2,7 @@
 #[path = "dynamic_tests.rs"]
 mod tests;
 
-use super::{Device, DrawError, RenderScene, SceneGpu, ScenePipelines};
+use super::{Device, DrawError, PreparedScene, RenderScene, SceneGpu, ScenePipelines};
 
 fn dynamic_refused(error: &crate::dynamic::DynamicError) -> worldrunner_render_post::FrameError {
     worldrunner_render_post::FrameError::FeaturePreparation {
@@ -27,7 +27,13 @@ impl SceneGpu {
             effects: None,
         })
         .expect("empty scene");
-        Self::upload(device, authority, &scene, pipelines)
+        Self::upload(
+            device,
+            authority,
+            PreparedScene::new(&scene)?,
+            pipelines,
+            None,
+        )
     }
     /// Atomically replaces the runtime quad contribution. The quads are prepared for the pass
     /// `pipelines` describe, which is the pass the frames that draw them must open.

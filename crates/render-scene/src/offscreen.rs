@@ -395,7 +395,13 @@ pub fn capture_scene(
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let frame = FrameUniform::new(view, scene.effects())?;
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        crate::draw::PreparedScene::new(scene)?,
+        &pipelines,
+        None,
+    )?;
     gpu.set_frame(context.queue(), frame);
     target.render(context, &gpu, &pipelines)
 }

@@ -5,6 +5,7 @@
 use super::foliage::pass_color;
 use super::mip_bias::{assert_level, distance_for, mipped_texture};
 use super::*;
+use crate::draw::PreparedScene;
 use worldrunner_render_plan::{SceneAtlasSampling, SceneImpostor, SceneImpostorLayout};
 
 fn atlas_scene(sampling: SceneAtlasSampling) -> RenderScene {
@@ -63,8 +64,9 @@ fn render_center(
     let gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &atlas_scene(sampling),
+        PreparedScene::new(&atlas_scene(sampling)).unwrap(),
         &layouts,
+        None,
     )
     .unwrap();
     let mut frame = frame_from(CameraPose {

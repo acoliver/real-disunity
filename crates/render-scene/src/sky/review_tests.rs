@@ -1,4 +1,5 @@
 use super::scene_tests;
+use crate::draw::PreparedScene;
 use crate::{
     device::GpuContext,
     frame::FrameUniform,
@@ -40,8 +41,14 @@ fn render(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
     let device = context.device();
     let format = wgpu::TextureFormat::Rgba16Float;
     let pipelines = crate::renderer::ScenePipelines::with_samples(device, format, samples).unwrap();
-    let mut gpu =
-        crate::draw::SceneGpu::upload(device, context.submission(), scene, &pipelines).unwrap();
+    let mut gpu = crate::draw::SceneGpu::upload(
+        device,
+        context.submission(),
+        PreparedScene::new(scene).unwrap(),
+        &pipelines,
+        None,
+    )
+    .unwrap();
     let mut renderer = crate::compositor::FrameRenderer::hdr(
         context,
         [32, 32],

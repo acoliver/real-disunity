@@ -470,6 +470,7 @@ PlayerTextureArrayTests.Run();
 PlayerLayeredTextureTests.Run();
 TextCoreTests.Run();
 FontEngineTests.Run();
+FaceHandleTests.Run();
 TouchScreenKeyboardTests.Run();
 DefaultCanvasMaterialTests.Run();
 StopCoroutineTests.Run();

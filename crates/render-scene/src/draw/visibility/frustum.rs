@@ -70,6 +70,7 @@ impl Frustum {
         }
     }
 
+    #[inline]
     pub fn intersects(&self, bounds: Bounds) -> bool {
         let (center, half) = bounds.center_half();
         let (fronts, spreads) = (self.normals.dots(center), self.reaches.dots(half));

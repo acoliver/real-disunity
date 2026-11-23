@@ -2,6 +2,7 @@
 use super::UiTexture;
 use super::contribution::UiRenderPlan;
 pub use super::distance::{UiDistanceMode, UiDistanceStyle, validate_distance_mapping};
+pub use super::material::UiMaterial;
 use crate::presentation::CoverageTexture;
 use std::collections::BTreeMap;
 
@@ -29,6 +30,8 @@ pub struct UiDraw {
     pub corner_colors: Option<[[f32; 4]; 4]>,
     /// A graphic's image or render texture, or a key in `UiPresentation::coverage` for text.
     pub texture: Option<UiTexture>,
+    /// The game's own material of a graphic, or none for the engine's look and for all text.
+    pub material: Option<UiMaterial>,
     pub sorting_layer: i32,
     pub sorting_order: i32,
     pub hierarchy_order: usize,
@@ -67,6 +70,9 @@ impl UiDraw {
 pub struct UiPresentation {
     pub draws: Vec<UiDraw>,
     pub coverage: BTreeMap<u64, CoverageTexture>,
+    /// The shader name of each material a draw names. The ABI carries material identities only,
+    /// so the host that reads the draws looks the names up; a plan built in process has none.
+    pub shaders: BTreeMap<UiMaterial, String>,
 }
 
 impl UiPresentation {
@@ -117,6 +123,7 @@ impl UiPresentation {
                 .into_iter()
                 .map(|(id, texture)| (id + offset, texture)),
         );
+        self.shaders.extend(other.shaders);
         self.draws.extend(other.draws);
         Ok(())
     }
@@ -142,6 +149,7 @@ impl UiPresentation {
                     uv_rect: [0.; 4],
                     color: a.color,
                     texture: graphic.texture,
+                    material: graphic.material,
                     sorting_layer: graphic.sorting_layer,
                     sorting_order: graphic.sorting_order,
                     hierarchy_order: contribution.hierarchy_order,
@@ -159,6 +167,7 @@ impl UiPresentation {
                     uv_rect: quad.uv_rect,
                     color: quad.color,
                     texture: graphic.texture,
+                    material: graphic.material,
                     sorting_layer: graphic.sorting_layer,
                     sorting_order: graphic.sorting_order,
                     hierarchy_order: contribution.hierarchy_order,
@@ -196,6 +205,7 @@ impl UiPresentation {
                     uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
                     color: std::array::from_fn(|i| text.color[i] * glyph.color[i]),
                     texture: text.texture.as_ref().map(|_| UiTexture::Coverage(identity)),
+                    material: None,
                     sorting_layer: text.sorting_layer,
                     sorting_order: text.sorting_order,
                     hierarchy_order: text.hierarchy_order,

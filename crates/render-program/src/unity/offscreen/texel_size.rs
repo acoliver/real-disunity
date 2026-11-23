@@ -1,14 +1,14 @@
 //! The constants a draw gets from the textures it reads: the member `<texture>_TexelSize` of a
 //! constant buffer holds (1 / width, 1 / height, width, height) of the texture bound under
-//! `<texture>`, the way a blit's source has it (see `blit_steps::source_layer`). The texture is the one the
-//! draw binds for `<texture>`: the first layer's (`Layers::texture`), and for a name a layer sets
-//! to none the frame's 2D default, which the binder reads for a texture no layer holds.
+//! `<texture>`. A blit's source is one of the textures a layer binds, so it has its texel size from
+//! this fill like any other. The texture is the one the draw binds for `<texture>`: the first layer's
+//! (`Layers::texture`), and for a name a layer sets to none the frame's 2D default, which the binder
+//! reads for a texture no layer holds.
 
 use crate::layers::Layers;
 use crate::properties::{PropertySet, PropertyValue};
 use crate::unity::buffers::BufferLayout;
 
-use super::blit_steps::texels;
 use super::frame::UndeclaredTextures;
 use super::textures::TextureTable;
 
@@ -44,4 +44,9 @@ pub(super) fn texel_sizes(
         }
     }
     sizes
+}
+
+/// A side in texels as a float. Sides above 65535 saturate, which no render texture reaches.
+fn texels(side: u32) -> f32 {
+    f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }

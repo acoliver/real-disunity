@@ -240,3 +240,26 @@ fn a_render_texture_on_text_or_an_unknown_texture_kind_is_rejected() {
     assert!(matches!(decode(meta, quad),
         Err(HostError::Managed(message)) if message.contains("texture kind 2")));
 }
+
+#[test]
+fn a_material_identity_decodes_and_a_generation_without_one_is_rejected() {
+    let quad = native::DisunityQuad {
+        overlay: 1,
+        ..Default::default()
+    };
+    let plain = decode(native::DisunityUiDraw::default(), quad).unwrap();
+    assert_eq!(plain.material, None);
+    let shaped = native::DisunityUiDraw {
+        material: (2 << 32) | 6,
+        material_generation: 4,
+        ..Default::default()
+    };
+    let material = decode(shaped, quad).unwrap().material.unwrap();
+    assert_eq!(material.id.to_bits(), (2 << 32) | 6);
+    assert_eq!(material.generation, 4);
+    let orphan = native::DisunityUiDraw {
+        material_generation: 4,
+        ..Default::default()
+    };
+    assert!(decode(orphan, quad).is_err());
+}

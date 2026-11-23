@@ -152,6 +152,7 @@ impl UiTextField {
                 sorting_layer: rect.sorting_layer,
                 sorting_order: rect.sorting_order,
                 texture: None,
+                material: None,
                 quads,
                 triangles: Vec::new(),
             },

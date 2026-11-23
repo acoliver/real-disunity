@@ -619,3 +619,52 @@ fn rows_and_level_memos_kept_across_many_eyes_and_edits_equal_the_full_scan() {
         }
     }
 }
+
+/// Every view of eyes that stride past the levels' distance ceilings and fade bands, return to
+/// earlier places and jump across the world, with placements edited between them, equals the
+/// full scan, so a level kept for the eye it was computed at is never kept beyond its reach.
+#[test]
+fn levels_kept_while_the_eye_strides_past_ceilings_and_jumps_equal_the_full_scan() {
+    let source = world(700, 24, 41);
+    let fades = reference_fades(&source);
+    let meshes: Vec<_> = source
+        .geometry()
+        .meshes()
+        .iter()
+        .map(MeshSelection::new)
+        .collect();
+    let mut instances = Instances::new(&source);
+    let rows = RefCell::default();
+    let mut rng = Rng::new(41);
+    let mut added = Vec::new();
+    let mut eye = Vec3::new(-300.0, -150.0, 2.0);
+    let mut visited = vec![eye];
+    for step in 0..360_u16 {
+        eye = match step % 47 {
+            46 => Vec3::new(
+                rng.range(-1300.0, 1300.0),
+                rng.range(-1300.0, 1300.0),
+                rng.range(0.5, 60.0),
+            ),
+            23 => visited[rng.index(visited.len())],
+            _ => {
+                eye + Vec3::new(
+                    rng.range(-1.0, 6.0),
+                    rng.range(-2.0, 2.0),
+                    rng.range(-0.1, 0.1),
+                )
+            }
+        };
+        visited.push(eye);
+        assert_frame_matches_scan(
+            &rows,
+            (&instances, &fades),
+            &meshes,
+            &views(eye, 0.4, -0.05),
+            None,
+        );
+        if step % 89 == 88 {
+            edit(&mut instances, &mut rng, &mut added);
+        }
+    }
+}

@@ -538,6 +538,7 @@ TextureTests.Run();
 MeshTests.Run();
 RenderTextureTests.Run();
 ShaderMaterialTests.Run();
+ColorSpacePropertyTests.Run();
 MaterialCrcTests.Run();
 ProfilingTests.Run();
 GeometryUtilityTests.Run();

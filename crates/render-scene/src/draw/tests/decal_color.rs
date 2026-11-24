@@ -4,8 +4,11 @@ use crate::draw::{
     tests::{COLOR_FORMAT, context, frame_from, pose},
 };
 use crate::test_support::upload_scene;
+use crate::view::CameraPose;
 use glam::Vec3;
-use worldrunner_render_plan::{SceneDecalAlphaMode, SceneDecalColorModifier, SceneResources};
+use worldrunner_render_plan::{
+    MaterialHandle, SceneDecalAlphaMode, SceneDecalColorModifier, SceneResources,
+};
 
 #[test]
 fn decal_tint_and_opacity_match_independent_interior_pixel_oracle() {
@@ -95,6 +98,50 @@ fn modifier_only_replace_updates_each_slot_without_rebuilding_palettes() {
         gpu.select_frame_slot(slot);
         assert_eq!(*bytes, gpu.decals.prepare(&frame, &gpu.frame_buffer));
         assert_eq!(*group, gpu.decals.group());
+    }
+}
+
+#[test]
+fn camera_moves_between_decals_of_different_materials_keep_each_slots_palette() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let base = source(false, false);
+    let mut materials = base.resources().materials().to_vec();
+    materials.push(materials[1]);
+    let scene = base
+        .with_resources(
+            SceneResources::new(base.resources().textures().to_vec(), materials).unwrap(),
+            base.geometry().clone(),
+            None,
+        )
+        .unwrap();
+    let near = decal();
+    let mut far = near;
+    far.material = MaterialHandle::from_raw(2);
+    far.transform.position_millimeters[0] = 1_000_000;
+    let scene = scene.with_decals(vec![near, far]).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let sees_near = frame_from(pose());
+    let sees_far = frame_from(CameraPose {
+        eye_millimeters: [1_000_000, -2000, 2000],
+        target_millimeters: [1_000_000, 0, 0],
+    });
+    for slot in 0..gpu.decals.buffers.len() {
+        gpu.select_frame_slot(slot);
+        let near_bytes = gpu.decals.prepare(&sees_near, &gpu.frame_buffer);
+        let group = gpu.decals.group();
+        let far_bytes = gpu.decals.prepare(&sees_far, &gpu.frame_buffer);
+        assert_ne!(
+            near_bytes, far_bytes,
+            "the two views select different decals"
+        );
+        assert_eq!(group, gpu.decals.group(), "slot {slot} rebuilt its palette");
+        assert_eq!(
+            near_bytes,
+            gpu.decals.prepare(&sees_near, &gpu.frame_buffer)
+        );
+        assert_eq!(group, gpu.decals.group(), "slot {slot} rebuilt its palette");
     }
 }
 

@@ -7,7 +7,7 @@ use crate::{
     compositor::ColorDepth,
     device::GpuContext,
     frame::{FrameUniform, metadata::FrameProduct},
-    shadows::{ShadowError, ShadowedScene, frame::FitInput},
+    shadows::{CascadeFitting, ShadowError, ShadowedScene, frame::FitInput},
     view::SceneView,
 };
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
@@ -327,7 +327,10 @@ impl ShadowedScene {
             .resume(context.device(), |encoder, _, frozen, fit| {
                 let fitted = FitInput {
                     scheduler: &mut *scheduler,
-                    fitting: Some((fit.depth, state.settings.range)),
+                    fitting: Some(CascadeFitting {
+                        range: fit.depth,
+                        fit: state.settings.range,
+                    }),
                 };
                 let attachments = ColorDepth {
                     color: input.attachments.0,
@@ -388,7 +391,10 @@ impl ShadowedScene {
                 };
                 let fitting = FitInput {
                     scheduler: &mut *scheduler,
-                    fitting: current.map(|fit| (fit.depth, state.settings.range)),
+                    fitting: current.map(|fit| CascadeFitting {
+                        range: fit.depth,
+                        fit: state.settings.range,
+                    }),
                 };
                 self.encode_fitted(context, input.view, attachments, encoder, fitting)?;
                 self.encode_term_captures(context.device(), encoder, input.terms, scheduler)?;

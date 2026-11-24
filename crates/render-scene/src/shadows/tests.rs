@@ -587,7 +587,10 @@ fn encode_depth_fitted(
 ) -> Result<(), ShadowError> {
     let input = frame::FitInput {
         scheduler,
-        fitting: Some((fitting.0.depth, fitting.1)),
+        fitting: Some(crate::shadows::CascadeFitting {
+            range: fitting.0.depth,
+            fit: fitting.1,
+        }),
     };
     let attachments = crate::compositor::ColorDepth {
         color: attachments.0,

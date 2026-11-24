@@ -112,3 +112,23 @@ fn a_reused_view_keeps_the_usages_a_created_one_has() {
     assert_eq!(attached[0].usage(), views[0].texture().usage());
     assert_eq!(attached[0].format(), wgpu::TextureFormat::Rgba8UnormSrgb);
 }
+
+#[test]
+fn a_depth_stencil_view_hands_every_pass_the_same_depth_view_to_sample() {
+    let (device, _queue) = device();
+    let depth = texture(
+        &device,
+        wgpu::TextureFormat::Depth24PlusStencil8,
+        1,
+        wgpu::TextureUsages::RENDER_ATTACHMENT,
+    );
+    let view = AttachmentView::new(COLOR, &depth).unwrap();
+    let sampled = view.sampled_view();
+    assert_eq!(view.sampled_view(), sampled);
+    assert_eq!(
+        view.clone().with_retained_contents().sampled_view(),
+        sampled,
+        "a copy of the view the frame holds shares it"
+    );
+    assert_ne!(sampled, *view.view(), "it selects the depth aspect only");
+}

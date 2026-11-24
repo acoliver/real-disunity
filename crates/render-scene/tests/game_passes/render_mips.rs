@@ -548,6 +548,28 @@ fn frames_that_rewrite_some_mips_leave_the_others_as_they_were() {
 }
 
 #[test]
+fn a_pyramid_frame_makes_each_view_of_the_chain_once() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = knobs(false);
+    let mut rig = rig(&knobs);
+    next(&knobs, &[0, 1, 2, 3], 1.0, Reduce::Minimum, true);
+    rig.render().unwrap();
+    let views = rig.renderer.game_targets().views_created();
+    assert!(
+        views > 0,
+        "the first frame made the views it attaches and samples"
+    );
+    for frame in 0..4 {
+        rig.render().unwrap();
+        assert_eq!(
+            rig.renderer.game_targets().views_created(),
+            views,
+            "frame {frame} after the first made a view of a target"
+        );
+    }
+}
+
+#[test]
 fn shadowed_same_frame_captures_keep_a_pyramid_mip_by_mip() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let knobs = knobs(true);

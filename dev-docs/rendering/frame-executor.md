@@ -2,11 +2,9 @@
 
 Every frame the stock renderer draws goes through one executor and one submission. This page describes how a host encodes frames, overlaps them, registers its own features and reads GPU pass timings.
 
-## Layouts and documents
+## Layouts
 
 The packed vertex stride is 40 bytes and the instance stride is 80 bytes. Use `geometry::VERTEX_STRIDE`, `geometry::INSTANCE_STRIDE` and the engine packing helpers rather than hand-written layouts. The material uniform is 112 bytes. Scene coordinates are Z-up metres on the GPU, converted from integer millimetres at the CPU boundary.
-
-The render-contract loader in `render-plan` accepts only `schema: "real-disunity.render-contract.v4"` with `schema_version: 4`. Any other version is rejected, and there is no conversion path. Optional effect recipes are validated even when their weights are zero. The field ranges are documented on the recipe types in `crates/render-plan`.
 
 Shadow `extent_millimeters` values are light-space coverage-box extents. Camera far-split cascades are a separate policy, constructed with `SceneShadowCascades::camera_splits(distances_millimeters, blend_band_micro)`. Distances must increase, exceed the camera near plane and not exceed its far plane.
 

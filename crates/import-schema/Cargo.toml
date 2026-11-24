@@ -1,6 +1,6 @@
 [package]
 name = "worldrunner-import-schema"
-description = "Versioned manifests, policies, locks, and census records for deterministic world import"
+description = "Versioned manifests, locks and capability documents for deterministic world import"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

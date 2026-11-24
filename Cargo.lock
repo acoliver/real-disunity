@@ -4864,7 +4864,6 @@ dependencies = [
  "worldrunner-texture",
  "worldrunner-world-generation",
  "worldrunner-world-model",
- "worldrunner-world-runtime",
  "worldrunner-world-schema",
  "worldrunner-world-simulation",
 ]
@@ -5034,16 +5033,10 @@ dependencies = [
  "glam",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "thiserror 2.0.21",
- "worldrunner-asset-id",
  "worldrunner-camera",
  "worldrunner-material",
- "worldrunner-mesh",
- "worldrunner-package",
  "worldrunner-texture",
- "worldrunner-world-model",
- "worldrunner-world-runtime",
  "worldrunner-world-schema",
  "worldrunner-world-simulation",
 ]
@@ -5216,18 +5209,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "worldrunner-world-runtime"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "worldrunner-import-schema",
- "worldrunner-world-model",
 ]
 
 [[package]]

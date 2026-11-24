@@ -1,102 +1,19 @@
-//! GPU-free adaptation of independently verified normal publications into
-//! immutable, wholly owned CPU render plans.
+//! GPU-free, immutable, wholly owned CPU render scenes.
 //!
-//! Callers provide every exact document, component, capability, and payload
-//! contract route. This crate provides no dataset routes, defaults, path-based
-//! lookup, content sniffing, or renderer/GPU dependency. The capability
-//! factories additionally mint fail-closed
-//! [`worldrunner_world_runtime::CapabilityHandler`] implementations for wholly
-//! owned exact bytes, canonical package, mesh, material, and texture
-//! artifacts, and bounded pure U8 and little-endian U16 grids, each wholly
-//! configured by the caller. Authored [`ContractDocument`] route
-//! declarations activate into one exact [`RenderWorldContract`] through
-//! caller-registered implementation factories keyed by exact handler factory
-//! URI, with no fallback across route kinds. Payload preparation returns owned,
-//! route-qualified CPU state without invoking scene factories. Full render
-//! activation additionally requires each route scene factory and the document
-//! composer: route factories produce explicit [`SceneContribution`] values,
-//! including nonrendering outcomes, and the composer can join prepared payloads
-//! across routes before producing the mandatory validated [`RenderScene`] that
-//! [`RenderWorldPlan`] retains.
+//! [`RenderScene`] and its parts validate geometry, materials, textures, effects
+//! and terrain without a renderer or GPU dependency. This crate provides no
+//! dataset routes, defaults, path-based lookup or content sniffing.
 
-mod adapter;
-mod capability;
-mod contract;
-mod discovery;
-mod document;
-mod error;
-mod implementation_registry;
-mod limits;
 pub mod picking;
-mod plan;
-mod plan_closure;
 pub use picking::ObjectId;
 pub use picking::PickHit;
-mod plan_scene;
 pub mod post;
 mod scene;
 pub mod world_schema;
 
-pub use adapter::CpuRenderPayload;
-pub use adapter::RenderPayload;
-pub use adapter::RenderPayloadAdapter;
-pub use capability::CapabilityConfigError;
-pub use capability::ElementPolicy;
-pub use capability::ExactBytes;
-pub use capability::ExactCapabilityRoute;
-pub use capability::GridShape;
-pub use capability::MaterialPayload;
-pub use capability::PackagePayload;
-pub use capability::StaticMeshPayload;
-pub use capability::TexturePayload;
-pub use capability::U8Grid;
-pub use capability::U16LeGrid;
-pub use capability::exact_bytes_handler;
-pub use capability::material_handler;
-pub use capability::package_handler;
-pub use capability::static_mesh_handler;
-pub use capability::texture_handler;
-pub use capability::u8_grid_handler;
-pub use capability::u16_le_grid_handler;
-pub use contract::ContractRegistration;
-pub use contract::RenderWorldContract;
-pub use contract::RenderWorldContractBuilder;
-pub use discovery::DiscoveredRenderContract;
-pub use discovery::RENDER_CONTRACT_CAPABILITY_URI;
-pub use discovery::RenderContractDiscoveryError;
-pub use discovery::RenderContractDiscoveryLimits;
-pub use discovery::discover_render_contract;
-pub use error::RenderAdapterError;
-pub use error::RenderContractError;
-pub use error::RenderImplementationError;
-pub use error::RenderPlanError;
-pub use implementation_registry::ActivatedRenderPayloadContract;
-pub use implementation_registry::ActivatedRenderWorldContract;
-pub use implementation_registry::CapabilityImplementation;
-pub use implementation_registry::CapabilityImplementationFactory;
-pub use implementation_registry::ComponentImplementation;
-pub use implementation_registry::ComponentImplementationFactory;
-pub use implementation_registry::DocumentImplementation;
-pub use implementation_registry::DocumentImplementationFactory;
-pub use implementation_registry::RenderFactoryError;
-pub use implementation_registry::RenderImplementationRegistry;
-pub use implementation_registry::RenderImplementationRegistryBuilder;
-pub use implementation_registry::RenderRouteKind;
-pub use implementation_registry::activate_render_payload_contract;
-pub use implementation_registry::activate_render_world_contract;
-pub use limits::RenderWorldLimits;
-pub use plan::PreparedRenderWorldPayloads;
-pub use plan::RenderContribution;
-pub use plan::RenderWorldPlan;
-pub use plan::build_discovered_render_world_plan;
-pub use plan::build_render_world_plan;
-pub use plan::compose_render_world_plan;
-pub use plan::prepare_discovered_render_world_payloads;
-pub use plan::prepare_render_world_payloads;
 pub use scene::BillboardPolicy;
 pub use scene::DEFAULT_TAA_CLIP_SCALE_MICRO;
 pub use scene::DIRECTION_MICRO_SCALE;
-pub use scene::DocumentSceneInput;
 pub use scene::EFFECTS_MICRO_SCALE;
 pub use scene::MATERIAL_MICRO_SCALE;
 pub use scene::MAXIMUM_SUN_IRRADIANCE_MICRO;
@@ -104,12 +21,8 @@ pub use scene::MAXIMUM_TAA_CLIP_SCALE_MICRO;
 pub use scene::MINIMUM_TAA_CLIP_SCALE_MICRO;
 pub use scene::MaterialHandle;
 pub use scene::MeshHandle;
-pub use scene::ProvenSceneContribution;
 pub use scene::ROTATION_MICRO_SCALE;
 pub use scene::RenderScene;
-pub use scene::RouteDeclarationRef;
-pub use scene::RouteSceneFactory;
-pub use scene::RouteSceneInput;
 pub use scene::SceneAffineMatrix;
 pub use scene::SceneAlphaMode;
 pub use scene::SceneAmbient;
@@ -118,12 +31,10 @@ pub use scene::SceneAppend;
 pub use scene::SceneCamera;
 pub use scene::SceneColor;
 pub use scene::SceneColorGrading;
-pub use scene::SceneCompositionFactory;
 pub use scene::SceneContourBlend;
 pub use scene::SceneContourFill;
 pub use scene::SceneContourStyle;
 pub use scene::SceneContours;
-pub use scene::SceneContribution;
 pub use scene::SceneCubeDescriptor;
 pub use scene::SceneDdsDescriptor;
 pub use scene::SceneDdsFormat;
@@ -139,7 +50,6 @@ pub use scene::SceneMesh;
 pub use scene::SceneMeshLod;
 pub use scene::SceneObject;
 pub use scene::SceneParts;
-pub use scene::ScenePlacement;
 pub use scene::ScenePostStage;
 pub use scene::SceneResources;
 pub use scene::SceneRotation;
@@ -194,50 +104,6 @@ pub use scene::TextureHandle;
 pub use scene::TextureSampler;
 pub use scene::TextureWrap;
 
-pub use document::AmbientLightMicro;
-pub use document::AssetBinding;
-pub use document::AssetResolutionPolicy;
-pub use document::AxisDirection;
-pub use document::BindingElementPolicy;
-pub use document::CameraIntrinsics;
-pub use document::CapabilityRouteDeclaration;
-pub use document::ComponentRouteDeclaration;
-pub use document::ContractDocument;
-pub use document::ContractDocumentError;
-pub use document::ContractDocumentHeader;
-pub use document::ContractDocumentParts;
-pub use document::ContractLimits;
-pub use document::CoordinateBasis;
-pub use document::DirectionalLightMicro;
-pub use document::DocumentRouteDeclaration;
-pub use document::EffectsRecipe;
-pub use document::EffectsRecipeParts;
-pub use document::EnvironmentRecipe;
-pub use document::Handedness;
-pub use document::LodLevel;
-pub use document::LodPolicy;
-pub use document::MICRO_SCALE;
-pub use document::MeshComponent;
-pub use document::MicroFixed;
-pub use document::PositionMillimeters;
-pub use document::RENDER_CONTRACT_SCHEMA;
-pub use document::RENDER_CONTRACT_SCHEMA_VERSION;
-pub use document::RotationQuaternion;
-pub use document::RouteCardinality;
-pub use document::RouteDeclarations;
-pub use document::RouteIdentity;
-pub use document::SceneDescription;
-pub use document::ShadowCascade;
-pub use document::ShadowCascadesRecipe;
-pub use document::SkyRecipe;
-pub use document::SsaoRecipe;
-pub use document::StreamLimits;
-pub use document::TerrainMaterialSlot;
-pub use document::TerrainRecipe;
-pub use document::TransformMillimeters;
-pub use document::UniformScaleMillionths;
-pub use document::WaterPlaneRecipe;
-pub use document::WindRecipe;
 pub use scene::SceneSmaaEdgeDetection;
 pub use scene::SceneSmaaPreset;
 pub use scene::SceneSmaaSettings;

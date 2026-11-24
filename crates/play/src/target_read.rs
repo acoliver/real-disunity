@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use worldrunner_render_program::unity::offscreen::{PendingImage, TapRead};
 
 use crate::GpuWorkReport;
-use crate::driver::write_rgb_png;
 
 mod write;
 
@@ -180,7 +179,7 @@ impl Finished {
     }
 }
 
-/// Reads the copy and writes the RGB PNG of the colour, giving the line that says so.
+/// Reads the copy and writes the RGBA PNG of the colour, giving the line that says so.
 fn write_colour(
     read: &TargetRead,
     label: &str,
@@ -190,8 +189,7 @@ fn write_colour(
     let image = image?;
     let (size, format) = (image.size(), image.format());
     let bytes = image.resolve(device).map_err(|error| error.to_string())?;
-    let rgba = write::colour_rgba8(&bytes, format, size)?;
-    write_rgb_png(&read.file, size, &rgba).map_err(|error| error.to_string())?;
+    write::write_colour_png(&read.file, &bytes, format, size)?;
     Ok(line(read, (label, "colour"), (size, format), &read.file))
 }
 

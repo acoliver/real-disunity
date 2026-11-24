@@ -208,14 +208,14 @@ fn a_frame_the_gpu_refuses_ends_the_run_and_no_screen_is_written_for_it_or_after
     assert_eq!(written, ["screen-0.png"], "{message}");
 }
 
-/// The size and RGB bytes of a PNG.
+/// The size and RGBA bytes of a PNG.
 fn decoded(path: &std::path::Path) -> ([u32; 2], Vec<u8>) {
     let mut reader = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()))
         .read_info()
         .unwrap();
     let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
     let info = reader.next_frame(&mut bytes).unwrap();
-    assert_eq!(info.color_type, png::ColorType::Rgb);
+    assert_eq!(info.color_type, png::ColorType::Rgba);
     bytes.truncate(info.buffer_size());
     ([info.width, info.height], bytes)
 }
@@ -239,7 +239,9 @@ fn a_run_with_no_viewer_writes_the_target_of_the_record_it_is_asked_for() {
     let (size, bytes) = decoded(&file);
     assert_eq!(size, [8, 4]);
     assert!(
-        bytes.chunks_exact(3).all(|texel| texel == YELLOW),
+        bytes
+            .chunks_exact(4)
+            .all(|texel| texel == [255, 255, 0, 255]),
         "{bytes:?}"
     );
 }

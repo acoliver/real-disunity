@@ -127,10 +127,11 @@ fn finishing_writes_each_read_and_names_every_refusal() {
         let decoder =
             png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&file).unwrap()));
         let mut reader = decoder.read_info().unwrap();
-        let mut rgb = vec![0; reader.output_buffer_size().unwrap()];
-        reader.next_frame(&mut rgb).unwrap();
+        let mut rgba = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut rgba).unwrap();
+        assert_eq!(info.color_type, png::ColorType::Rgba);
         assert!(
-            rgb.chunks_exact(3).all(|texel| texel == &expected[..3]),
+            rgba.chunks_exact(4).all(|texel| texel == expected),
             "record {record}"
         );
     }

@@ -192,7 +192,13 @@ internal static unsafe class RenderSettingsEnvironmentTests
         RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
         RenderSettings.customReflectionTexture = null;
         Expect.That(ReflectionProbe.defaultTexture is Cubemap { name: "Baked" }, "the custom mode without a custom cube reads the cube baked from the skybox");
-        Console.WriteLine("PASS: ReflectionProbe.defaultTexture is the cube the scene's default reflection reads");
+        var cube = (Cubemap)ReflectionProbe.defaultTexture!;
+        var buffer = new CommandBuffer();
+        buffer.SetGlobalTexture("_DefaultProbe", cube);
+        Graphics.ExecuteCommandBuffer(buffer);
+        Expect.That(ReferenceEquals(Shader.GetGlobalTexture("_DefaultProbe"), cube), "a CommandBuffer sets ReflectionProbe.defaultTexture as a global cube");
+        Shader.SetGlobalTexture("_DefaultProbe", (Texture?)null);
+        Console.WriteLine("PASS: ReflectionProbe.defaultTexture is the cube the scene's default reflection reads, settable as a global cube");
     }
 
     private static void ASceneWithoutAnEnvironmentLeavesTheRecordUnset(string directory)

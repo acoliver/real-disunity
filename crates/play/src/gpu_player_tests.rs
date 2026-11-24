@@ -218,6 +218,16 @@ fn the_launch_sets_the_globals_and_the_stand_in_look_of_the_offscreen_settings()
 }
 
 #[test]
+fn the_launch_gives_the_offscreen_settings_the_projects_colour_space() {
+    let launch = GpuLaunch {
+        linear_colour_space: true,
+        ..GpuLaunch::default()
+    };
+    assert!(launch.settings().linear_colour_space);
+    assert!(!GpuLaunch::default().settings().linear_colour_space);
+}
+
+#[test]
 fn the_report_says_which_globals_the_run_supplied_and_says_nothing_when_it_supplied_none() {
     let directory = tempfile::tempdir().unwrap();
     let none = PlayerGpu::headless(directory.path(), &GpuLaunch::default()).unwrap();

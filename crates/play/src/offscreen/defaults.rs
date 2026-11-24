@@ -351,6 +351,42 @@ pub struct ShaderFill {
     /// The default value of each colour, vector, float, range and integer property, in the
     /// order the shader declares them.
     pub values: Vec<(String, PropertyValue)>,
+    /// The names among `values` that are colour properties. A default of one is authored in
+    /// gamma space, and a vector property's is not a colour.
+    pub colours: Vec<String>,
+}
+
+impl ShaderFill {
+    /// This fill for a project in Linear colour space when `linear`: each colour property's
+    /// default takes its linear form, RGB only, as the managed property store converts a colour
+    /// a game sets (`PropertyStoreColors`). A vector default and every other value stay as
+    /// declared, and a Gamma project's fill is unchanged.
+    #[must_use]
+    pub fn in_colour_space(mut self, linear: bool) -> Self {
+        if !linear {
+            return self;
+        }
+        for (name, value) in &mut self.values {
+            if let PropertyValue::Vector([red, green, blue, _]) = value
+                && self.colours.contains(name)
+            {
+                for channel in [red, green, blue] {
+                    *channel = gamma_to_linear(*channel);
+                }
+            }
+        }
+        self
+    }
+}
+
+/// The linear value of a gamma-space colour channel: the sRGB decode, the same function as the
+/// managed `Mathf.GammaToLinearSpace`.
+fn gamma_to_linear(value: f32) -> f32 {
+    if value <= 0.040_45 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 /// What `shader` declares for a material that leaves a property unset.
@@ -367,7 +403,11 @@ pub fn declared_fill(shader: &Shader) -> ShaderFill {
                 }
                 continue;
             }
-            COLOR_PROPERTY | VECTOR_PROPERTY => PropertyValue::Vector(default),
+            COLOR_PROPERTY => {
+                fill.colours.push(property.name.clone());
+                PropertyValue::Vector(default)
+            }
+            VECTOR_PROPERTY => PropertyValue::Vector(default),
             FLOAT_PROPERTY | RANGE_PROPERTY => PropertyValue::Float(default[0]),
             INT_PROPERTY => match whole_number(default[0]) {
                 Some(number) => PropertyValue::Int(number),

@@ -1,4 +1,4 @@
-//! The pixels of a read as PNG files: the colour as an 8-bit RGB image and the depth as a 16-bit
+//! The pixels of a read as PNG files: the colour as an 8-bit RGBA image and the depth as a 16-bit
 //! grey one, both with the top row first.
 //!
 //! A copy of a texture holds its rows bottom first, as the GPU stores them, so the rows are
@@ -9,6 +9,7 @@ use std::path::Path;
 use worldrunner_render_program::texels::rect_rgba;
 
 use crate::PlayError;
+use crate::driver::write_rgba_png;
 
 /// Whether a format holds 8-bit channels, which are written as they are stored. Every other
 /// format is a float or a wider integer that is clamped to 0..1 and sRGB encoded for the file.
@@ -92,6 +93,20 @@ pub(super) fn colour_rgba8(
         }
     }
     Ok(rgba)
+}
+
+/// Writes the colour of a copied level to `path` as an 8-bit RGBA PNG, rows top first.
+///
+/// # Errors
+/// Names the format when its texels are not given as floats, or the file when it cannot be written.
+pub(super) fn write_colour_png(
+    path: &Path,
+    bytes: &[u8],
+    format: wgpu::TextureFormat,
+    size: [u32; 2],
+) -> Result<(), String> {
+    let rgba = colour_rgba8(bytes, format, size)?;
+    write_rgba_png(path, size, &rgba).map_err(|error| error.to_string())
 }
 
 /// The stored depth of a copied level as big-endian 16-bit values, rows top first. A float depth
@@ -242,5 +257,67 @@ mod tests {
         assert_eq!(info.color_type, png::ColorType::Grayscale);
         assert_eq!(info.bit_depth, png::BitDepth::Sixteen);
         assert_eq!(data, [0x80, 0x00, 0x12, 0x34]);
+    }
+
+    /// The colour type and bytes of a PNG.
+    fn decoded(path: &Path) -> (png::ColorType, Vec<u8>) {
+        let decoder =
+            png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
+        let mut reader = decoder.read_info().unwrap();
+        let mut data = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut data).unwrap();
+        data.truncate(info.buffer_size());
+        (info.color_type, data)
+    }
+
+    fn written(bytes: &[u8], format: wgpu::TextureFormat, size: [u32; 2]) -> Vec<u8> {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("colour.png");
+        write_colour_png(&file, bytes, format, size).unwrap();
+        let (color_type, data) = decoded(&file);
+        assert_eq!(color_type, png::ColorType::Rgba);
+        data
+    }
+
+    #[test]
+    fn a_float_target_keeps_its_alpha_linear_while_the_colour_is_encoded() {
+        let bytes = floats(&[
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.0,
+            0.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            f32::NAN,
+        ]);
+        let data = written(&bytes, RGBA32, [3, 1]);
+        assert_eq!(data, [188, 188, 188, 128, 0, 0, 0, 255, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn an_eight_bit_target_round_trips_its_alpha() {
+        let bytes = [10, 20, 30, 77, 40, 50, 60, 0];
+        let data = written(&bytes, wgpu::TextureFormat::Rgba8Unorm, [2, 1]);
+        assert_eq!(data, bytes);
+    }
+
+    #[test]
+    fn a_format_with_no_alpha_channel_writes_255() {
+        let data = written(&[100, 200], wgpu::TextureFormat::Rg8Unorm, [1, 1]);
+        assert_eq!(data, [100, 200, 0, 255]);
+        let data = written(&[9], wgpu::TextureFormat::R8Unorm, [1, 1]);
+        assert_eq!(data, [9, 9, 9, 255]);
+    }
+
+    #[test]
+    fn a_one_channel_float_is_grey_with_full_alpha_in_the_file() {
+        let bytes = 0.5_f32.to_le_bytes();
+        let data = written(&bytes, wgpu::TextureFormat::R32Float, [1, 1]);
+        assert_eq!(data, [188, 188, 188, 255]);
     }
 }

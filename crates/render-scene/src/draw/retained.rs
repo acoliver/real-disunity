@@ -95,11 +95,7 @@ impl SceneGpu {
                 .values()
                 .map(crate::instances::batch::InstanceBatch::publication_key),
         );
-        if let Some(pages) = self
-            .terrain
-            .as_ref()
-            .and_then(|terrain| terrain.pages.as_ref())
-        {
+        if let Some(pages) = self.camera_pages() {
             let mut pages = pages.borrow_mut();
             pages.prepare_capture(device)?;
             keys.extend(pages.capture_write_keys());

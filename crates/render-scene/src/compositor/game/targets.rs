@@ -3,10 +3,13 @@
 use super::frame_start;
 use super::snapshots::SnapshotReads;
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_gpu::submission::capture::WriteKey;
@@ -239,6 +242,24 @@ pub(crate) struct Backing {
     /// This is the published state. The queries of a frame in preparation answer through
     /// [`Self::state`] instead.
     written: Mutex<Vec<bool>>,
+    /// The native views of the texture, made when a frame first asks for them and dropped with the
+    /// texture.
+    views: Mutex<Views>,
+    /// Counts the views made for every texture of the lineage, which `views` adds to.
+    made: Arc<AtomicU64>,
+}
+
+/// The native views of one backing's texture. Every view of a declared target has the texture's
+/// own format, every aspect and the texture's usages, so the mips and layers it selects tell two
+/// views apart.
+struct Views {
+    /// The view of each mip of each layer, at `layer * mips + mip`, which a pass attaches or
+    /// reads alone and a compute pass writes. It carries no declaration of what the subresource holds: the
+    /// state a frame starts with is [`Backing::state`], applied to a copy by [`TargetStore::view`].
+    attachments: Vec<Option<AttachmentView>>,
+    /// The view of every layer of the mips that start at `.0` and number `.1`, which a pass
+    /// samples.
+    sampled: BTreeMap<(u32, u32), wgpu::TextureView>,
 }
 
 impl Backing {
@@ -247,6 +268,7 @@ impl Backing {
         declaration: &TargetDeclaration,
         extent: [u32; 2],
         serial: u64,
+        made: Arc<AtomicU64>,
     ) -> Self {
         Self {
             texture: device.create_texture(&wgpu::TextureDescriptor {
@@ -267,6 +289,11 @@ impl Backing {
                 false;
                 (declaration.layers * declaration.mips) as usize
             ]),
+            views: Mutex::new(Views {
+                attachments: vec![None; (declaration.layers * declaration.mips) as usize],
+                sampled: BTreeMap::new(),
+            }),
+            made,
             declaration: declaration.clone(),
             extent,
             serial,
@@ -309,6 +336,45 @@ impl Backing {
     fn index(&self, (layer, mip): (u32, u32)) -> Option<usize> {
         let mips = self.declaration.mips;
         (layer < self.declaration.layers && mip < mips).then(|| (layer * mips + mip) as usize)
+    }
+
+    /// The attachment view of the subresource `resource` names, made the first time it is asked
+    /// for and shared by every frame after.
+    fn attachment(&self, resource: ResourceRef) -> Result<AttachmentView, FrameError> {
+        let index = self
+            .index((resource.layer, resource.mip))
+            .ok_or(FrameError::AttachmentView(resource))?;
+        let mut views = self.views.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = match &mut views.attachments[index] {
+            Some(held) => held,
+            empty => {
+                let view = AttachmentView::new(resource, &self.texture)?;
+                self.made.fetch_add(1, Ordering::Relaxed);
+                empty.insert(view)
+            }
+        };
+        held.with_resource(resource)
+    }
+
+    /// The view of every layer of `mips`, made the first time it is asked for and shared by every
+    /// frame after. It is a 2D view of a one-layer target and a 2D array of several, as wgpu's
+    /// default view is.
+    fn sampled(&self, mips: Range<u32>) -> wgpu::TextureView {
+        let count = mips.end - mips.start;
+        let mut views = self.views.lock().unwrap_or_else(PoisonError::into_inner);
+        views
+            .sampled
+            .entry((mips.start, count))
+            .or_insert_with(|| {
+                self.made.fetch_add(1, Ordering::Relaxed);
+                self.texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some(self.declaration.name),
+                    base_mip_level: mips.start,
+                    mip_level_count: Some(count),
+                    ..Default::default()
+                })
+            })
+            .clone()
     }
 
     /// Keeps the published state as the start of `frame`, before a segment of it stages a
@@ -369,6 +435,8 @@ pub(crate) struct TargetStore {
     backings: Vec<Arc<Backing>>,
     /// Textures created so far in the lineage this store continues.
     created: u64,
+    /// Native views made so far for the textures of the lineage this store continues.
+    views: Arc<AtomicU64>,
 }
 
 impl TargetStore {
@@ -437,6 +505,7 @@ impl TargetStore {
     ) -> Self {
         let placed = Self::place(previous, declarations, frame);
         let mut created = previous.map_or(0, |store| store.created);
+        let views = previous.map_or_else(Arc::default, |store| store.views.clone());
         let backings = declarations
             .iter()
             .zip(placed)
@@ -444,11 +513,21 @@ impl TargetStore {
                 Source::Kept(backing) => backing,
                 Source::Fresh(serial) => {
                     created += 1;
-                    Arc::new(Backing::create(device, declaration, extent, serial))
+                    Arc::new(Backing::create(
+                        device,
+                        declaration,
+                        extent,
+                        serial,
+                        views.clone(),
+                    ))
                 }
             })
             .collect();
-        Self { backings, created }
+        Self {
+            backings,
+            created,
+            views,
+        }
     }
 
     pub(crate) fn created(&self) -> u64 {
@@ -489,7 +568,7 @@ impl TargetStore {
         let backing = self
             .backing(resource.name)
             .ok_or(FrameError::AttachmentView(resource))?;
-        let view = AttachmentView::new(resource, &backing.texture)?;
+        let view = backing.attachment(resource)?;
         Ok(if backing.is_written((resource.layer, resource.mip)) {
             view.with_retained_contents()
         } else if backing.initialized() {
@@ -661,12 +740,8 @@ impl GameTargets {
     /// # Errors
     /// [`FrameError::AttachmentView`] for a name no declaration made.
     pub fn sampled_view(&self, name: &'static str) -> Result<wgpu::TextureView, FrameError> {
-        Ok(self
-            .texture(name)?
-            .create_view(&wgpu::TextureViewDescriptor {
-                label: Some(name),
-                ..Default::default()
-            }))
+        let backing = self.backing(name)?;
+        Ok(backing.sampled(0..backing.declaration.mips))
     }
 
     /// The view a pass that reads some mips of the target binds: every layer of the mips `mips`.
@@ -681,9 +756,8 @@ impl GameTargets {
         name: &'static str,
         mips: std::ops::Range<u32>,
     ) -> Result<wgpu::TextureView, FrameError> {
-        let count = self
-            .mips(name)
-            .ok_or(FrameError::AttachmentView(ResourceRef::new(name)))?;
+        let backing = self.backing(name)?;
+        let count = backing.declaration.mips;
         if mips.is_empty() || mips.end > count {
             let mip = if mips.is_empty() {
                 mips.start
@@ -695,14 +769,7 @@ impl GameTargets {
                 ..ResourceRef::new(name)
             }));
         }
-        Ok(self
-            .texture(name)?
-            .create_view(&wgpu::TextureViewDescriptor {
-                label: Some(name),
-                base_mip_level: mips.start,
-                mip_level_count: Some(mips.end - mips.start),
-                ..Default::default()
-            }))
+        Ok(backing.sampled(mips))
     }
 
     /// The checked attachment view of one mip of one layer. A persistent subresource that a
@@ -733,6 +800,13 @@ impl GameTargets {
         self.store.mip_written(name, (layer, mip))
     }
 
+    /// The backing of the declared target `name`.
+    fn backing(&self, name: &'static str) -> Result<&Arc<Backing>, FrameError> {
+        self.store
+            .backing(name)
+            .ok_or(FrameError::AttachmentView(ResourceRef::new(name)))
+    }
+
     /// The mips of the declared target `name`, or `None` for a name no declaration made.
     pub(super) fn mips(&self, name: &str) -> Option<u32> {
         self.store.mips(name)
@@ -742,6 +816,12 @@ impl GameTargets {
     /// across steady frames, and across replacements that leave the declarations unchanged.
     pub fn created(&self) -> u64 {
         self.store.created()
+    }
+
+    /// Native texture views the renderer has made of its targets since it was made. It stays
+    /// level across steady frames, and across replacements that leave the declarations unchanged.
+    pub fn views_created(&self) -> u64 {
+        self.store.views.load(Ordering::Relaxed)
     }
 }
 

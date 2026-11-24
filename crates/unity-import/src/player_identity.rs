@@ -91,6 +91,14 @@ pub struct ProjectGraphics {
     pub color_space: &'static str,
 }
 
+impl ProjectGraphics {
+    /// Whether the project's color space is linear.
+    #[must_use]
+    pub fn is_linear(self) -> bool {
+        self.color_space == "linear"
+    }
+}
+
 /// Reads the project graphics settings of the player whose data directory is `data_dir`; `None`
 /// when the player's Unity release stores `PlayerSettings` in a layout this importer does not
 /// read, or `globalgamemanagers` holds no `PlayerSettings` object.

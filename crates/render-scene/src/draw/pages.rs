@@ -9,6 +9,19 @@ use worldrunner_render_gpu::{
 use worldrunner_render_post::FrameError;
 
 impl SceneGpu {
+    /// The page cache, present only when the camera passes draw the terrain. A replaced
+    /// terrain stages no pages.
+    pub(super) fn camera_pages(
+        &self,
+    ) -> Option<&std::cell::RefCell<crate::terrain::pages::scene::ScenePages>> {
+        if !self.draws_terrain_in_camera_passes() {
+            return None;
+        }
+        self.terrain
+            .as_ref()
+            .and_then(|terrain| terrain.pages.as_ref())
+    }
+
     pub(super) fn install_terrain_page_policy(
         &mut self,
         device: &wgpu::Device,
@@ -53,11 +66,7 @@ impl SceneGpu {
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) -> Result<(), FrameError> {
-        if let Some(pages) = self
-            .terrain
-            .as_ref()
-            .and_then(|terrain| terrain.pages.as_ref())
-        {
+        if let Some(pages) = self.camera_pages() {
             pages.borrow_mut().prepare_depth_prefix(
                 device,
                 encoder,
@@ -121,11 +130,7 @@ impl SceneGpu {
         viewport: [u32; 2],
     ) -> Result<Option<TerrainResidencyRequest>, TerrainResidencyError> {
         self.select_terrain_pages(frame, viewport);
-        Ok(self
-            .terrain
-            .as_ref()
-            .and_then(|terrain| terrain.pages.as_ref())
-            .map(|pages| pages.borrow().request()))
+        Ok(self.camera_pages().map(|pages| pages.borrow().request()))
     }
 
     pub fn terrain_residency_ready(
@@ -141,7 +146,7 @@ impl SceneGpu {
     }
 
     /// Stages terrain material pages for this view and raster extent in the current submission.
-    /// Frames that replace stock scene draws can still advance a retained residency request.
+    /// A replaced terrain stages no pages.
     ///
     /// # Errors
     /// Returns the preparation error if the terrain upload cannot be recorded.
@@ -152,11 +157,7 @@ impl SceneGpu {
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) -> Result<(), FrameError> {
-        if let Some(pages) = self
-            .terrain
-            .as_ref()
-            .and_then(|terrain| terrain.pages.as_ref())
-        {
+        if let Some(pages) = self.camera_pages() {
             pages.borrow_mut().prepare(
                 device,
                 encoder,
@@ -172,11 +173,7 @@ impl SceneGpu {
         frame: &crate::frame::FrameUniform,
         viewport: [u32; 2],
     ) {
-        if let Some(pages) = self
-            .terrain
-            .as_ref()
-            .and_then(|terrain| terrain.pages.as_ref())
-        {
+        if let Some(pages) = self.camera_pages() {
             let mut pages = pages.borrow_mut();
             pages.select(frame.selection_view_projection(), viewport);
         }
@@ -186,6 +183,7 @@ impl SceneGpu {
         self.terrain
             .as_ref()
             .is_some_and(|terrain| terrain.pages.is_some())
+            && self.draws_terrain_in_camera_passes()
     }
 
     pub(crate) fn resident_frame(&self) -> crate::frame::FrameUniform {

@@ -89,9 +89,11 @@ cargo run -p worldrunner-play -- --player OW_Data --frames 43 --size 1920x1080 -
   The numbers stay the same between runs of one player, scene, flags and `--fixed-dt`, and may change with the game or the engine.
 - The read takes the record's target at mip 0, layer 0: the target of a camera render, a blit or a copy, the texture mips are generated for, or the first colour of a clear, a draw list or a procedural draw.
   A read is a copy recorded in the frame's own submission right after the record, so it sees what the records up to that one drew, and the final image of the frame is the same with or without it.
-- Colour goes to `FILE` as an 8-bit RGB PNG, top row first, without alpha.
-  A float target (`Rgba16Float` and the like) is clamped to 0..1 and encoded as sRGB, so linear 0.5 becomes 188; an 8-bit target is written as stored.
+- Colour goes to `FILE` as an 8-bit RGBA PNG, top row first.
+  A float target (`Rgba16Float` and the like) has its red, green and blue clamped to 0..1 and encoded as sRGB, so linear 0.5 becomes 188; an 8-bit target is written as stored.
   Values above 1 clip.
+  Alpha is never sRGB encoded: a float alpha is clamped to 0..1 and rounded to 8 bits, so 0.5 becomes 128, and an 8-bit alpha is written as stored.
+  A format with no alpha channel writes alpha 255, and a one-channel float target is grey with alpha 255.
 - Depth goes beside it, to `FILE.depth.png` (for `a.png`, `a.depth.png`), as a 16-bit grey PNG of the stored value: 1 is near and 0 is far, because every player run draws with reversed depth, and the value is not linearised.
   The target must have a depth buffer whose depth aspect can be copied (`Depth32Float`, `Depth32FloatStencil8`, `Depth16Unorm`); a 24-bit depth buffer cannot be.
 - Each file written prints `[player] read-target frame F record R KIND colour|depth WxH FORMAT -> FILE`.

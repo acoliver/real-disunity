@@ -102,12 +102,8 @@ pub(crate) struct Meshes {
     object_exposure: bool,
     contexts: ContextCache,
     draws: Vec<MeshDraw>,
-    composites: std::cell::RefCell<
-        std::collections::BTreeMap<
-            (bool, bool, crate::renderer::depth::DepthMode),
-            wgpu::RenderPipeline,
-        >,
-    >,
+    composites:
+        std::cell::RefCell<std::collections::BTreeMap<super::Variant, wgpu::RenderPipeline>>,
     samples: u32,
     layout: wgpu::BindGroupLayout,
     target: std::cell::RefCell<Option<super::mesh_target::Target>>,
@@ -133,11 +129,11 @@ impl Meshes {
         separate: bool,
         object_exposure: bool,
     ) -> Self {
-        let key = pipelines.sky_targets();
-        let (composite, layout) = super::mesh_target::pipeline(device, pipelines, key);
+        let variant = pipelines.sky_variant();
+        let (composite, layout) = super::mesh_target::pipeline(device, pipelines, variant);
         Self {
             composites: std::cell::RefCell::new(std::collections::BTreeMap::from([(
-                key, composite,
+                variant, composite,
             )])),
             device: device.clone(),
             scene: pipelines.clone(),
@@ -188,11 +184,7 @@ impl Meshes {
             target.depth.texture().clone(),
         ]
     }
-    pub fn draw(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        key: (bool, bool, crate::renderer::depth::DepthMode),
-    ) {
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, variant: super::Variant) {
         let target = self.target.borrow();
         let target = target
             .as_ref()
@@ -200,8 +192,8 @@ impl Meshes {
         // The immutable scene owns the colour format, sample count and frame layout.
         let mut composites = self.composites.borrow_mut();
         let composite = composites
-            .entry(key)
-            .or_insert_with(|| super::mesh_target::pipeline(&self.device, &self.scene, key).0);
+            .entry(variant)
+            .or_insert_with(|| super::mesh_target::pipeline(&self.device, &self.scene, variant).0);
         pass.set_pipeline(composite);
         pass.set_bind_group(2, &target.group, &[]);
         pass.draw(0..3, 0..1);

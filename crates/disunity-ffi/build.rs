@@ -84,7 +84,12 @@ fn main() {
 /// Writes the ABI surface of `sources` and rejects a checked-in `abi/surface.g.txt` that differs.
 /// The library, the runtime and the managed assembly hash that file into the ABI revision.
 fn generate_surface(output: &std::path::Path, sources: &[String]) {
-    let surface = build_abi::surface(sources.iter().map(String::as_str));
+    let surface = build_abi::surface(
+        ABI_SOURCES
+            .iter()
+            .copied()
+            .zip(sources.iter().map(String::as_str)),
+    );
     let generated = output.join("surface.g.txt");
     std::fs::write(&generated, &surface).expect("write the ABI surface");
     let checked = PathBuf::from(
@@ -102,10 +107,9 @@ fn generate_surface(output: &std::path::Path, sources: &[String]) {
 
 fn generate_native_records(sources: &[String]) {
     let mut parts = vec![NATIVE_HEADER.to_owned()];
-    for source in sources {
-        for record in source.split("#[repr(C)]").skip(1) {
-            let end = record.find("\n}").expect("flat C record ends") + 2;
-            let record = format!("#[repr(C)]{}\n", &record[..end]);
+    for (file, source) in ABI_SOURCES.iter().zip(sources) {
+        for record in build_abi::record_sources(file, source) {
+            let record = format!("{record}\n");
             if parts.last().expect("first part").lines().count() + record.lines().count() > 650 {
                 parts.push(NATIVE_HEADER.to_owned());
             }

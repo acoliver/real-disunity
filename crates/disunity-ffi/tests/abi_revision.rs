@@ -38,7 +38,8 @@ pub enum DisunityErrorReason {
 "#;
 
 fn revision(sources: &[&str]) -> u32 {
-    abi_revision(build_abi::surface(sources.iter().copied()).as_bytes())
+    let pairs: Vec<(&str, &str)> = sources.iter().map(|source| ("test.rs", *source)).collect();
+    abi_revision(build_abi::surface(pairs.into_iter()).as_bytes())
 }
 
 fn baseline() -> u32 {
@@ -54,7 +55,11 @@ fn the_revision_is_the_fnv_1a_hash_of_the_surface_text() {
 
 #[test]
 fn the_surface_lists_the_exports_records_and_reasons_of_the_sources() {
-    let surface = build_abi::surface([RECORDS, EXPORT, REASONS]);
+    let surface = build_abi::surface([
+        ("records.rs", RECORDS),
+        ("export.rs", EXPORT),
+        ("reasons.rs", REASONS),
+    ]);
     assert!(
         surface.contains(
             "fn disunity_point_move(world: u64, point: *mut DisunityPoint) -> DisunityResult"
@@ -162,4 +167,118 @@ fn a_new_or_renumbered_error_reason_changes_the_revision() {
     let renumbered = REASONS.replace("Faulted = 5", "Faulted = 6");
     assert_ne!(revision(&[RECORDS, EXPORT, &added]), baseline());
     assert_ne!(revision(&[RECORDS, EXPORT, &renumbered]), baseline());
+}
+
+// --- Review item 1: attribute parsing ---------------------------------------------------
+
+#[test]
+fn a_doc_comment_mentioning_repr_c_is_not_a_record() {
+    let source = r#"
+/// See #[repr(C)] for the layout.
+///
+/// #[repr(C)] is a C attribute.
+pub struct DisunityNotARecord {
+    pub x: u32,
+}
+"#;
+    assert!(build_abi::records("test.rs", source).is_empty());
+}
+
+#[test]
+fn a_line_comment_mentioning_repr_c_is_not_a_record() {
+    let source = r#"
+// #[repr(C)] here would be a record if it were real.
+pub struct DisunityNotARecord {
+    pub x: u32,
+}
+"#;
+    assert!(build_abi::records("test.rs", source).is_empty());
+}
+
+#[test]
+fn a_repr_c_align_record_is_in_the_surface_with_its_real_layout() {
+    let source = r#"
+#[repr(C, align(16))]
+pub struct DisunityAligned {
+    pub x: u32,
+    pub y: u32,
+}
+"#;
+    let records = build_abi::records("test.rs", source);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].name, "DisunityAligned");
+    assert_eq!(records[0].size, 16);
+    assert_eq!(records[0].alignment, 16);
+    assert_eq!(records[0].fields[0].offset, 0);
+    assert_eq!(records[0].fields[1].offset, 4);
+    let line = build_abi::surface([("test.rs", source)]);
+    assert!(
+        line.contains("record DisunityAligned: size 16, align 16"),
+        "{line}"
+    );
+}
+
+#[test]
+fn a_repr_c_packed_record_is_in_the_surface_with_its_real_layout() {
+    let source = r#"
+#[repr(C, packed)]
+pub struct DisunityPacked {
+    pub x: u32,
+    pub y: u64,
+}
+"#;
+    let records = build_abi::records("test.rs", source);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].name, "DisunityPacked");
+    assert_eq!(records[0].size, 12);
+    assert_eq!(records[0].alignment, 1);
+    assert_eq!(records[0].fields[0].offset, 0);
+    assert_eq!(records[0].fields[1].offset, 4);
+}
+
+#[test]
+#[should_panic(expected = "test.rs: DisunityTransparent")]
+fn an_unsupported_repr_fails_the_build_naming_file_and_struct() {
+    let source = r#"
+#[repr(transparent)]
+pub struct DisunityTransparent {
+    pub x: u32,
+}
+"#;
+    build_abi::records("test.rs", source);
+}
+
+#[test]
+#[should_panic(expected = "test.rs: DisunityBad")]
+fn a_record_with_an_unknown_field_type_fails_naming_file_and_struct() {
+    let source = r#"
+#[repr(C)]
+pub struct DisunityBad {
+    pub x: f16,
+}
+"#;
+    build_abi::records("test.rs", source);
+}
+
+// --- Review item 2: error messages name the source file -----------------------------------
+
+#[test]
+#[should_panic(expected = "test.rs: disunity_no_body")]
+fn an_export_with_no_body_fails_naming_file_and_function() {
+    let source = r#"
+pub extern "C" fn disunity_no_body(world: u64) -> DisunityResult
+"#;
+    build_abi::exports("test.rs", source);
+}
+
+#[test]
+#[should_panic(expected = "test.rs: DisunityNameless")]
+fn a_record_with_a_malformed_field_fails_naming_file_and_struct() {
+    let source = r#"
+#[repr(C)]
+pub struct DisunityNameless {
+    pub x: 1 + 2,
+}
+"#;
+    let _ = build_abi::records("test.rs", source);
 }

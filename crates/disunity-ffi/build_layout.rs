@@ -15,7 +15,7 @@ pub fn generate(out: &Path) {
             format!("crate::{file}")
         };
         let source = std::fs::read_to_string(format!("src/{file}.rs")).expect("ABI source");
-        for record in build_abi::records(&source) {
+        for record in build_abi::records(&format!("src/{file}.rs"), &source) {
             append_record(&record, &module, &mut managed, &mut native);
         }
     }

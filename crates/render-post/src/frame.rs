@@ -1,4 +1,5 @@
 //! Geometry declarations for the same linear executor as post stages.
+use std::sync::{Arc, OnceLock};
 use crate::FrameTargets;
 use crate::plan_hash::{PlanMap, map_with_capacity, set_with_capacity};
 
@@ -571,6 +572,9 @@ pub struct AttachmentView {
     prepared: bool,
     resource: ResourceRef,
     view: wgpu::TextureView,
+    /// The depth-only view of a combined depth/stencil format, made when a pass first samples it
+    /// and shared by every copy of this view.
+    sampled: Arc<OnceLock<wgpu::TextureView>>,
     format: wgpu::TextureFormat,
 }
 impl AttachmentView {
@@ -618,15 +622,19 @@ impl AttachmentView {
         if !self.format.has_stencil_aspect() || !self.format.has_depth_aspect() {
             return self.view.clone();
         }
-        self.texture().create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            aspect: wgpu::TextureAspect::DepthOnly,
-            base_mip_level: self.resource.mip,
-            mip_level_count: Some(1),
-            base_array_layer: self.resource.layer,
-            array_layer_count: Some(1),
-            ..Default::default()
-        })
+        self.sampled
+            .get_or_init(|| {
+                self.texture().create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    aspect: wgpu::TextureAspect::DepthOnly,
+                    base_mip_level: self.resource.mip,
+                    mip_level_count: Some(1),
+                    base_array_layer: self.resource.layer,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .clone()
     }
     /// The checked view's attachment format, not an inferred pipeline format.
     pub const fn format(&self) -> wgpu::TextureFormat {
@@ -650,6 +658,7 @@ impl AttachmentView {
             initialized_allocation: self.initialized_allocation,
             prepared: self.prepared,
             view: self.view.clone(),
+            sampled: self.sampled.clone(),
             format: self.format,
         })
     }
@@ -676,6 +685,7 @@ impl AttachmentView {
             retained: false,
             initialized_allocation: false,
             prepared: false,
+            sampled: Arc::default(),
             format: texture.format(),
         })
     }

@@ -273,7 +273,9 @@ impl OffscreenAdapter {
                         light_modes,
                         queue: loaded.queue,
                         texture_defaults: loaded.texture_defaults,
-                        fill: loaded.fill,
+                        fill: loaded
+                            .fill
+                            .in_colour_space(self.settings.linear_colour_space),
                     };
                     state.add_shader(ids::shader(*id), loaded.program);
                     self.shaders.insert(*id, (source.clone(), info.clone()));

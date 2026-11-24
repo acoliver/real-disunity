@@ -31,6 +31,7 @@ pub(in crate::terrain) mod caster;
 mod declared;
 mod pixel_normal;
 pub(in crate::terrain) mod prepass;
+mod replaced_pages;
 pub(super) mod scenes;
 mod shadow;
 pub(super) mod streaming;

@@ -88,7 +88,7 @@ impl PlayerGpu {
             let mut report = self.report.borrow_mut();
             refuse(&reads, "the frame has no offscreen work").add_to(&mut report);
             // A flush earlier in the update may have drawn into the screen.
-            self.note_for_player(delivery, report.frames);
+            self.note_drawn_screen(report.frames);
             report.frames += 1;
             return Ok(None);
         }
@@ -121,7 +121,7 @@ impl PlayerGpu {
             }
         }
         report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
-        self.note_for_player(delivery, report.frames);
+        self.note_drawn_screen(report.frames);
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(handed)
@@ -154,15 +154,6 @@ impl PlayerGpu {
         }
     }
 
-    /// Numbers the screen for the player's own frames, which have the image written to a file
-    /// from the screen texture. The viewer shows the screen from the GPU, so its frames note
-    /// nothing.
-    fn note_for_player(&self, delivery: Delivery, frame: u64) {
-        if delivery == Delivery::Submit {
-            self.note_drawn_screen(frame);
-        }
-    }
-
     /// Runs `operations` as `delivery` says. The viewer's are given back to its caller, with the
     /// screen exported from them when they write it. An export the operations refuse is counted
     /// and the operations still go: the viewer then has no write to count for the screen.
@@ -177,6 +168,8 @@ impl PlayerGpu {
             if let Err(error) = self.offscreen.borrow().export_screen(&mut operations) {
                 *report.errors.entry(error.to_string()).or_default() += 1;
             }
+            // The viewer runs them in the frame this update's capture waits for.
+            self.offscreen.borrow_mut().frame_submitted();
             return Some(operations);
         }
         let submitted = Instant::now();

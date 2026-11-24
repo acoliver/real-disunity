@@ -356,11 +356,6 @@
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_compute_bindings_read",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
       "name": "disunity_compute_buffer_bind",
       "since": "7.0.0",
       "rets": "DisunityResult"
@@ -746,11 +741,6 @@
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_offscreen_detail",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
       "name": "disunity_offscreen_disable_scissor",
       "since": "17.0.0",
       "rets": "DisunityResult"
@@ -827,11 +817,6 @@
     },
     {
       "name": "disunity_offscreen_setup_camera",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_offscreen_take",
       "since": "7.0.0",
       "rets": "DisunityResult"
     },

@@ -6,6 +6,7 @@ use crate::compositor::{
     ColorOutput, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
     TargetDeclaration, TargetExtent,
 };
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use std::sync::{
     Arc, Mutex,
@@ -165,7 +166,7 @@ fn captured_with(
     OffscreenTarget,
 ) {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(context, &source, settings()).unwrap();
+    let mut renderer = shadowed(context, &source, settings()).unwrap();
     renderer
         .set_depth_fitting(
             context,

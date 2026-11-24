@@ -23,7 +23,6 @@ mod commands;
 #[cfg(test)]
 mod component_destroy_tests;
 pub mod compute;
-pub mod compute_bindings;
 pub mod construction;
 #[cfg(test)]
 mod construction_tests;

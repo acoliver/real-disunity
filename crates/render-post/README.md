@@ -1069,7 +1069,7 @@ texel, and from the minimum-depth sample when the target is multisampled, where 
 reprojection alone, so a cleared target needs no special case. With `velocity: None` the resolve binds
 a 1x1 zero texture of the same sample count, which is what a scene without velocity pipelines gets:
 object passes of `render-scene` write the wind residual only when built with `with_taa_velocity`
-(`ShadowedScene::with_taa_velocity` for shadow receivers; SSR scenes write it when the colour budget fits), and
+(`ShadowedTarget::velocity` for shadow receivers; SSR scenes write it when the colour budget fits), and
 output is unchanged from a build without the binding. The motion-adaptive
 weight reads the total displacement including the residual. The reference and GPU tests for this are in
 `taa_gpu_tests/velocity_tests.rs`.

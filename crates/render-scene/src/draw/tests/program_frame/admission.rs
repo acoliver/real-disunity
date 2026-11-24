@@ -5,7 +5,9 @@ use super::rig::{ARENA, BLACK as BLACK_PIXEL, Fixture, RED as RED_PIXEL, engine_
 use super::{COLOR_FORMAT, DEPTH_FORMAT, settings};
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use crate::draw::DrawCount;
+use crate::draw::PreparedScene;
 use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::{DirectionalShadowSettings, ShadowError, ShadowedScene};
 use worldrunner_render_gpu::configuration::{AllocationBudget, ConfigurationError};
 use worldrunner_render_gpu::submission::LeaseError;
@@ -212,7 +214,13 @@ fn programs_admitted_to_a_shadowed_scene_are_refused_by_name() {
         normal_bias_meters: 0.01,
         refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
     };
-    let mut shadowed = ShadowedScene::new(&fixture.context, &engine_scene(), settings).unwrap();
+    let mut shadowed = ShadowedScene::new(
+        &fixture.context,
+        PreparedScene::new(&engine_scene()).unwrap(),
+        settings,
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )
+    .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(fixture.context.device());
     let target = OffscreenTarget::new(fixture.context.device(), view().viewport()).unwrap();
     let authority = fixture.context.submission().clone();

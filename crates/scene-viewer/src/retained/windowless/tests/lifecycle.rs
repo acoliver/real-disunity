@@ -181,3 +181,20 @@ fn external_exit_cancels_undelivered_capture_before_polling() {
         ]
     );
 }
+#[test]
+fn a_session_says_it_is_closed_after_an_exit_request_or_a_shutdown() {
+    for external in [false, true] {
+        let mut driver = Driver::default();
+        let mut run = host(crate::renderer::retained_tests::source())
+            .windowless(&mut driver, None)
+            .unwrap();
+        assert!(!run.is_closed());
+        if external {
+            run.host_mut().request_exit();
+            assert!(!run.poll().unwrap());
+        } else {
+            run.shutdown().unwrap();
+        }
+        assert!(run.is_closed(), "external exit request: {external}");
+    }
+}

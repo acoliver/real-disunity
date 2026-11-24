@@ -2,6 +2,7 @@ use super::foliage::{geometry_sources, pass_depth};
 use super::lod_material::{scene, selection_frame};
 use super::*;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::SceneFadeBand;
 
 fn depth_outputs(context: &GpuContext, gpu: &SceneGpu, pipelines: &ScenePipelines) -> Vec<Vec<u8>> {
@@ -26,7 +27,7 @@ fn scaled_retained_lod_agrees_in_forward_metadata_prepass_and_shadow() {
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = scene(true);
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     let object = gpu.instance(handle).unwrap().0;
     let mut target = OffscreenTarget::new(
@@ -89,8 +90,7 @@ fn assert_world_distance_band(
     band: SceneFadeBand,
 ) {
     let source = scene(true);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &source, pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     let object = gpu.instance(handle).unwrap().0.with_fade(band);
     for distance in [1_000, 1_500, 2_000] {

@@ -18,6 +18,8 @@ use worldrunner_render_program::runtime::{
     GraphicsProgram, Import, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
 };
 use worldrunner_render_program::state::RasterState;
+use worldrunner_render_scene::draw::PreparedScene;
+use worldrunner_render_scene::shadows::ShadowedTarget;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameEnvironmentHandle, FrameOcclusionHandle,
@@ -502,9 +504,9 @@ fn shadowed_with_ssao(inventory: GamePasses) -> (Rig, ShadowedScene) {
     let rig = Rig::with_ssao(&lit, SIZE, ssao(), |settings| {
         settings.game_passes = inventory;
     });
-    let mut scene = ShadowedScene::with_target(
+    let mut scene = ShadowedScene::new(
         &rig.context,
-        &lit,
+        PreparedScene::new(&lit).unwrap(),
         DirectionalShadowSettings {
             focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
             half_extent_meters: 4.0,
@@ -514,8 +516,7 @@ fn shadowed_with_ssao(inventory: GamePasses) -> (Rig, ShadowedScene) {
             normal_bias_meters: 0.01,
             refresh_policy: CascadeRefreshPolicy::default(),
         },
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     scene

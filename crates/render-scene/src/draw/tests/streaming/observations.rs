@@ -1,5 +1,6 @@
 use super::*;
 use crate::draw::TerrainGeometryStatistics;
+use crate::test_support::upload_scene;
 
 fn source(budget: u32) -> RenderScene {
     let base = streamed_scene();
@@ -48,7 +49,7 @@ fn geometry_observations_publish_streaming_then_settled_and_camera_leaf_identity
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu = SceneGpu::upload(
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &source(1000),
@@ -86,7 +87,7 @@ fn geometry_observations_budget_limit_and_cancellation_preserve_submission() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu = SceneGpu::upload(
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &source(9),

@@ -2,6 +2,7 @@ use super::*;
 use crate::draw::InstanceError;
 use crate::instances::Instances;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 
 fn moved(x: i64) -> SceneTransform {
     SceneTransform {
@@ -191,7 +192,7 @@ fn gpu_a_flush_of_settled_batches_writes_stages_and_counts_nothing() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let handles: Vec<_> = gpu.instance_handles().collect();
     let mut target = retained_target(&context);
@@ -234,7 +235,7 @@ fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let handles: Vec<_> = gpu.instance_handles().collect();
     let mut target = retained_target(&context);
@@ -354,7 +355,7 @@ fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     let old_size = gpu
         .instances

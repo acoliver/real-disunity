@@ -1,8 +1,11 @@
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use crate::draw::{
     EffectEnabled, ObjectDraws, ObjectRecording, PassExecution, PassInstallation, ReceiverBinding,
 };
+use crate::shadows::ShadowedTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_post::ToneMap;
 
 #[test]
@@ -33,12 +36,11 @@ fn gpu_reflection_only_receiver_observations_match_with_and_without_shadows() {
         })
         .unwrap();
         let mut frame = reflection_frame(&context, &source);
-        let mut resident = ShadowedScene::with_target(
+        let mut resident = ShadowedScene::new(
             &context,
-            &source,
+            PreparedScene::new(&source).unwrap(),
             settings(),
-            wgpu::TextureFormat::Rgba16Float,
-            1,
+            ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
         )
         .unwrap();
         assert!(!resident.pipelines.ssao);
@@ -62,8 +64,7 @@ fn unshadowed(
 ) -> crate::draw::SsaoStatistics {
     let pipelines =
         ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), source, &pipelines).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         frame.targets().scene().texture(),

@@ -1,5 +1,8 @@
 //! Informational probe. Run serially with `--ignored --nocapture`.
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_post::{FrameTiming, PassId, TimingMode};
 
 const WARMUP_FRAMES: u64 = 8;
@@ -66,11 +69,12 @@ fn measure(
 ) -> Option<Samples> {
     let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy,
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());

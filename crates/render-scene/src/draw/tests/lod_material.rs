@@ -1,6 +1,7 @@
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneLodMaterialSlot, TexelFormat};
 
 fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMaterialSlot {
@@ -103,7 +104,7 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
     let mut reference = None;
     for source in [&default, &explicit] {
         let mut gpu =
-            SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+            upload_scene(context.device(), context.submission(), source, &pipelines).unwrap();
         gpu.set_frame(context.queue(), selection_frame(5_000));
         let image = target.render(&context, &mut gpu, &pipelines).unwrap();
         assert!(image.pixels.chunks_exact(4).any(|p| p == [255, 0, 0, 255]));
@@ -119,7 +120,7 @@ fn selected_level_changes_material_topology_and_pipeline() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu = SceneGpu::upload(
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -155,7 +156,7 @@ fn the_runtime_path_records_the_commands_of_a_level_with_two_material_slots() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let mut gpu = SceneGpu::upload(
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -181,7 +182,7 @@ fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -275,7 +276,7 @@ fn transition_complement_keeps_the_preceding_levels_material() {
     )
     .unwrap();
     for (coverage, expected) in [(0, [255, 0, 0, 255]), (1_000_000, [0, 255, 0, 255])] {
-        let mut gpu = SceneGpu::upload(
+        let mut gpu = upload_scene(
             context.device(),
             context.submission(),
             &transition_scene(coverage),

@@ -61,7 +61,6 @@ fn disunity_collider_read(world: u64, handle: u64, output: *mut DisunityCollider
 fn disunity_collider_write(world: u64, handle: u64, value: *const DisunityCollider2d) -> DisunityResult
 fn disunity_command_buffer_submit(world: u64, commands: *const DisunityCommand, count: u32) -> DisunityResult
 fn disunity_component_destroy(world: u64, component: u64) -> DisunityResult
-fn disunity_compute_bindings_read(world: u64, token: u32, info: *mut DisunityComputeBindingsInfo, entries: *mut DisunityComputeBinding, floats: *mut f32, text: *mut u8) -> DisunityResult
 fn disunity_compute_buffer_bind(world: u64, shader: u64, kernel: u32, name: *const u8, length: u32, buffer: u64) -> DisunityResult
 fn disunity_compute_buffer_create(world: u64, desc: *const DisunityComputeBufferDesc, output: *mut u64) -> DisunityResult
 fn disunity_compute_buffer_destroy(world: u64, buffer: u64) -> DisunityResult
@@ -156,7 +155,6 @@ fn disunity_object_wake(world: u64, object: u64, output: *mut DisunityAdvance) -
 fn disunity_offscreen_allocate_temporary(world: u64, name_id: i32, desc: *const DisunityRenderTexture) -> DisunityResult
 fn disunity_offscreen_clear_render_target(world: u64, flags: u32, value: *const f32, depth_value: f32, stencil_value: u32) -> DisunityResult
 fn disunity_offscreen_cull(world: u64, id: u64, camera: u64, culling_mask: u32, planes: *const f32, plane_count: u32, options: u32) -> DisunityResult
-fn disunity_offscreen_detail(world: u64, token: u32, buffer: *mut u8, capacity: u32, length: *mut u32) -> DisunityResult
 fn disunity_offscreen_disable_scissor(world: u64) -> DisunityResult
 fn disunity_offscreen_draw_mesh(world: u64, mesh: u64, matrix: *const f32, material: u64, submesh: u32, pass: i32) -> DisunityResult
 fn disunity_offscreen_draw_mesh_batch(world: u64, batch: *const DisunityDrawBatch, names: *const u8, words: *const u32, visible: *const u32, tags: *const u8) -> DisunityResult
@@ -173,7 +171,6 @@ fn disunity_offscreen_set_render_target(world: u64, colors: *const DisunityTarge
 fn disunity_offscreen_set_view_projection(world: u64, view: *const f32, projection: *const f32) -> DisunityResult
 fn disunity_offscreen_set_viewport(world: u64, x: f32, y: f32, width: f32, height: f32) -> DisunityResult
 fn disunity_offscreen_setup_camera(world: u64, camera: u64, matrices: *const f32, target: *const DisunityTargetRef, buffer_colors: *const u64, buffer_count: u32, buffer_depth: u64) -> DisunityResult
-fn disunity_offscreen_take(world: u64, records: *mut DisunityOffscreenWork, capacity: u32, count: *mut u32) -> DisunityResult
 fn disunity_physics_create(world: u64, object: u64, kind: u32, output: *mut u64) -> DisunityResult
 fn disunity_physics_material_create(world: u64, output: *mut u64) -> DisunityResult
 fn disunity_physics_material_read(world: u64, handle: u64, output: *mut DisunityPhysicsMaterial2d) -> DisunityResult
@@ -304,8 +301,6 @@ record DisunityClock: size 24, align 8 { delta: f64 @0, time: f64 @8, frame: u64
 record DisunityCloneRow: size 32, align 8 { source: u64 @0, target: u64 @8, owner: u64 @16, kind: u32 @24 }
 record DisunityCollider2d: size 36, align 4 { kind: u32 @0, enabled: u32 @4, trigger: u32 @8, layers: u32 @12, offset_x: f32 @16, offset_y: f32 @20, size_x: f32 @24, size_y: f32 @28, radius: f32 @32 }
 record DisunityCommand: size 24, align 8 { object: u64 @0, kind: u32 @8, x: f32 @12, y: f32 @16, z: f32 @20 }
-record DisunityComputeBinding: size 32, align 8 { kind: u32 @0, name_offset: u32 @4, name_length: u32 @8, float_offset: u32 @12, int_value: i32 @16, texture_kind: u32 @20, resource: u64 @24 }
-record DisunityComputeBindingsInfo: size 12, align 4 { entry_count: u32 @0, float_count: u32 @4, text_length: u32 @8 }
 record DisunityComputeBufferDesc: size 12, align 4 { count: u32 @0, stride: u32 @4, kind: u32 @8 }
 record DisunityComputeBufferInfo: size 24, align 8 { count: u32 @0, stride: u32 @4, kind: u32 @8, generation: u64 @16 }
 record DisunityComputeGlobalTexture: size 8, align 4 { name_length: u32 @0, global_length: u32 @4 }
@@ -334,7 +329,7 @@ record DisunityMeshRenderer: size 60, align 4 { kind: u32 @0, enabled: u32 @4, f
 record DisunityMeshSubMesh: size 12, align 4 { slot: u32 @0, first_index: u32 @4, index_count: u32 @8 }
 record DisunityMeshVertex: size 48, align 4 { x: f32 @0, y: f32 @4, z: f32 @8, nx: f32 @12, ny: f32 @16, nz: f32 @20, u: f32 @24, v: f32 @28, r: f32 @32, g: f32 @36, b: f32 @40, a: f32 @44 }
 record DisunityObjectState: size 32, align 8 { object: u64 @0, x: f32 @8, y: f32 @12, z: f32 @16, rotation_y_radians: f32 @20, material_slot: u32 @24 }
-record DisunityOffscreenWork: size 104, align 8 { kind: u32 @0, camera: u64 @8, target: u64 @16, target_kind: u32 @24, source_kind: u32 @28, source: u64 @32, material: u64 @40, pass: i32 @48, source_element: u32 @52, source_mip: u32 @56, target_element: u32 @60, target_mip: u32 @64, shader: u64 @72, kernel: u32 @80, groups_x: u32 @84, groups_y: u32 @88, groups_z: u32 @92, bindings: u32 @96 }
+record DisunityOffscreenWork: size 72, align 8 { kind: u32 @0, camera: u64 @8, target: u64 @16, target_kind: u32 @24, source_kind: u32 @28, source: u64 @32, material: u64 @40, pass: i32 @48, source_element: u32 @52, source_mip: u32 @56, target_element: u32 @60, target_mip: u32 @64 }
 record DisunityPhysicsMaterial2d: size 8, align 4 { friction: f32 @0, bounciness: f32 @4 }
 record DisunityPresentation: size 168, align 8 { present: u32 @0, quads: u32 @4, textures: u32 @8, mesh_objects: u32 @12, width: u32 @16, height: u32 @20, lens: u32 @24, eye_x: f64 @32, eye_y: f64 @40, eye_z: f64 @48, forward_x: f64 @56, forward_y: f64 @64, forward_z: f64 @72, up_x: f64 @80, up_y: f64 @88, up_z: f64 @96, half_height: f64 @104, near: f64 @112, far: f64 @120, vertical_fov: f64 @128, r: f64 @136, g: f64 @144, b: f64 @152, a: f64 @160 }
 record DisunityPropertyRead: size 56, align 8 { present: u32 @0, float_value: f32 @4, int_value: i32 @8, vector_x: f32 @12, vector_y: f32 @16, vector_z: f32 @20, vector_w: f32 @24, texture_kind: u32 @28, texture: u64 @32, scale_x: f32 @40, scale_y: f32 @44, offset_x: f32 @48, offset_y: f32 @52 }

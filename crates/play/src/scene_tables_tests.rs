@@ -694,6 +694,7 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
         fixed_dt: None,
         max_frames: None,
         capture_frames: BTreeSet::new(),
+        capture_files: Vec::new(),
         keys: Vec::new(),
     };
     let options: ViewerOptions = viewer_options(&window);

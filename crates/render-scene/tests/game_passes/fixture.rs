@@ -12,6 +12,7 @@ use worldrunner_render_plan::{
 use worldrunner_render_post::{
     AttachmentView, FrameConfig, FrameError, Readback, ResourceRef, ToneMap,
 };
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     CameraPose, SceneView, Viewport,
     compositor::{ConfiguredFrameRenderer, RendererConfiguration},
@@ -325,8 +326,14 @@ impl Rig {
         let renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 28)).unwrap();
         let pipelines = pipelines(context.device());
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(scene).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         let frame = FrameUniform::unlit(&camera);
         gpu.set_frame(context.queue(), frame);
         Self {

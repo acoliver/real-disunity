@@ -1,0 +1,3 @@
+# Offscreen work without the compute-bindings reading calls
+
+disunity_offscreen_take, disunity_offscreen_detail and disunity_compute_bindings_read, the test-only reading calls that ran beside the graphics snapshot, are removed, along with the fields of DisunityOffscreenWork that only they wrote (shader, kernel, groups_x, groups_y, groups_z, bindings; 104 to 72 bytes). A host reads the frame's work, the material copies its records name, the global state they replay from and the values each dispatch ran with in disunity_graphics_snapshot, whose wire version 21 puts the work list first in the body so a reader that needs only the work stops after it.

@@ -1,5 +1,6 @@
 use super::foliage::{geometry_sources, pass_color};
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneFoldSampling, SceneTerrainContact, SceneTint};
 
 #[test]
@@ -25,8 +26,7 @@ fn fold_only_preserves_surface_channels_at_local_heights_and_raised_placements()
             effects: base.effects().cloned(),
         })
         .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         let mut camera = pose();
         camera.eye_millimeters[2] += height - 500;
         camera.target_millimeters[2] += height - 500;

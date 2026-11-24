@@ -76,15 +76,13 @@ fn settings() -> SceneWaterBody {
     }
 }
 #[test]
-fn absorption_increases_with_distance_and_foreground_is_rejected() {
+fn absorption_increases_with_distance_and_invalid_settings_are_rejected() {
     let _session = crate::test_support::SceneTestSession::acquire();
     for coefficient in [0.05, 0.1, 0.3] {
         assert!((transmittance(coefficient, 0.0) - 1.0).abs() < f32::EPSILON);
         assert!(transmittance(coefficient, 1.0) > transmittance(coefficient, 5.0));
         assert!(transmittance(coefficient, 5.0) > transmittance(coefficient, 20.0));
     }
-    assert_eq!(refraction_pixel([3, 4], [5, 6], 2.0, 3.0), [3, 4]);
-    assert_eq!(refraction_pixel([3, 4], [5, 6], 4.0, 3.0), [5, 6]);
     assert!(matches!(
         validate_settings(&SceneWaterBody {
             roughness_micro: 1_000_001,
@@ -385,7 +383,7 @@ fn draw_water_with(
     let water = renderer.water.as_ref().unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let feature = water
-        .feature_with_depth(
+        .feature(
             &encoder,
             &FrameUniform::new(&fixture_view(), None).unwrap(),
             (2.0, slot),

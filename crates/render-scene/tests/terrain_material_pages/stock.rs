@@ -5,6 +5,7 @@ use worldrunner_render_post::PassSlot;
 use worldrunner_render_post::TimingMode;
 use worldrunner_render_scene::compositor::FrameRenderer;
 use worldrunner_render_scene::device::DeviceRequest;
+use worldrunner_render_scene::draw::PreparedScene;
 
 #[test]
 fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
@@ -20,8 +21,9 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
     let mut gpu = SceneGpu::upload(
         context.device(),
         context.submission(),
-        &fixture::scene(false),
+        PreparedScene::new(&fixture::scene(false)).unwrap(),
         &pipelines,
+        None,
     )
     .unwrap();
     let uniform = worldrunner_render_scene::frame::FrameUniform::unlit(&view);

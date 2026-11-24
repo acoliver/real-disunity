@@ -142,18 +142,6 @@ impl PipelineKey {
             Some(Face::Back)
         }
     }
-
-    /// Returns whether the shader must flip normals on back-facing fragments.
-    ///
-    /// A double-sided surface presents its geometric back to the camera half
-    /// the time, and its authored normal points the wrong way there. Left
-    /// uncorrected, the lit and unlit sides of every leaf swap depending on
-    /// view direction, which reads as foliage that flickers between bright and
-    /// black as the camera orbits.
-    #[must_use]
-    pub const fn flips_back_face_normals(self) -> bool {
-        self.double_sided
-    }
 }
 
 /// The per-material numbers the shader reads, as distinct from pipeline state.

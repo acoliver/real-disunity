@@ -1,11 +1,15 @@
 //! A blit's material through the ABI, as a script drives it: set a texture property, blit, set the
 //! property to another texture, blit. The snapshot holds the material each blit saw, which a host
 //! reads when it maps the blit.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
 use worldrunner_disunity_ffi::{
-    abi::*, graphics::*, graphics_offscreen::*, graphics_properties::*, graphics_snapshot::*,
+    abi::*, graphics::*, graphics_offscreen::*, graphics_properties::*,
 };
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, MaterialId, OffscreenWork, RenderTextureId, TextureRef, snapshot_wire,
+    MaterialId, OffscreenWork, RenderTextureId, TextureRef,
 };
 
 const SCOPE_MATERIAL: u32 = 0;
@@ -89,24 +93,6 @@ fn blit(world: u64, source: u64, target: u64, material: u64) {
     unsafe { assert_eq!(disunity_offscreen_record(world, &record).code, 0) };
 }
 
-fn snapshot(world: u64) -> GraphicsSnapshot {
-    let mut length = 0;
-    unsafe {
-        assert_eq!(
-            disunity_graphics_snapshot(world, std::ptr::null_mut(), 0, &mut length).code,
-            0
-        )
-    };
-    let mut bytes = vec![0_u8; length as usize];
-    unsafe {
-        assert_eq!(
-            disunity_graphics_snapshot(world, bytes.as_mut_ptr(), length, &mut length).code,
-            0
-        )
-    };
-    snapshot_wire::decode(&bytes).unwrap()
-}
-
 #[test]
 fn each_blit_of_one_material_reads_the_texture_set_before_it_through_the_abi() {
     let world = new_world();
@@ -145,5 +131,52 @@ fn each_blit_of_one_material_reads_the_texture_set_before_it_through_the_abi() {
     assert_ne!(
         MaterialId::from_bits(material_bits),
         MaterialId::from_bits(0)
+    );
+}
+
+/// The id a blit record names, which is a material of the snapshot.
+fn blit_material(record: &OffscreenWork) -> MaterialId {
+    match record {
+        OffscreenWork::Blit {
+            material: Some(material),
+            ..
+        } => *material,
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[test]
+fn a_blit_before_an_edit_names_a_copy_of_the_state_it_saw_and_the_snapshot_holds_the_copy() {
+    let world = new_world();
+    let (first, second) = (render_texture(world), render_texture(world));
+    let target = render_texture(world);
+    let live = MaterialId::from_bits(material(world));
+    set_texture(world, live.to_bits(), first);
+    blit(world, first, target, live.to_bits());
+    set_texture(world, live.to_bits(), second);
+    blit(world, second, target, live.to_bits());
+    let snapshot = snapshot(world);
+    let (before_edit, after_edit) = (
+        blit_material(&snapshot.work[0]),
+        blit_material(&snapshot.work[1]),
+    );
+    assert_eq!(
+        before_edit.to_bits() >> 32,
+        0,
+        "the edit froze the first blit's state into a copy of generation 0"
+    );
+    assert_ne!(before_edit, live);
+    assert_eq!(
+        after_edit, live,
+        "the blit after the last edit names the live material"
+    );
+    let texture = |id: MaterialId| snapshot.materials[&id].properties.texture("_PrimaryTex");
+    assert_eq!(
+        texture(before_edit).unwrap().texture,
+        TextureRef::Render(RenderTextureId::from_bits(first))
+    );
+    assert_eq!(
+        texture(live).unwrap().texture,
+        TextureRef::Render(RenderTextureId::from_bits(second))
     );
 }

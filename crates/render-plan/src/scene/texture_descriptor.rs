@@ -72,17 +72,6 @@ impl SceneDdsFormat {
 /// Byte length of the magic number, header and `DX10` extension that precede the mip chain.
 const DDS_HEADER_BYTES: u64 = 148;
 
-/// Faces of a specular cube in storage order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SceneCubeFace {
-    PositiveX,
-    NegativeX,
-    PositiveY,
-    NegativeY,
-    PositiveZ,
-    NegativeZ,
-}
-
 /// Layout and accounting of an explicit texel grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneTexelDescriptor {
@@ -147,8 +136,8 @@ pub struct SceneDdsDescriptor {
 
 /// Layout, preparation request and accounting of one specular cube.
 ///
-/// The released payload was six faces in [`Self::face_order`], each holding its mips from
-/// largest to smallest.
+/// The released payload was six faces in the order +X, -X, +Y, -Y, +Z, -Z, each holding its mips
+/// from largest to smallest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneCubeDescriptor {
     /// Texel format of every face level.
@@ -164,19 +153,6 @@ pub struct SceneCubeDescriptor {
 }
 
 impl SceneCubeDescriptor {
-    /// Returns the faces in the order the payload stores them.
-    #[must_use]
-    pub const fn face_order(&self) -> [SceneCubeFace; 6] {
-        [
-            SceneCubeFace::PositiveX,
-            SceneCubeFace::NegativeX,
-            SceneCubeFace::PositiveY,
-            SceneCubeFace::NegativeY,
-            SceneCubeFace::PositiveZ,
-            SceneCubeFace::NegativeZ,
-        ]
-    }
-
     fn validate(&self) -> Result<(), SceneValidationError> {
         const PART: &str = "released specular cube";
         validate_extent(PART, self.size, self.size, self.mips)?;

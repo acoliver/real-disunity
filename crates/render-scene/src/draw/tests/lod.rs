@@ -1,5 +1,6 @@
 use super::*;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 
 #[test]
 fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
@@ -29,7 +30,7 @@ fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
     );
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -97,7 +98,7 @@ fn gpu_selected_level_owns_its_billboard_policy() {
     .unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {

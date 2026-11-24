@@ -21,6 +21,7 @@ use worldrunner_render_post::{
     AttachmentView, BorrowedFeature, FrameConfig, FrameError, FramePlan, PassDeclaration,
     PassEntry, PassSlot, Readback, ResourceRef, ToneMap, color_texture,
 };
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     SceneView,
     compositor::{FeatureTarget, FrameRenderer, StockDepthPrefix, prepare_stock_scene},
@@ -62,8 +63,14 @@ impl Frame {
         let pipelines =
             ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, 1)
                 .unwrap();
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+        let gpu = SceneGpu::upload(
+            context.device(),
+            context.submission(),
+            PreparedScene::new(source).unwrap(),
+            &pipelines,
+            None,
+        )
+        .unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),

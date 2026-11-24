@@ -637,18 +637,6 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_compute_dispatch", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_compute_dispatch(ulong world, ulong shader, uint kernel, uint groups_x, uint groups_y, uint groups_z);
         /// <summary>
-        ///  Reads the values of a dispatch record by its token. With null `entries` only `info` is filled
-        ///  in, to size the arrays; otherwise the capacities in `info` must hold what the bindings have,
-        ///  and the arrays are filled. `floats` and `text` may be null when the bindings have none of
-        ///  them.
-        ///
-        ///  # Safety
-        ///  `info` is readable and writable for one record; `entries`, `floats` and `text` are writable
-        ///  for the capacities `info` states, or null as described.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_compute_bindings_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_compute_bindings_read(ulong world, uint token, DisunityComputeBindingsInfo* info, DisunityComputeBinding* entries, float* floats, byte* text);
-        /// <summary>
         ///  Reads the world's environment into `output`.
         ///
         ///  # Safety
@@ -742,5 +730,15 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_material_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_destroy(ulong world, ulong material);
+        /// <summary>
+        ///  Points a material at another live shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
+        /// <summary>
+        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
     }
 }

@@ -10,8 +10,10 @@ namespace UnityEngine.Rendering;
 /// A temporary render texture has no identity that outlives its take; a global set to one stays an ordered record of that take and
 /// changes neither the managed global nor the world's state. A property id that no name was ever registered for throws
 /// <see cref="ArgumentException"/> when it is recorded, and a name the world refuses (empty, or over 256 UTF-8 bytes) throws it when the
-/// buffer runs, before any global changes. A texture is a render texture, a <see cref="Texture2D"/> with pixels, a
-/// temporary render texture or nothing; the camera target as a global texture throws <see cref="NotSupportedException"/>.
+/// buffer runs, before any global changes. A texture is a render texture, a texture asset (a <see cref="Texture2D"/>,
+/// <see cref="Texture2DArray"/>, <see cref="Cubemap"/> or <see cref="Texture3D"/>, which <c>Shader.SetGlobalTexture</c> takes as well, so a
+/// pipeline's reflection cube is set as any texture is), a temporary render texture or nothing; the camera target as a global texture throws
+/// <see cref="NotSupportedException"/>.
 /// </summary>
 public sealed partial class CommandBuffer
 {

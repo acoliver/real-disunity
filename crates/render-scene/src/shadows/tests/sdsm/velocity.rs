@@ -1,5 +1,7 @@
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 
 fn fixture(context: &GpuContext) -> (ShadowedScene, FrameRenderer, SceneView) {
     let source = scene(&[[0, 0, 1000]], 600_000, None);
@@ -18,12 +20,14 @@ fn fixture(context: &GpuContext) -> (ShadowedScene, FrameRenderer, SceneView) {
         source.effects(),
     )
     .unwrap();
-    let renderer = ShadowedScene::with_taa_velocity(
+    let renderer = ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget {
+            velocity: true,
+            ..ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1)
+        },
     )
     .unwrap();
     let view = SceneView::new(

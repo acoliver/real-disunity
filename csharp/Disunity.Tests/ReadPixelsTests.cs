@@ -60,16 +60,10 @@ internal static unsafe class ReadPixelsTests
             *length = 1;
             return new DisunityResult { code = 3 };
         }
-        foreach (var record in ComputeTestSupport.TakeWork(world))
+        foreach (var record in CommandWireReader.Work(world).Where(record => record.Tag == 12))
         {
-            if (record.kind != 12) continue;
-            var bytes = new byte[64];
-            uint size;
-            fixed (byte* pointer = bytes)
-                DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_detail(world, record.bindings, pointer, 64, &size));
-            var request = BitConverter.ToUInt64(bytes, 1);
-            var texture = BitConverter.ToUInt64(bytes, 9);
-            var (x, y, width, height) = (BitConverter.ToUInt32(bytes, 17), BitConverter.ToUInt32(bytes, 21), BitConverter.ToUInt32(bytes, 25), BitConverter.ToUInt32(bytes, 29));
+            var (request, texture) = (record.Request, record.Target);
+            var (x, y, width, height) = (record.X, record.Y, record.Width, record.Height);
             Requests.Add((texture, x, y, width, height));
             if (_mode == Mode.Silent) continue;
             var floats = new float[width * height * 4];
@@ -189,7 +183,7 @@ internal static unsafe class ReadPixelsTests
         var source = new RenderTexture(8, 6, 0);
         RenderTexture.active = source;
         var target = Filled(8, 6);
-        ComputeTestSupport.TakeWork(DisunityHost.WorldHandle);
+        CommandWireReader.Work(DisunityHost.WorldHandle);
         var outside = new[]
         {
             new Rect(-1, 0, 2, 2), new Rect(0, -1, 2, 2), new Rect(7, 0, 2, 1), new Rect(0, 5, 1, 2), new Rect(0, 0, 9, 1),
@@ -201,7 +195,7 @@ internal static unsafe class ReadPixelsTests
         unreadable.Apply(false, true);
         Throws<UnityException>(() => unreadable.ReadPixels(new Rect(0, 0, 2, 2), 0, 0), "unreadable", "ReadPixels");
         Ensure(Requests.Count == 0, "no bad call reached the host");
-        Ensure(ComputeTestSupport.TakeWork(DisunityHost.WorldHandle).Length == 0, "no bad call recorded work");
+        Ensure(CommandWireReader.Work(DisunityHost.WorldHandle).Length == 0, "no bad call recorded work");
     }
 
     private static void MipsFollowWhenAsked()

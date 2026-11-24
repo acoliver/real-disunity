@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::PreparedScene;
 use crate::terrain::pages::{layered_gpu::LayeredGpuSource, residency::ResidentPages};
 use worldrunner_render_gpu::{
     configuration::{ConfigurationError, DriverAllocationError},
@@ -51,8 +52,9 @@ fn shared_source_array_limit_is_typed_before_scene_upload() {
     let context = context();
     let (device, authority) = limited_device(&context);
     let pipelines = ScenePipelines::new(&device, COLOR_FORMAT, 1).unwrap();
-    let error =
-        SceneGpu::upload(&device, &authority, &shared_array_scene(), &pipelines).unwrap_err();
+    let error = PreparedScene::new(&shared_array_scene())
+        .and_then(|prepared| SceneGpu::upload(&device, &authority, prepared, &pipelines, None))
+        .unwrap_err();
     let DrawError::TerrainPages(error) = error else {
         panic!("expected typed terrain array limit, got {error:?}");
     };

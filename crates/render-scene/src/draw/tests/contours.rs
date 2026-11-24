@@ -1,6 +1,7 @@
 //! Visible-ID differentials through the stock sorted executor, with exact sample readback.
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneContourStyle, SceneContours, TexelFormat, TextureFilter, TextureSampler,
 };
@@ -176,7 +177,7 @@ impl Rig {
             source.effects(),
         )
         .unwrap();
-        let gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), source, &pipelines).unwrap();
         let view = SceneView::new(
             pose(),
             camera(),

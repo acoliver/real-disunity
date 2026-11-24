@@ -95,7 +95,7 @@ fn edits(world: &mut World, ids: &mut ObjectIdMap) -> Vec<SceneObjectEdit> {
 }
 
 fn host_for(world: &mut World) -> (RetainedHost, ObjectIdMap) {
-    let extracted = extract_mesh_instances(world, &Layered).unwrap();
+    let extracted = extract_mesh_instances(world, &Layered, MeshExtractOptions::default()).unwrap();
     let base = crate::renderer::retained_tests::source();
     let scene = RenderScene::new(SceneParts {
         resources: base.resources().clone(),
@@ -121,7 +121,7 @@ fn apply(host: &mut RetainedHost, edits: Vec<SceneObjectEdit>) {
 }
 
 fn assert_matches_full_extraction(host: &RetainedHost, world: &World, ids: &ObjectIdMap) {
-    let full = extract_mesh_instances(world, &Layered).unwrap();
+    let full = extract_mesh_instances(world, &Layered, MeshExtractOptions::default()).unwrap();
     assert_eq!(host.objects().count(), full.len());
     assert_eq!(ids.id_count(), full.len());
     let mut taken: BTreeMap<ObjectHandle, usize> = BTreeMap::new();

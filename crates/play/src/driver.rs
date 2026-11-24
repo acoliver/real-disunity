@@ -11,9 +11,13 @@ use worldrunner_scene_viewer::{
 };
 
 use crate::{
-    PlayError, PlayerWindow, Prepared, player_meshes::PlayerMeshes,
-    player_textures::PlayerTextures, retained_driver::viewer_options, scene_tables::SceneTables,
-    unresolved::UnresolvedTextures, window_script::WindowScript,
+    PlayError, PlayerWindow, Prepared,
+    player_meshes::PlayerMeshes,
+    player_textures::PlayerTextures,
+    retained_driver::viewer_options,
+    scene_tables::SceneTables,
+    unresolved::UnresolvedTextures,
+    window_script::{Turn, WindowScript},
 };
 
 /// Glyph coverage textures the presentation creates take identities from here up.
@@ -85,18 +89,19 @@ struct PlayDriver {
     script: WindowScript,
 }
 
-/// Boots the game `prepared` names and plays it in a window until `window.max_frames` updates are
-/// presented or the window closes, returning the frames `window.capture_frames` names. The
-/// window's keys reach the game at their updates, and each update advances the game by
+/// Boots the game `prepared` names and plays it in a window until the game has advanced
+/// `window.max_frames` frames or the window closes, returning the frames `window.capture_frames`
+/// names. The window's keys reach the game at their frames, and each frame advances the game by
 /// `window.fixed_dt` or by the time the window took.
 ///
 /// # Errors
-/// Fails when the game cannot boot or load its scene, the viewer cannot start or a frame cannot be
-/// drawn.
+/// Fails when the window asks for a frame it never plays, the game cannot boot or load its scene,
+/// the viewer cannot start or a frame cannot be drawn.
 pub fn play_game_window(
     prepared: Prepared,
     window: &PlayerWindow,
 ) -> Result<Vec<Capture>, PlayError> {
+    window.validate()?;
     let mut host = DisunityHost::boot(&prepared.config)?;
     host.run_slice(&prepared.request)?;
     let mut driver = PlayDriver {
@@ -117,20 +122,24 @@ pub fn play_game_window(
     viewer
         .run(start, &mut driver)
         .map_err(|error| PlayError::Invalid(error.to_string()))?;
-    Ok(driver.script.take_captures())
+    driver.script.finish()
 }
 
 impl PlayDriver {
     /// Advances the game and shows the frame it presents.
     fn step(&mut self, viewer: &mut RetainedHost, tick: &RetainedTick) -> Result<(), PlayError> {
-        self.script.advance(&mut self.host, tick)?;
+        let turn = self.script.next(tick);
+        if turn == Turn::Held {
+            return Ok(());
+        }
+        self.script.advance(&mut self.host, &turn)?;
         let frame = self.frame(viewer.size())?;
         viewer
             .apply(RetainedUpdate::World(Arc::new(frame)))
             .map_err(|error| {
                 PlayError::Invalid(format!("the viewer rejects the frame: {error}"))
             })?;
-        self.script.request_capture(viewer, tick.frame)
+        self.script.request_capture(viewer)
     }
 
     fn frame(&mut self, size: [u32; 2]) -> Result<WorldSceneContribution, PlayError> {

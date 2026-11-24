@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneImpostor, SceneImpostorChannels, SceneImpostorLayout, SceneMaterialChannels,
     SceneValidationError, TexelFormat, TextureChannel,
@@ -267,8 +268,8 @@ fn auxiliary_and_packed_impostor_selectors_sample_authored_lanes() {
         let mut results = Vec::new();
         for custom in [false, true] {
             let source = auxiliary_scene(packed, custom);
-            let gpu = SceneGpu::upload(context.device(), context.submission(), &source, &layouts)
-                .unwrap();
+            let gpu =
+                upload_scene(context.device(), context.submission(), &source, &layouts).unwrap();
             let camera = if packed {
                 CameraPose {
                     eye_millimeters: [0, -4000, 2000],

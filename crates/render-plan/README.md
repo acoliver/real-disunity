@@ -1,6 +1,6 @@
 # Render planning
 
-`worldrunner-render-plan` is the CPU-only scene and document boundary for Real
+`worldrunner-render-plan` is the CPU-only scene boundary for Real
 Disunity. With the `simulation` feature it also extracts native `world-simulation`
 mesh instances into retained scene objects and holds the scene textures that
 sprites draw with. Sprite, tile, camera and UI extraction lives in
@@ -37,26 +37,8 @@ sprites draw with. Sprite, tile, camera and UI extraction lives in
   `release_texture_sources`, because only its DDS reader can establish container facts.
 - `SceneDirection` validates a unit vector quantized to integer micro-components.
   A scene sun points from a surface toward the light in right-handed Z-up
-  coordinates: `[east, north, elevation]`. An authored document sun uses XYZ
-  components under that document's caller-specified `CoordinateBasis` instead.
-  The application composition factory must convert that direction to the scene
-  basis when constructing `SceneSun`; the direction type performs no basis
+  coordinates: `[east, north, elevation]`. The direction type performs no basis
   conversion. JSON directions contain three integers, never a quaternion.
-- `ContractDocument` describes caller-authored recipes and exact routes. Its
-  schema is `real-disunity.render-contract.v4`, version 4. Discovery selects
-  `urn:real-disunity:capability:render-contract:v4` exactly. Other schema families
-  and versions are rejected, with no conversion or alias. Its `EffectsRecipe` is
-  mandatory, including sky, SSAO (`sample_count`, `bias_millimeters`) and water
-  (`height_millimeters`, linear `color_micro`, per-metre `absorption_micro`,
-  `roughness_micro`) fields. Omitting an authored field fails deserialization.
-  Runtime `RenderScene` profile optionality does not change the document contract. There is no stock document-to-scene
-  interpreter; the application composition factory chooses the runtime profile
-  and which authored requests it implements.
-- Contract and implementation registries bind caller-supplied document,
-  component, capability, payload, and scene factories. Planning retains the
-  validated scene and verified publication provenance.
-- Capability helpers decode canonical engine artifacts, packages, exact bytes,
-  and bounded U8/U16 grids. They never infer routes from content.
 - `world_schema::scene_vector_from_world`, `SceneTransform::from_world_schema`,
   and `SceneVertex::from_world_schema` share the checked basis change from schema
   Y-up XYZ to scene Z-up `(x, -z, y)`. Producers quantize units before crossing
@@ -88,51 +70,6 @@ index or per-query triangle storage. Worst-case work is O(objects * triangles),
 with O(objects) bounds rejection when all objects miss. The `measure_pick_cost`
 test prints timings for 1000 objects with 100 triangles each, both all-hit bounds
 and all-rejected bounds, with no machine-dependent timing assertion.
-
-## Governed payload preparation and composition
-
-`activate_render_payload_contract` binds the authored handlers and adapters
-without requiring scene factories. `prepare_discovered_render_world_payloads`
-then checks that discovery matches the publication's unique bare render-contract
-binding ID and content address and the activated document. Both discovered entry
-points reject a mismatch with `GovernedContractSubstitution`. Preparation checks
-authored route and asset closure, runtime preparation, contribution limits and
-payload adaptation. It returns
-`PreparedRenderWorldPayloads`, retaining the contract binding ID, content address,
-publication identities, root payload and owned adapted contributions. No route
-scene factory or document composer runs during preparation. The low-level
-`prepare_render_world_payloads` deliberately accepts a caller-supplied contract
-and has no discovery binding, matching `build_render_world_plan`.
-
-`payloads_for_route(kind, route_key)` selects by exact component schema or
-capability URI, independently of shared payload contracts. Each contribution
-retains its route, claimant, handler descriptor and payload contract. A declared
-idle route returns an empty iterator; an undeclared route returns
-`AuthoredRouteMismatch` with its kind and exact name. Selection does not choose
-one payload when several match. The consumer must enforce its join cardinality
-and reject missing, ambiguous or incorrectly typed inputs.
-
-For rendering, use `activate_render_world_contract`, or call
-`ActivatedRenderPayloadContract::into_render_contract` on the original payload
-activation. Admission requires the document composer and every declared route's
-scene factory, including idle routes. `compose_render_world_plan` consumes the
-prepared result and invokes those factories through the existing composition
-path. The activation must be the same instance that prepared the payloads;
-a separate activation, even of equal authored declarations, is rejected with
-`AuthoredRouteMismatch` naming the prepared executable contract.
-
-`DocumentSceneInput::payloads_for_route` gives the document composer the same
-route-qualified adapted inputs alongside the root and proven scene contributions.
-A composer can therefore join separately decoded resources before constructing
-one scene. A route factory may explicitly return
-`SceneContribution::NonRendering` for metadata or other join-only inputs. This
-outcome retains its claimant and adapted payload. Omitting the factory still
-returns `MissingSceneFactory`. Every `RenderWorldPlan` requires a validated
-scene; preparation never manufactures one or substitutes an empty scene.
-
-There is no built-in content adapter registry, inventory interpreter, source
-terrain/clutter table, format-specific decoder, or bundled content. Producers must
-supply engine artifacts or construct scenes through the validated public API.
 
 ## Terrain normal inputs
 
@@ -217,12 +154,10 @@ represented. Both hemispheres are supported, matching the lighting service.
 
 ## Screen-space reflections
 
-The optional `ssr` effects recipe carries `enabled`, `max_steps`,
+The optional `SceneSsr` policy carries `enabled`, `max_steps`,
 `thickness_millimeters`, `roughness_cutoff_micro` and `resolution_scale_micro`.
-All quantities are required within a present recipe. A v4 document may omit the
-whole recipe. `SceneEffects::with_ssr`
-installs the corresponding validated runtime policy; factories explicitly copy
-`EffectsRecipe::ssr()` when composing runtime effects.
+`SceneEffects::with_ssr` installs the validated policy; omitting it leaves
+reflections off.
 
 The HDR compositor traces the immutable after-opaque colour snapshot against
 single-sample prepass depth and shading normals. A separate matching geometry
@@ -237,8 +172,8 @@ installed environment maps and water receivers is described in
 
 ## HDR post processing
 
-The optional `hdr_post` recipe may be omitted from a v4 document. A present recipe requires `adaptive_exposure`, `bloom`
-and `fxaa_subpixel_micro`, with explicit null for disabled options. Factories
+The optional `SceneHdrPost` policy requires `adaptive_exposure`, `bloom`
+and `fxaa_subpixel_micro`, with explicit null for disabled options. Callers
 adopt it with `SceneEffects::with_hdr_post`. All nested quantities are required.
 Adaptive exposure defines a 256-bin log2 luminance range in milli-stops, a
 retained low/high percentile interval, middle-grey key, exposure bounds and
@@ -250,7 +185,7 @@ Bloom defines linear threshold, fractional soft knee, intensity and one to eight
 pyramid levels. Existing runtime `ScenePostStage::Bloom` selects knee 0.5 and five
 levels. Only one bloom is accepted; duplicate controls and vignette fail
 with typed errors. FXAA may be requested through `hdr_post` or `SceneAntiAlias`;
-TAA and SMAA use `SceneAntiAlias` programmatically. Only one resolve is accepted. `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` takes a history weight and a clip-box scale in micro-units (`clip_scale_micro` within `500_000..=2_000_000`, 1_000_000 by default through `SceneAntiAlias::taa`); TAA has no serialized document route, only this programmatic recipe. `render-scene` maps authored TAA to `PostResolve::Taa` with those values (history weight at most 0.99). Bloom and exposure precede the selected tone curve (Reinhard or
+TAA and SMAA use `SceneAntiAlias` programmatically. Only one resolve is accepted. `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` takes a history weight and a clip-box scale in micro-units (`clip_scale_micro` within `500_000..=2_000_000`, 1_000_000 by default through `SceneAntiAlias::taa`); TAA has no serialized field, only this programmatic setting. `render-scene` maps authored TAA to `PostResolve::Taa` with those values (history weight at most 0.99). Bloom and exposure precede the selected tone curve (Reinhard or
 fitted ACES), followed by FXAA or SMAA when selected. MSAA can accompany either:
 MSAA resolves HDR coverage before metering and the spatial resolve filters the
 display-linear result.

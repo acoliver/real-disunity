@@ -95,11 +95,7 @@ impl ShaderSupply for Synthetic {
             // (`declared_light`) or a vector property (`declared_vector`), of the default
             // `declared_light::DECLARED`.
             "declared_light" | "declared_vector" => {
-                let kind = if source.file == "declared_light" {
-                    0
-                } else {
-                    1
-                };
+                let kind = i32::from(source.file != "declared_light");
                 let mut synthetic = super::lights_gpu::per_frame_passes("fs_color");
                 synthetic.shader.parsed.properties = vec![ShaderProperty {
                     name: "_MainLightColor".to_owned(),

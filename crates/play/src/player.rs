@@ -495,20 +495,20 @@ mod tests {
         )
     }
 
-    fn project(space: &'static str) -> Option<ProjectGraphics> {
-        Some(ProjectGraphics { color_space: space })
+    fn project(space: &'static str) -> ProjectGraphics {
+        ProjectGraphics { color_space: space }
     }
 
     #[test]
     fn a_linear_project_gives_its_gpu_work_a_linear_colour_space() {
         let launch = PlayerLaunch::default();
-        assert!(gpu_launch(launch, project("linear")).linear_colour_space);
+        assert!(gpu_launch(launch, Some(project("linear"))).linear_colour_space);
     }
 
     #[test]
     fn a_gamma_project_and_a_player_with_no_project_settings_give_a_gamma_colour_space() {
         let launch = PlayerLaunch::default();
-        assert!(!gpu_launch(launch, project("gamma")).linear_colour_space);
+        assert!(!gpu_launch(launch, Some(project("gamma"))).linear_colour_space);
         assert!(!gpu_launch(launch, None).linear_colour_space);
     }
 

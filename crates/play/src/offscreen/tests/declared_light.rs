@@ -201,7 +201,7 @@ fn a_value_recorded_over_a_supplied_one_wins_over_the_declared_default() {
 }
 
 /// The sRGB decode of each of the declared default's red, green and blue, as the 8-bit target
-/// stores it: 1 and 0 are unchanged and 0.8 is ((0.8 + 0.055) / 1.055)^2.4 = 0.603_827_3.
+/// stores it: 1 and 0 are unchanged and 0.8 is `((0.8 + 0.055) / 1.055)^2.4 = 0.603_827_3`.
 fn declared_linear() -> [f32; 3] {
     [1.0, 0.0, unorm(0.603_827_3)]
 }

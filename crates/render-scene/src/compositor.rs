@@ -1,15 +1,15 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
-mod adapters;
 mod capture;
 mod contours;
-pub mod opaque;
+#[cfg(test)]
+mod overlay_target_gpu_tests;
 #[cfg(test)]
 mod overlay_tests;
 pub mod terms;
-pub use capture::{FeatureCapture, FeatureTarget};
+pub use capture::FeatureCapture;
+pub use capture::FeatureTarget;
 mod clock;
 mod configuration;
-mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
@@ -23,7 +23,8 @@ mod game_screen;
 mod game_screen_tests;
 pub use game_screen::GameScreenComposite;
 mod game_screen_frame;
-pub use game_screen_frame::{GameScreenFrame, GameScreenPass};
+pub use game_screen_frame::GameScreenFrame;
+pub use game_screen_frame::GameScreenPass;
 mod hdr;
 pub(crate) mod offscreen;
 mod output;
@@ -39,38 +40,102 @@ mod temporal;
 mod timing;
 mod validation;
 mod water_draws;
-pub use crate::draw::{TerrainDraws, WaterDraws};
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
-pub use adapters::encode_resident;
-pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
+pub use configuration::ConfiguredFrameRenderer;
+pub use configuration::FrameEncoding;
+pub use configuration::RendererConfiguration;
+pub use game::BRDF_TABLE_SAMPLES;
+pub use game::BRDF_TABLE_SIZE;
+pub use game::CascadeSelection;
+pub use game::ColorOutput;
+pub use game::DepthAccess;
+pub use game::EngineConstants;
+pub use game::EnginePlaceholder;
+pub use game::EnvironmentConsumer;
+pub use game::FULLSCREEN_TRIANGLE_WGSL;
+pub use game::FrameCamera;
+pub use game::FrameCameraHandle;
+pub use game::FrameEnvironment;
+pub use game::FrameEnvironmentHandle;
+pub use game::FrameInputError;
+pub use game::FrameOcclusion;
+pub use game::FrameOcclusionHandle;
+pub use game::FrameSceneMeshError;
+pub use game::FrameSceneMeshes;
+pub use game::FrameSceneMeshesHandle;
+pub use game::FrameSceneTextureError;
+pub use game::FrameSceneTextures;
+pub use game::FrameSceneTexturesHandle;
+pub use game::FrameShadowHandle;
+pub use game::FrameShadows;
+pub use game::FrameSnapshotError;
+pub use game::FrameSnapshotHandle;
+pub use game::FrameSnapshots;
+pub use game::FrameTerrainError;
+pub use game::FrameTerrainHandle;
+pub use game::FrameWaterNormalError;
+pub use game::GameBlockDestination;
+pub use game::GameBuffer;
+pub use game::GameBufferDeclaration;
+pub use game::GameBufferUsage;
+pub use game::GameBuild;
+pub use game::GameComputeSpec;
+pub use game::GameFeatureFactory;
+pub use game::GameLevel;
+pub use game::GamePassSpec;
+pub use game::GamePasses;
+pub use game::GameReadback;
+pub use game::GameResourceError;
+pub use game::GameResources;
+pub use game::GameSampler;
+pub use game::GameTargets;
+pub use game::GameTexture;
+pub use game::GameTextureDeclaration;
+pub use game::GameTextureLevel;
+pub use game::LayerShape;
+pub use game::LevelAccess;
+pub use game::OcclusionDepth;
+pub use game::PassTarget;
+pub use game::PostWaterDepth;
+pub use game::SceneMeshSlot;
+pub use game::ShadowCascade;
+pub use game::SnapshotImage;
+pub use game::SnapshotReads;
+pub use game::SnapshotStatistics;
+pub use game::StockReplacement;
+pub use game::TargetDeclaration;
+pub use game::TargetExtent;
+pub use game::TargetLifetime;
+pub use game::TerrainMaterialArrayError;
+pub use game::TerrainMaterialChannel;
+#[cfg(test)]
+pub(crate) use game::declaring_stock;
+pub use game::join_pass;
+pub use game::prepass_writes_frame_depth;
 #[cfg(test)]
 pub(crate) use game::terrain_probe;
-pub use game::{
-    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, CascadeSelection, ColorOutput, DepthAccess,
-    EngineConstants, EnginePlaceholder, EnvironmentConsumer, FULLSCREEN_TRIANGLE_WGSL, FrameCamera,
-    FrameCameraHandle, FrameEnvironment, FrameEnvironmentHandle, FrameInputError, FrameOcclusion,
-    FrameOcclusionHandle, FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle,
-    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameShadowHandle,
-    FrameShadows, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, FrameTerrainError,
-    FrameTerrainHandle, FrameWaterNormalError, GameBlockDestination, GameBuffer,
-    GameBufferDeclaration, GameBufferUsage, GameBuild, GameComputeSpec, GameFeatureFactory,
-    GameLevel, GamePassSpec, GamePasses, GameReadback, GameResourceError, GameResources,
-    GameSampler, GameTargets, GameTexture, GameTextureDeclaration, GameTextureLevel, LayerShape,
-    LevelAccess, OcclusionDepth, PassTarget, PostWaterDepth, SceneMeshSlot, ShadowCascade,
-    SnapshotImage, SnapshotReads, SnapshotStatistics, TargetDeclaration, TargetExtent,
-    TargetLifetime, TerrainMaterialArrayError, TerrainMaterialChannel, join_pass,
-    prepass_writes_frame_depth,
-};
 use output::FrameOutput;
 pub use output::FrameProfile;
+pub(crate) use stock_plan::SceneInputs;
+pub(crate) use stock_plan::ShadowSchedule;
 pub use stock_plan::StockPlanStatistics;
-pub(crate) use stock_plan::{SceneInputs, ShadowSchedule, unshadowed};
-use validation::{validate_clear, validate_reflection_extent};
-use worldrunner_render_post::{
-    AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
-    CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,
-    PostResolve, Resources,
-};
+pub(crate) use stock_plan::unshadowed;
+use validation::validate_clear;
+use validation::validate_reflection_extent;
+use worldrunner_render_post::AntiAliasing;
+use worldrunner_render_post::AttachmentDeclaration;
+use worldrunner_render_post::AttachmentLoad;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BorrowedFeature;
+use worldrunner_render_post::CopyOutput;
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::MsaaSamples;
+use worldrunner_render_post::PassDeclaration;
+use worldrunner_render_post::PostChain;
+use worldrunner_render_post::PostError;
+use worldrunner_render_post::PostResolve;
+use worldrunner_render_post::Resources;
 
 /// Retained executor for transaction-bound composition. Submission belongs to the host.
 /// Select an admitted slot before preparation and reuse it only after completion.
@@ -103,9 +168,6 @@ pub struct FrameRenderer {
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
-    /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
-    pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
-    producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
     /// The stock plans of this renderer and the ones it replaces on reconfiguration.
     plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
     /// What the game inventory installed on this generation.
@@ -116,10 +178,6 @@ pub struct FrameRenderer {
     game_terrain: FrameTerrainHandle,
     /// Where every route lends the scene's resident textures to the game's features.
     game_textures: game::FrameSceneTexturesHandle,
-    /// Whether the stock passes draw the scene's terrain.
-    terrain_draws: TerrainDraws,
-    /// Whether the stock passes draw the scene's water.
-    water_draws: WaterDraws,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -175,15 +233,11 @@ impl FrameRenderer {
             ssr: None,
             ssao_requested: None,
             ssr_requested: None,
-            gbuffer: None,
-            producer_draw: std::rc::Rc::default(),
             plan_cache: std::rc::Rc::default(),
             game: game::Installed::default(),
             game_camera: FrameCameraHandle::default(),
             game_terrain: FrameTerrainHandle::default(),
             game_textures: game::FrameSceneTexturesHandle::default(),
-            terrain_draws: TerrainDraws::Stock,
-            water_draws: WaterDraws::Stock,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -206,6 +260,7 @@ impl FrameRenderer {
                 config,
                 Resources::default(),
                 FrameOutput::Copy(CopyOutput::new(device, output_format)),
+                worldrunner_render_post::SceneDepth::Independent,
             )?,
         })
     }
@@ -239,9 +294,8 @@ impl FrameRenderer {
     /// A resolve other than [`PostResolve::None`] conflicts with a resolve
     /// authored in `effects` and is rejected rather than merged.
     ///
-    /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
-    /// see [`Self::set_projection_jitter`]. It is off unless requested, except that a TAA
-    /// resolve selects the default sequence ([`PostResolve::effective_jitter`]).
+    /// A TAA resolve turns on sub-pixel projection jitter and previous-frame view data
+    /// ([`PostResolve::effective_jitter`]); see [`Self::set_projection_jitter`].
     pub fn hdr_antialiased(
         context: &crate::device::GpuContext,
         size: [u32; 2],
@@ -356,7 +410,8 @@ impl FrameRenderer {
     }
     /// Existing pixel-centre linear metre depth and normal coverage for shadow
     /// statistics. Callers rebind after resize; no additional prepass is allocated.
-    pub fn depth_statistics_source(
+    #[cfg(test)]
+    pub(crate) fn depth_statistics_source(
         &self,
     ) -> Result<Option<(AttachmentView, AttachmentView)>, FrameError> {
         use crate::frame::metadata::FrameProduct;
@@ -438,14 +493,6 @@ impl FrameRenderer {
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
-            self.install_gbuffer_producer(device);
-        }
-        if let Some(gbuffer) = self
-            .gbuffer
-            .as_mut()
-            .filter(|gbuffer| gbuffer.size() != size)
-        {
-            *gbuffer = gbuffer.resized(device, size);
         }
         self.share_metadata_depth(device);
         Ok(changed)
@@ -471,7 +518,7 @@ impl FrameRenderer {
             })
             .map_err(FrameError::from)?;
         }
-        self.chain.encode_resolve(encoder);
+        self.encode_resolve(encoder);
         self.chain.encode(encoder, output);
         self.overlay.encode(encoder, output);
         self.chain
@@ -485,6 +532,12 @@ impl FrameRenderer {
         .map_err(FrameError::from)?;
         Ok(())
     }
+    /// Resolves retained scene samples into the resolved scene target, timed with the frame's
+    /// passes. [`Self::encode_output`] does this first; a host that reads the resolved scene
+    /// without an output encodes it alone.
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.chain.encode_resolve(encoder);
+    }
     pub fn register(
         &mut self,
         device: &wgpu::Device,
@@ -494,7 +547,6 @@ impl FrameRenderer {
     }
     fn set_water_input(
         &mut self,
-        device: &wgpu::Device,
         frame: &crate::frame::FrameUniform,
         shadow: Option<&wgpu::BindGroup>,
         encoder: &wgpu::CommandEncoder,
@@ -507,11 +559,11 @@ impl FrameRenderer {
         let feature = self
             .stock_water()
             .map(|water| {
-                water.feature_with_depth(
-                    (device, encoder),
+                water.feature(
+                    encoder,
                     frame,
                     (self.elapsed_seconds, self.frame_slot),
-                    (shadow, self.targets().temporal_mask_texture()),
+                    shadow,
                     depth,
                 )
             })
@@ -520,32 +572,21 @@ impl FrameRenderer {
                 feature: "water",
                 reason: error.to_string(),
             })?;
-        self.record_water_frame(feature);
+        self.water_state.borrow_mut().feature = feature;
         Ok(())
     }
     /// Camera-aware composition for stock and external features, including
-    /// declaration-requested snapshots. The optional binding supplies shared shadows.
-    /// This supplies no head operations. If a [`StockSceneFeature`] retains offscreen work,
-    /// take it and forward it through [`Self::encode_frame_with`] instead.
-    pub fn encode_frame(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        plan: (&[PassDeclaration], &[AttachmentView]),
-        features: &mut [BorrowedFeature<'_>],
-        input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
-    ) -> Result<(), FrameError> {
-        self.encode_frame_with(device, encoder, plan, None, features, &input)
-    }
-    /// [`Self::encode_frame`] with `head`, work that records commands of its own, encoded
-    /// by the executor immediately before the first pass of the ordered frame.
-    /// A `None` head supplies no work; it does not discover operations retained by borrowed
-    /// features. Forward any [`StockSceneFeature::take_offscreen_operations`] result here.
+    /// declaration-requested snapshots. The optional binding in `input` supplies shared shadows.
+    ///
+    /// `head` is work that records commands of its own, encoded by the executor immediately
+    /// before the first pass of the ordered frame. A `None` head supplies no work; it does not
+    /// discover operations retained by borrowed features. Forward any
+    /// [`StockSceneFeature::take_offscreen_operations`] result here.
     ///
     /// # Errors
-    /// The validation and preparation errors of [`Self::encode_frame`], or an error returned
-    /// while recording `head`. Abandon the frame on failure.
-    pub fn encode_frame_with(
+    /// Validation and preparation errors, or an error returned while recording `head`. Abandon
+    /// the frame on failure.
+    pub fn encode_frame(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
@@ -575,8 +616,7 @@ impl FrameRenderer {
         } else {
             crate::renderer::depth::DepthMode::Independent
         };
-        self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
-        self.clear_unwritten_water_mask(encoder);
+        self.set_water_input(&frame, shadow, encoder, depth_mode)?;
         let declarations: Vec<_> = features
             .iter()
             .map(|feature| feature.declaration.clone())
@@ -587,11 +627,8 @@ impl FrameRenderer {
             slot: self.frame_slot,
             ssao: self.ssao.as_ref(),
             ssr: self.ssr.as_ref(),
-            water: self.water_draws.drawn(self.water.as_ref()),
-            water_registered: self.water.is_some(),
-            gbuffer: self.gbuffer.as_ref(),
+            water: self.game.replaces.stock_water(self.water.as_ref()),
             velocity: self.chain.targets().velocity_texture().cloned(),
-            temporal_mask: self.chain.targets().temporal_mask_texture().cloned(),
             requested: (self.ssao_requested, self.ssr_requested),
             overlay_depth: self.overlay.needs_depth(),
             shadow: shadow.is_some(),
@@ -662,11 +699,6 @@ impl FrameRenderer {
                 "SSAO requires stock geometry composition",
             ));
         }
-        if self.gbuffer.is_some() {
-            return Err(FrameError::UnsupportedEffect(
-                "the opaque G-buffer requires stock geometry composition",
-            ));
-        }
         self.publish_game_inputs();
         self.chain.encode_geometry(
             device,
@@ -716,8 +748,11 @@ pub(crate) fn attachment(
 }
 
 pub use depth_prefix::StockDepthPrefix;
-pub(crate) use scene::{SceneFeature, declare_velocity};
-pub use scene::{StockSceneFeature, encode_scene, prepare_stock_scene};
+pub(crate) use scene::ColorDepth;
+pub(crate) use scene::SceneFeature;
+pub use scene::StockSceneFeature;
+pub(crate) use scene::declare_velocity;
+pub use scene::prepare_stock_scene;
 mod scene;
 
 #[cfg(test)]

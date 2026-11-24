@@ -60,12 +60,36 @@ impl World {
         script: ComponentHandle,
         messages: ScriptMessages,
     ) -> Result<(), WorldError> {
-        self.component(script)?;
-        if !self.lifecycle.scripts.contains_key(&script) {
-            return Err(WorldError::NotScript);
-        }
+        self.require_script(script)?;
         self.lifecycle.set_messages(script, messages);
         Ok(())
+    }
+
+    /// Sets the execution order of one registered script. A phase, a batch of lifecycle messages
+    /// and a batch of cleanup deliver `Awake`, `OnEnable`, `Start`, `FixedUpdate`, `Update`, `LateUpdate`,
+    /// `OnDisable` and `OnDestroy` to the scripts with the lowest order first. Scripts of equal
+    /// order receive a message in the order they were registered, whatever handle slot each
+    /// took, and two messages to one script keep their order. Coroutine resumption is not
+    /// ordered by it. A new script has order 0 and a clone takes its source's order and
+    /// registers after every script that exists.
+    pub fn set_script_execution_order(
+        &mut self,
+        script: ComponentHandle,
+        order: i32,
+    ) -> Result<(), WorldError> {
+        self.require_script(script)?;
+        self.lifecycle.set_execution_order(script, order);
+        Ok(())
+    }
+
+    /// Checks that `script` names a live, registered script.
+    fn require_script(&self, script: ComponentHandle) -> Result<(), WorldError> {
+        self.component(script)?;
+        if self.lifecycle.scripts.contains_key(&script) {
+            Ok(())
+        } else {
+            Err(WorldError::NotScript)
+        }
     }
 }
 

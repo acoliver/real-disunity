@@ -253,7 +253,6 @@ fn a_shadow_list_still_leaves_out_the_casters_the_culling_mask_does_not_keep() {
     let adapted = run(&mut world, unit_cubes);
     let listed = lists(&adapted);
     assert_eq!(meshes(&adapted, listed[0]), [(0, 0)]);
-    assert_eq!(adapted.report.lists.out_by_layer, 1);
 }
 
 #[test]

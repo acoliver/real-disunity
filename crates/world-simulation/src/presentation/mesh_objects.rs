@@ -1,12 +1,12 @@
 //! The mesh renderers a frame shows, for a host that draws 3D objects next to the sprites.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use super::extraction::{selected_camera, view_basis};
 use crate::graphics::{
     BASE_COLOR, MAIN_COLOR, MAIN_TEXTURE, MaterialId, ShaderProperties, TextureRef,
 };
 use crate::shadows::SHADOWS_ONLY;
-use crate::{ComponentDesc, DrawnMaterial, ObjectHandle, RendererKind, World, WorldError};
+use crate::{ComponentDesc, DrawnMaterial, ObjectHandle, World, WorldError};
 
 /// One mesh renderer a frame shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -20,7 +20,7 @@ pub struct MeshObject {
     /// What each material slot draws with, one per material the renderer holds. A slot with a
     /// live material draws with that material's current colour and main texture, as the slot's
     /// own property block and then the renderer's property block override them; any other slot
-    /// draws with the renderer's `drawn` record.
+    /// draws white with no texture.
     pub slots: Vec<DrawnMaterial>,
     /// The layer of the renderer's object, which a camera's culling mask tests.
     pub layer: u32,
@@ -40,29 +40,26 @@ pub struct MeshObject {
 /// names a mesh the host has contents for and whose layer the presented camera's culling mask
 /// admits (every layer when no camera is presented). A renderer with `force_rendering_off` is
 /// left out, and so is one whose shadow casting mode is `ShadowsOnly`, which draws nothing
-/// visible, and every renderer that is not a plain mesh renderer: skinned and particle renderers
-/// draw from data a mesh filter does not hold.
+/// visible, and a particle renderer, which draws from data no mesh holds. A mesh renderer draws its
+/// mesh filter's mesh at its own matrix. A skinned renderer draws the mesh it names in its bind pose
+/// where its root bone puts it, and is left out when its skin names no root bone that is in the
+/// world.
 pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError> {
     let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
-    let mut meshes: HashMap<ObjectHandle, u64> = HashMap::new();
-    for component in world.published_components() {
-        if let ComponentDesc::MeshFilter(filter) = &component.desc
-            && filter.drawn_mesh != 0
-        {
-            meshes.insert(component.object, filter.drawn_mesh);
-        }
-    }
     let basis = view_basis();
     let mut objects = Vec::new();
     for component in world.published_components() {
         let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
             continue;
         };
-        let shown = renderer.kind == RendererKind::Mesh
-            && renderer.switches.enabled
-            && !renderer.switches.force_rendering_off
-            && renderer.shadow_casting_mode != SHADOWS_ONLY;
-        let Some(mesh) = meshes.get(&component.object).copied().filter(|_| shown) else {
+        let shown = renderer.shows() && renderer.shadow_casting_mode != SHADOWS_ONLY;
+        let Some(mesh) = world
+            .renderer_mesh(component.object, renderer)
+            .filter(|_| shown)
+        else {
+            continue;
+        };
+        let Some(placement) = world.renderer_placement(component.object, renderer)? else {
             continue;
         };
         let layer = world.object(component.object)?.layer;
@@ -78,19 +75,18 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
             .iter()
             .enumerate()
             .map(|(slot, material)| {
-                let fallback = renderer.drawn.get(slot).copied().unwrap_or_default();
                 let blocks = [
                     u32::try_from(slot)
                         .ok()
                         .and_then(|slot| renderer.slot_blocks.get(&slot)),
                     renderer.property_block.as_ref(),
                 ];
-                drawn_slot(world, *material, blocks, fallback)
+                drawn_slot(world, *material, blocks)
             })
             .collect();
         objects.push(MeshObject {
             object: component.object,
-            local_to_world: (basis * world.presented_matrix(component.object)?).to_cols_array(),
+            local_to_world: (basis * placement).to_cols_array(),
             mesh,
             slots,
             layer: u32::from(layer),
@@ -109,20 +105,17 @@ fn live_material(world: &World, material: Option<MaterialId>) -> Option<Material
 
 /// What a slot draws with now. A slot with a live world material takes the colour and main
 /// texture the slot's own block, the renderer's all-slot block (`blocks`, highest first) and the
-/// material hold, in that order, the way the managed
-/// `Renderer.DrawnOf` reads them when the shared materials are set (csharp/Disunity/RendererDrawn.cs):
-/// `_Color` if there is one, else `_BaseColor`, else white, with negative channels as 0; and the
-/// main texture's asset identity, 0 for a texture that is not an asset. A slot with no live
-/// material draws `fallback`, the record the managed side sent. The world never holds a colour
-/// that is not finite, so none reaches the slot.
+/// material hold, in that order: `_Color` if there is one, else `_BaseColor`, else white, with
+/// negative channels as 0; and the main texture's asset identity, 0 for a texture that is not an
+/// asset. A slot with no live material draws white with no texture. The world never holds a
+/// colour that is not finite, so none reaches the slot.
 fn drawn_slot(
     world: &World,
     material: Option<MaterialId>,
     blocks: [Option<&ShaderProperties>; 2],
-    fallback: DrawnMaterial,
 ) -> DrawnMaterial {
     let Some(material) = material.and_then(|id| world.material(id).ok()) else {
-        return fallback;
+        return DrawnMaterial::default();
     };
     let sets = [blocks[0], blocks[1], Some(&material.properties)];
     let color = sets

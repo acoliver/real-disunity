@@ -1,7 +1,8 @@
 #![cfg(feature = "ui")]
 mod ui_font;
 use worldrunner_world_simulation::ui::{
-    Canvas, FontBook, RectTransform, TextRun, UiLimits, contribution::extract_ui,
+    Canvas, CanvasMode, FontBook, RectTransform, TextRun, UiLimits, UiTexture,
+    contribution::extract_ui,
 };
 use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, ParentSpace, World, WorldSettings};
 
@@ -18,7 +19,13 @@ fn text_composition_uses_hierarchy_instead_of_object_identity() {
         )
         .unwrap();
     world
-        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            canvas,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let child = world.create_object(ObjectDesc::default()).unwrap();
     let parent = world.create_object(ObjectDesc::default()).unwrap();
@@ -68,12 +75,19 @@ fn text_clip_uses_scaled_root_canvas_space_through_nested_canvases() {
             root,
             ComponentDesc::Canvas(Canvas {
                 scale: CanvasScale::Constant(2.),
+                mode: CanvasMode::ScreenSpaceOverlay,
                 ..Canvas::default()
             }),
         )
         .unwrap();
     world
-        .add_component(nested, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            nested,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     world
         .set_parent(nested, Some(root), ParentSpace::KeepLocal)
@@ -117,8 +131,15 @@ fn assert_screen_snapshot(plan: &worldrunner_world_simulation::ui::contribution:
         assert_eq!(draw.clip_rect, [16, 16, 16, 16]);
         assert_eq!(draw.corners, glyph.corners);
         assert_eq!(
-            snapshot.coverage.get(&draw.texture.unwrap()),
+            snapshot.coverage.get(&coverage_key(draw.texture)),
             text.texture.as_ref()
         );
+    }
+}
+
+fn coverage_key(texture: Option<UiTexture>) -> u64 {
+    match texture {
+        Some(UiTexture::Coverage(key)) => key,
+        other => panic!("{other:?} is not a coverage texture"),
     }
 }

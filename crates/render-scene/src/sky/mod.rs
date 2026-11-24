@@ -23,25 +23,6 @@ const SOURCE: &str = concat!(
     include_str!("../shader/camera_rays.wgsl")
 );
 
-/// Angular disc mapping shared by descriptor tests and tools. The radius is in radians.
-pub fn disc_uv(ray: Vec3, direction: Vec3, radius: f32, rotation: f32) -> Option<[f32; 2]> {
-    let cosine = ray.dot(direction);
-    if cosine < radius.cos() {
-        return None;
-    }
-    let seed = if direction.z.abs() < 0.999 {
-        Vec3::Z
-    } else {
-        Vec3::X
-    };
-    let right = seed.cross(direction).normalize();
-    let up = direction.cross(right);
-    let x = ray.dot(right) / (cosine * radius.tan());
-    let y = ray.dot(up) / (cosine * radius.tan());
-    let (s, c) = rotation.sin_cos();
-    Some([0.5 + (c * x + s * y) * 0.5, 0.5 + (c * y - s * x) * 0.5])
-}
-
 pub(crate) fn depth_state(depth: crate::renderer::depth::DepthMode) -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: depth.format(),

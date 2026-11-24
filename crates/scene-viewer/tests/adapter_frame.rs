@@ -11,7 +11,7 @@ use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
     AdapterCallback, FrameProfile, FrameSettings, InitialContent, OrbitLimits, PresentationBudget,
     RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost, RetainedTick, ToneMap,
-    ViewerError, ViewerOptions,
+    ViewerError, ViewerOptions, ViewerStart,
 };
 
 fn selected_frame() -> FrameSettings {
@@ -75,19 +75,19 @@ fn main() {
     let host = startup_host(&mode, calls.clone());
     let mut driver = Driver::default();
     if mode.ends_with("windowless") {
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         assert!(run.frame().unwrap());
         run.shutdown().unwrap();
     } else if reject {
         assert!(matches!(
-            host.run(&mut driver),
+            host.run(ViewerStart::new().unwrap(), &mut driver),
             Err(ViewerError::Configuration(ConfigurationError::Budget {
                 budget: 1,
                 ..
             }))
         ));
     } else {
-        host.run(&mut driver).unwrap();
+        host.run(ViewerStart::new().unwrap(), &mut driver).unwrap();
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(driver.presented, !reject);
@@ -138,7 +138,10 @@ fn options() -> ViewerOptions {
         window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::Physical,
         window_mode: worldrunner_scene_viewer::WindowMode::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
-        frame_profile: FrameProfile::Legacy,
+        frame_profile: FrameProfile::Hdr {
+            samples: 1,
+            tone_map: worldrunner_scene_viewer::ToneMap::Clamp,
+        },
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,

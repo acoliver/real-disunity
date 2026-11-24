@@ -78,7 +78,7 @@ fn resize_and_update_errors_survive_failing_cleanup() {
         let mut driver = Failing::new(failure);
         let events = driver.events.clone();
         let mut run = host(crate::renderer::retained_tests::source())
-            .windowless(&mut driver)
+            .windowless(&mut driver, None)
             .unwrap();
         let ids = [
             run.host_mut().request_capture(0).unwrap(),
@@ -100,7 +100,7 @@ fn completion_error_survives_failing_cleanup() {
     let mut driver = Failing::new(Failure::Completion);
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let completed = run.host_mut().request_capture(0).unwrap();
     assert!(run.frame().unwrap());
@@ -136,7 +136,7 @@ fn construction_error_survives_failing_cleanup() {
         host.request_capture(0).unwrap(),
     ];
     host.options.size = [u32::MAX, 64];
-    let result = host.windowless(&mut driver);
+    let result = host.windowless(&mut driver, None);
     assert!(matches!(
         result,
         Err(ViewerError::SurfaceExtent {
@@ -152,7 +152,7 @@ fn successful_operation_propagates_shutdown_failure() {
     let mut driver = Failing::new(Failure::Shutdown);
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     run.host_mut().request_exit();
     assert!(matches!(run.poll(), Err(ViewerError::Driver(e)) if e == "shutdown-cleanup"));
@@ -164,7 +164,7 @@ fn drop_reports_cleanup_failure_without_panicking() {
     let mut driver = Failing::new(Failure::Cancellation);
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let id = run.host_mut().request_capture(0).unwrap();
     assert!(run.frame().unwrap());
@@ -196,7 +196,7 @@ fn unwind_child(scenario: &str) -> ! {
     let events = driver.events.clone();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut run = host(crate::renderer::retained_tests::source())
-            .windowless(&mut driver)
+            .windowless(&mut driver, None)
             .unwrap();
         run.host_mut().request_capture(0).unwrap();
         assert!(run.frame().unwrap());

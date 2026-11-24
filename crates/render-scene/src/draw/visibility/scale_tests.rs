@@ -162,3 +162,161 @@ fn scaled_ceilings_admit_exactly_the_distances_the_rational_test_admits() {
         }
     }
 }
+
+/// The squared distance as it was computed in 128-bit signed arithmetic throughout.
+fn distance_squared_reference(position: [i64; 3], eye: [i64; 3]) -> Option<u128> {
+    position
+        .into_iter()
+        .zip(eye)
+        .try_fold(0_u128, |sum, (position, eye)| {
+            let delta = (i128::from(position) - i128::from(eye)).unsigned_abs();
+            sum.checked_add(delta * delta)
+        })
+}
+
+#[test]
+fn squared_distances_equal_the_wide_computation_around_the_narrow_limit() {
+    let limit = 1_i64 << 31;
+    let values = [
+        0,
+        1,
+        -1,
+        999,
+        limit - 1,
+        limit,
+        limit + 1,
+        -limit + 1,
+        -limit,
+        -limit - 1,
+        3 * limit,
+        i64::from(i32::MAX),
+        i64::from(i32::MIN),
+        i64::MAX / 3,
+        i64::MIN / 3,
+        i64::MAX,
+        i64::MIN,
+    ];
+    let mut checked = 0;
+    for &x in &values {
+        for &y in &values {
+            for &z in &values {
+                for eye in [
+                    [0, 0, 0],
+                    [x, y, z],
+                    [y, z.saturating_neg(), 5],
+                    [limit, -limit, 7],
+                ] {
+                    // Only the sums of squares of 2^64-wide differences overflow.
+                    if let Some(expected) = distance_squared_reference([x, y, z], eye) {
+                        assert_eq!(distance_squared([x, y, z], eye), expected);
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 10_000);
+}
+
+#[test]
+#[should_panic(expected = "squared placement distance exceeds u128 millimetres")]
+fn a_squared_distance_beyond_u128_still_panics() {
+    let _ = distance_squared(
+        [i64::MIN, i64::MIN, i64::MIN],
+        [i64::MAX, i64::MAX, i64::MAX],
+    );
+}
+
+/// Ceilings, squared, of the shapes a mesh can have: ascending, repeating, out of order,
+/// a lone level and a ceiling no distance exceeds.
+fn ceiling_sets() -> Vec<Vec<u128>> {
+    let squared = |distances: &[u128]| distances.iter().map(|d| d * d).collect();
+    vec![
+        squared(&[40, 100, 230]),
+        squared(&[40, 40, 230]),
+        squared(&[100, 40, 230]),
+        squared(&[0, 7, 8]),
+        squared(&[90]),
+        vec![],
+        vec![u128::MAX, u128::MAX],
+        vec![1_999, 2_000, 2_001, 90_000],
+    ]
+}
+
+#[test]
+fn a_margin_holds_the_level_for_every_eye_within_it_and_wastes_little() {
+    for ceilings in ceiling_sets() {
+        for distance in 0_i64..320 {
+            let squared = u128::try_from(distance * distance).unwrap();
+            let level = MeshSelection::level(squared, &ceilings);
+            let margin = MeshSelection::level_margin(squared, &ceilings, level);
+            // Eyes on the line through the placement are the farthest a move can change the
+            // distance, so the margin is the nearest of them to choose another level.
+            let nearest_other = (1_i64..400)
+                .find(|&moved| {
+                    [distance - moved, distance + moved].into_iter().any(|to| {
+                        let to = u128::try_from(to * to).unwrap();
+                        MeshSelection::level(to, &ceilings) != level
+                    })
+                })
+                .map(|moved| u64::try_from(moved - 1).unwrap());
+            match nearest_other {
+                Some(reach) => {
+                    assert!(margin <= reach, "{ceilings:?} at {distance}: {margin}");
+                    assert!(margin + 2 >= reach, "{ceilings:?} at {distance}: {margin}");
+                }
+                None => assert!(margin >= 397, "{ceilings:?} at {distance}: {margin}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn a_margin_holds_the_level_for_eyes_in_every_direction_and_for_wide_distances() {
+    let mut state = 7_u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let span = |value: u64, bound: u64| i64::try_from(value % bound).unwrap();
+    for ceilings in ceiling_sets() {
+        for _ in 0..4_000 {
+            let position = [0, 1, 2].map(|_| span(next(), 600) - 300);
+            let eye = [0, 1, 2].map(|_| span(next(), 600) - 300);
+            let squared = distance_squared(position, eye);
+            let level = MeshSelection::level(squared, &ceilings);
+            let margin = MeshSelection::level_margin(squared, &ceilings, level).min(300);
+            for _ in 0..8 {
+                // A move of at most `margin` millimetres whole.
+                let step = [0, 1, 2]
+                    .map(|_| span(next(), 2 * margin + 1) - i64::try_from(margin).unwrap());
+                let length = step
+                    .iter()
+                    .map(|d| u128::try_from(d * d).unwrap())
+                    .sum::<u128>();
+                if length > u128::from(margin) * u128::from(margin) {
+                    continue;
+                }
+                let moved = [0, 1, 2].map(|axis| eye[axis] + step[axis]);
+                assert_eq!(
+                    MeshSelection::level(distance_squared(position, moved), &ceilings),
+                    level,
+                    "{ceilings:?}: {position:?} from {eye:?} to {moved:?}"
+                );
+            }
+        }
+    }
+    // Distances beyond what f64 holds exactly keep the margin exact to the rounded roots.
+    let far = u128::from(u64::MAX);
+    let ceilings = [far * far, u128::MAX];
+    let squared = (far - 1_000).pow(2);
+    assert_eq!(MeshSelection::level(squared, &ceilings), 0);
+    let margin = MeshSelection::level_margin(squared, &ceilings, 0);
+    assert_eq!(margin, 999);
+    assert_eq!(
+        MeshSelection::level((far - 1_000 + u128::from(margin)).pow(2), &ceilings),
+        0
+    );
+}

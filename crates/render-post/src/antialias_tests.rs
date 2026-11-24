@@ -37,14 +37,18 @@ fn descriptor_validates_the_resolve_it_carries() {
         edge_threshold: 2.0,
         ..FxaaQuality::default()
     };
-    let aa = AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa_with(1.0, quality));
+    let aa = AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa(1.0, quality));
     assert_eq!(
         aa.validate(),
         Err(PostError::UnsupportedProfile("FXAA quality settings"))
     );
     for strength in [-0.1, 1.1, f32::NAN, f32::INFINITY] {
         assert_eq!(
-            AntiAliasing::new(MsaaSamples::X1, PostResolve::fxaa(strength)).validate(),
+            AntiAliasing::new(
+                MsaaSamples::X1,
+                PostResolve::fxaa(strength, crate::FxaaQuality::default())
+            )
+            .validate(),
             Err(PostError::UnsupportedProfile("FXAA settings")),
         );
     }
@@ -68,13 +72,13 @@ fn resolve_selection_lives_in_hdr_settings_and_enables_the_path() {
     assert_eq!(off.resolve, PostResolve::None);
     assert!(!off.enabled());
     let on = HdrPostSettings {
-        resolve: PostResolve::fxaa(0.5),
+        resolve: PostResolve::fxaa(0.5, crate::FxaaQuality::default()),
         ..off
     };
     assert!(on.enabled());
     assert_eq!(on.resolve.fxaa_strength(), Some(0.5));
     // A zero-strength request is validated and enabled but schedules no pass.
-    let zero = PostResolve::fxaa(0.0);
+    let zero = PostResolve::fxaa(0.0, crate::FxaaQuality::default());
     assert_eq!(zero.active_fxaa(), None);
     assert_eq!(
         PostResolve::Fxaa(FxaaSettings {
@@ -118,7 +122,11 @@ fn extended_sample_counts_need_device_support_before_allocation() {
 fn sharpening_is_off_by_default_and_independent_of_the_resolve() {
     assert_eq!(AntiAliasing::default().sharpen, None);
     assert_eq!(
-        AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa(0.5)).sharpen,
+        AntiAliasing::new(
+            MsaaSamples::X4,
+            PostResolve::fxaa(0.5, crate::FxaaQuality::default())
+        )
+        .sharpen,
         None
     );
     let on =
@@ -182,7 +190,7 @@ fn fxaa_allocates_a_half_float_display_intermediate() {
             .unwrap()
     };
     let fxaa = HdrPostSettings {
-        resolve: PostResolve::fxaa(1.0),
+        resolve: PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
         ..base
     };
     assert_eq!(bytes(same, fxaa) - bytes(same, base), 64 * 32 * 8 * 3);

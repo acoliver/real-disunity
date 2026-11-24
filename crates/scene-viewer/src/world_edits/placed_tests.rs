@@ -91,15 +91,21 @@ enum Edit {
 
 fn edits(world: &mut World, ids: &mut ObjectIdMap) -> Vec<Edit> {
     let changes = world.drain_changes();
-    edits_from_world_changes(&changes, world, &Placer, ids)
-        .unwrap()
-        .into_iter()
-        .map(|edit| match edit {
-            SceneObjectEdit::Add { id, object } => Edit::Add(id, object),
-            SceneObjectEdit::Replace { id, object } => Edit::Replace(id, object),
-            SceneObjectEdit::Remove(id) => Edit::Remove(id),
-        })
-        .collect()
+    edits_from_world_changes(
+        &changes,
+        world,
+        &Placer,
+        worldrunner_render_plan::simulation::mesh_instances::MeshExtractOptions::default(),
+        ids,
+    )
+    .unwrap()
+    .into_iter()
+    .map(|edit| match edit {
+        SceneObjectEdit::Add { id, object } => Edit::Add(id, object),
+        SceneObjectEdit::Replace { id, object } => Edit::Replace(id, object),
+        SceneObjectEdit::Remove(id) => Edit::Remove(id),
+    })
+    .collect()
 }
 
 fn wanted(mesh: u64, count: i64) -> Vec<SceneObject> {

@@ -82,16 +82,6 @@ pub fn edits_from_world_changes(
     changes: &WorldChanges,
     world: &World,
     resolver: &impl MeshResolver,
-    ids: &mut ObjectIdMap,
-) -> Result<Vec<SceneObjectEdit>, MeshExtractError> {
-    edits_from_world_changes_with(changes, world, resolver, MeshExtractOptions::default(), ids)
-}
-
-/// [`edits_from_world_changes`] with explicit extraction options.
-pub fn edits_from_world_changes_with(
-    changes: &WorldChanges,
-    world: &World,
-    resolver: &impl MeshResolver,
     options: MeshExtractOptions,
     ids: &mut ObjectIdMap,
 ) -> Result<Vec<SceneObjectEdit>, MeshExtractError> {

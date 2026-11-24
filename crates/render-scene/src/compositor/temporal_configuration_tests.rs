@@ -30,11 +30,13 @@ pub(super) fn configuration(
     scale_micro: u32,
 ) -> RendererConfiguration {
     let render = render_extent(scale_micro);
-    let mut settings =
-        RendererConfiguration::legacy(OUTPUT_EXTENT, wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut settings = RendererConfiguration::new(
+        OUTPUT_EXTENT,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        ToneMap::Reinhard,
+    );
     settings.frame = FrameConfig::new(OUTPUT_EXTENT, wgpu::TextureFormat::Rgba16Float, 1)
         .with_render_extent(render);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.post = HdrPostSettings {
         resolve,
         upscale: upscale.map(|mode| UpscaleSettings {

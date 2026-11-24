@@ -4,11 +4,6 @@
 use crate::{GpuFlush, HostError, MeshChannels, PlayerTexture, TextureSampler};
 
 impl GpuFlush<'_> {
-    /// The channels stored under mesh `identity`; see [`crate::DisunityHost::mesh_channels`].
-    pub fn mesh_channels(&self, identity: u64) -> Result<Option<MeshChannels>, HostError> {
-        self.mesh_channels_since(identity, 0)
-    }
-
     /// See [`crate::DisunityHost::mesh_channels_since`].
     pub fn mesh_channels_since(
         &self,

@@ -5,13 +5,17 @@ use std::rc::Rc;
 use wgpu::Buffer;
 use worldrunner_render_plan::MaterialHandle;
 
-/// One level of a resident mesh: its vertex and index buffers and the material partition of its
-/// indices, when the level has one.
+/// One level of a resident mesh: the shared vertex and index chunks it is packed into, where in
+/// them it starts, and the material partition of its indices, when the level has one.
 #[derive(Clone, Debug)]
 pub(crate) struct LentLevel {
     pub(crate) skinned: bool,
     pub(crate) vertices: Buffer,
+    /// The vertex offset a draw adds to the level's indices: its first vertex in the chunk.
+    pub(crate) base_vertex: i32,
     pub(crate) indices: Buffer,
+    /// The level's first index in the index chunk.
+    pub(crate) first_index: u32,
     pub(crate) index_count: u32,
     pub(crate) slots: Vec<(MaterialHandle, Range<u32>)>,
 }
@@ -50,8 +54,10 @@ impl SceneGpu {
                             .zip(&selection.material_slots)
                             .map(|(lod, slots)| LentLevel {
                                 skinned: lod.layout.is_skinned(),
-                                vertices: lod.vertices.clone(),
-                                indices: lod.indices.clone(),
+                                vertices: lod.vertices.buffer().clone(),
+                                base_vertex: lod.vertices.base_vertex(),
+                                indices: lod.indices.buffer().clone(),
+                                first_index: lod.indices.first(),
                                 index_count: lod.index_count,
                                 slots: slots
                                     .iter()

@@ -17,9 +17,15 @@ fn holding(texture: TextureRef) -> ShaderProperties {
 }
 
 /// Adds a renderer of the quad whose slot 2, which has no material, holds `slot` and whose
-/// all-slot block holds `all`, and a cull of every layer, because a snapshot lists the renderers
-/// only for a frame that culls.
+/// all-slot block holds `all`, then a cull of every layer, because a snapshot lists the renderers
+/// only for a frame whose cull found them.
 fn add_renderer(world: &mut World, all: Option<ShaderProperties>, slot: ShaderProperties) {
+    let renderer = MeshRenderer {
+        property_block: all,
+        slot_blocks: BTreeMap::from([(2, slot)]),
+        ..MeshRenderer::default()
+    };
+    renderer_with(world, (0, true), MESH, renderer);
     let culling = camera(world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
     let cull = OffscreenWork::Cull {
         id: 900,
@@ -29,12 +35,6 @@ fn add_renderer(world: &mut World, all: Option<ShaderProperties>, slot: ShaderPr
         options: 0,
     };
     world.record_offscreen(cull).unwrap();
-    let renderer = MeshRenderer {
-        property_block: all,
-        slot_blocks: BTreeMap::from([(2, slot)]),
-        ..MeshRenderer::default()
-    };
-    renderer_with(world, (0, true), MESH, renderer);
 }
 
 #[test]
@@ -78,6 +78,9 @@ fn a_render_texture_only_a_slot_block_holds_is_named_and_stays() {
     assert_eq!(reclaimed.targets, 0);
     let (room, built, reclaimed, [_, b, c]) = three_frames(roomy.runtime.live_bytes() - 256);
     built.unwrap();
-    assert_eq!(reclaimed.targets, 1);
+    assert_eq!(
+        reclaimed.targets, 1,
+        "a budget 256 bytes short is one 8 x 8 render texture short"
+    );
     assert_eq!(room.held(), [b, c]);
 }

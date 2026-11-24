@@ -1,8 +1,13 @@
 //! Canvas renderer component settings. The rules live in world-simulation; this file converts
 //! records.
+#[cfg(test)]
+#[path = "canvas_renderer_tests.rs"]
+mod tests;
+
 use crate::{DisunityResult, callbacks::mutate, errors::AbiError, physics::component};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, WorldError,
+    graphics::MaterialId,
     ui::{CanvasRenderer, CanvasRendererFlags, inherited_alpha},
 };
 
@@ -225,6 +230,9 @@ pub unsafe extern "C" fn disunity_canvas_renderer_material_read(
 }
 
 /// Writes one material identity (0 for none); `pop` and `index` are as for the read.
+/// `world_material` is the world material of the slot (0 for none), which the presentation draws
+/// a graphic with. Only main slot 0 holds one: a non-zero value for any other slot is rejected.
+/// A world material that is destroyed later is no material when the frame is prepared.
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_canvas_renderer_material_write(
     world: u64,
@@ -232,11 +240,13 @@ pub extern "C" fn disunity_canvas_renderer_material_write(
     pop: u32,
     index: u32,
     instance: u64,
+    world_material: u64,
 ) -> DisunityResult {
     mutate(world, |s| {
         let (id, current) = renderer(s, handle)?;
+        let world_material = (world_material != 0).then(|| MaterialId::from_bits(world_material));
         let next = current
-            .with_material(list(pop)?, index, instance)
+            .with_material(list(pop)?, index, instance, world_material)
             .map_err(WorldError::from)?;
         s.native
             .set_component(id, ComponentDesc::CanvasRenderer(next))?;

@@ -10,7 +10,7 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
         width: 96,
         height: 64,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [first, first],
@@ -59,13 +59,13 @@ fn near_budget_hdr_msaa_inventory_admits_without_recipes() {
         max_buffer_size: 1024 * 1024 * 1024,
         ..Default::default()
     };
-    let mut settings = RendererConfiguration::legacy([size.width, size.height], COLOR);
+    let mut settings =
+        RendererConfiguration::new([size.width, size.height], COLOR, crate::ToneMap::Reinhard);
     settings.frame = FrameConfig::new(
         [size.width, size.height],
         wgpu::TextureFormat::Rgba16Float,
         4,
     );
-    settings.hdr = Some((1.0, crate::ToneMap::Reinhard));
     settings.additional = capture_allocations(size);
     assert_eq!(settings.additional.validate(&limits).unwrap(), 275_251_200);
     settings
@@ -107,11 +107,11 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
     let first = tiny_extents([16, 16]);
     let next = tiny_extents([24, 16]);
     assert_eq!(first.render, next.render);
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [first.render, first.surface],
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         None,
         &PresentationPolicy {
             game: crate::GameRendering::default(),

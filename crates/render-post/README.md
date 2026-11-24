@@ -29,6 +29,7 @@ let mut output = PostChain::new(
     FrameConfig::new([width, height], scene_format, samples),
     Resources::default(),
     CopyOutput::new(device, surface_format),
+    SceneDepth::Independent,
 )?;
 // Render using output.targets().scene() and output.targets().resolve().
 output.encode(encoder, surface_view);
@@ -52,7 +53,7 @@ The required GPU tests exercise exact copy, HDR/MSAA resolve, nonaligned readbac
 
 For a capture inside an existing frame encoder, construct `Readback` with the **actual source format**, extent, sample count 1, and an explicit byte ceiling. Call `encode(encoder, source)` at the capture point, submit that encoder, then call `read_encoded(device, submission)`; `None` waits for all submitted work. `read(device, queue, source)` remains the convenience copy/submit/read path. A mutable borrow prevents overlapping maps through this owner. The caller must use the creating device and submit encoded copies before reading.
 
-Supported native formats are RGBA8/BGRA8 linear and sRGB, RGBA16Float, R32Float and RGBA32Float. Wrong-format, multisampled, array, non-D2, wrong-size and missing-COPY_SRC sources are rejected before copy encoding. Floating-point data is never interpreted or converted: NaN payloads, infinities and signed zeros survive byte-for-byte. `read_encoded_padded` plus `padded_bytes_per_row` retains the GPU copy layout for diagnostic exporters that consume explicit row pitch; ordinary `read_encoded` strips padding.
+Supported native formats are RGBA8/BGRA8 linear and sRGB, RGBA16Float, R32Float and RGBA32Float. Wrong-format, multisampled, array, non-D2, wrong-size and missing-COPY_SRC sources are rejected before copy encoding. Floating-point data is never interpreted or converted: NaN payloads, infinities and signed zeros survive byte-for-byte. `read_encoded` strips the row padding of the GPU copy.
 
 `BufferReadback` provides the same allocation ceiling, ordered encode, shared 30-second deadline and guaranteed unmap-on-return for opaque diagnostic buffers. Its configured byte count must be nonzero and copy-aligned; encoding copies exactly that count from source offset zero. The provider, not the SDK, interprets exposure/statistics layouts. Capture publication, metadata, float decoding and surface BGRA-to-RGBA packing remain host responsibilities.
 
@@ -63,7 +64,7 @@ prepass already produced its read-only depth attachment. An earlier contour entr
 is refused with `FrameError::StockOrder` naming both offending entries. CPU
 coverage is in `src/frame/frozen_tests.rs`.
 
-`PostChain::encode_geometry` takes a `FramePlan` whose `passes` slice is the frame's authored order. `validate_frame` walks that slice front to back and the executor encodes it in the same order; neither sorts it, so the `PassSlot` enum's declaration order carries no meaning. A pass may sample or load only a resource an earlier entry stored, and a read whose producer is listed after it fails as `FrameError::MissingProducer` naming the resource. `PostChain::encode_frozen` encodes a plan the same way and first refuses, before any feature prepares, an order the stock passes need that the plan breaks: `FrameError::StockOrder`, `FrameError::IncompleteDepth` or `FrameError::AttachmentContract` for an `OpaqueGbuffer` producer that tests depth no prepass completed.
+`PostChain::encode_geometry` takes a `FramePlan` whose `passes` slice is the frame's authored order. `validate_frame` walks that slice front to back and the executor encodes it in the same order; neither sorts it, so the `PassSlot` enum's declaration order carries no meaning. A pass may sample or load only a resource an earlier entry stored, and a read whose producer is listed after it fails as `FrameError::MissingProducer` naming the resource. `PostChain::encode_frozen` encodes a plan the same way and first refuses, before any feature prepares, an order the stock passes need that the plan breaks: `FrameError::StockOrder` or `FrameError::IncompleteDepth`.
 
 Each pass is one *entry*, `PassEntry { slot, occurrence }`. `PassSlot` is the role, shown in labels as `Geometry(role)`. Timing and captures name the entry: `PassId::Geometry(entry)` is `Geometry(Opaque)` for occurrence 0, exactly as before, and `Geometry(Opaque#1)` for the next appearance. `DrawContext` carries both `slot` (the role) and `entry`, so a feature declared in two entries of one role can tell them apart. The occurrence tells repeated appearances of one role apart: `PassDeclaration::new(slot)` and `FeaturePass::new(slot)` are occurrence 0, and `PassDeclaration::nth(slot, n)` / `FeaturePass::nth(slot, n)` name a later one. A feature draws only in the entry its `FeaturePass` names. `FrameError::AttachmentContract(entry)` names the entry that broke its contract. `FrameError::DuplicatePass(entry)` refuses a list that contains an entry twice, and `FrameError::MissingPass(entry)` refuses a feature that names an entry the list does not contain. Attachment, version, discard and transparency rules are unchanged. A geometry prefix that was encoded earlier in the same frame is recorded per entry (`PrepareContext::completed_in_prefix(entry)`), and the suffix skips exactly those entries. Tests: `frame_tests` and `tests/repeated_roles.rs`.
 
@@ -87,7 +88,7 @@ let reader = PassEntry::nth(PassSlot::Game(GamePlace::BeforeOpaque), 1);
 let declaration = context.pass(writer)?;
 ```
 
-`GamePlace::AfterDepthPrepass` passes belong to the depth prefix: they load and write the prepass's depth and colour products, so the depth pyramid, the occlusion metadata, SSAO and Opaque read what they added. A frozen plan is held to that. Such a pass must follow the `DepthNormalPrepass` entry, and the `DepthPyramid`, `OcclusionMetadata`, `Ssao` stages, `OpaqueGbuffer` and `Opaque` must follow it (`FrameError::StockOrder`). The last prefix entry (prepass or game pass after it) that writes a depth completes it: a read of Opaque's depth before that entry is `FrameError::IncompleteDepth`, and an `OpaqueGbuffer` producer that tests depth before it is `FrameError::AttachmentContract`.
+`GamePlace::AfterDepthPrepass` passes belong to the depth prefix: they load and write the prepass's depth and colour products, so the depth pyramid, the occlusion metadata, SSAO and Opaque read what they added. A frozen plan is held to that. Such a pass must follow the `DepthNormalPrepass` entry, and the `DepthPyramid`, `OcclusionMetadata`, `Ssao` stages and `Opaque` must follow it (`FrameError::StockOrder`). The last prefix entry (prepass or game pass after it) that writes a depth completes it: a read of Opaque's depth before that entry is `FrameError::IncompleteDepth`.
 
 A route that submits the depth prefix ahead of the frame (`PostChain::encode_geometry_prefix`) runs these passes inside it. The chain holds the features that draw them as prefix participants, registered with `PostChain::register_prefix`. Before encoding a prefix, the caller plans them into the prefix's pass list with `PostChain::plan_prefix_features` and orders the list. `encode_geometry_prefix` then prepares and draws only those participants beside the borrowed prefix features, parks every other retained feature, and restores them in registration order. In the frame that completes the prefix, a participant whose declared entries the prefix completed is neither prepared, committed nor drawn again. A participant whose entries the prefix did not all complete runs as usual, as it does in every frame drawn whole. A participant that plans no pass into a prefix takes no part in it: `plan_prefix_features` keeps no declaration for it, so the prefix parks it like any other retained feature, and the frame prepares, commits and finishes it as usual, as it does in a frame without a prefix. A caller that cannot encode the prefix it planned (its list cannot be ordered, or preparing its own features fails) drops the kept declarations with `PostChain::discard_prefix_plan`, so no later prefix encodes with them; `has_prefix_plan` reports whether any are kept. Tests: `frame/prefix_participant_tests.rs` and, in `render-scene`, `tests/game_passes/prefix_idle.rs` and `src/compositor/game/inputs_tests.rs`.
 
@@ -223,19 +224,19 @@ Sharpening is a separate, optional field, `AntiAliasing::sharpen: Option<CasSett
 composes with any resolve (see [Contrast adaptive sharpening](#contrast-adaptive-sharpening)).
 `AntiAliasing::new` leaves it `None`; `with_sharpen` sets it.
 
-`AntiAliasing::jitter: Option<ProjectionJitter>` shifts the projection by a sub-pixel offset.
+`ProjectionJitter` shifts the projection by a sub-pixel offset.
 `ProjectionJitter::new(length)` is a Halton(2,3) sequence of 1 to 64 frames
 (`ProjectionJitter::default()` has 8). `offset_pixels(frame_index)` gives the sub-pixel
 offset in internal raster pixels, strictly inside (-0.5, 0.5) with +y down, and
 `clip_offset(frame_index, size)` the matching clip-space translation. The projection shift moves
-the scene by +offset, so the pixel at `q` holds the scene at `q + 0.5 - offset`. `AntiAliasing::new`
-leaves jitter off. `PostResolve::Taa` turns it on with the default sequence
+the scene by +offset, so the pixel at `q` holds the scene at `q + 0.5 - offset`. Only
+`PostResolve::Taa` jitters, with the default sequence
 (`PostResolve::effective_jitter`); see [Temporal antialiasing](#temporal-antialiasing).
 `ProjectionJitter::for_extents(render, output)` returns the sequence for a scene rasterised below
 its output extent. Its length is `ceil(8 * max(Ow / Rw, Oh / Rh)^2)`, computed per axis with integers
 from the rounded extents: 8 at equal extents, 32 at 0.5, 18 at 0.67 and 14 at 0.77 of 1920x1080.
 It rejects empty extents, a render extent above the output or below half of it, and a length above
-64. Pass it through `AntiAliasing::with_jitter`; no default uses it yet.
+64. Temporal upscaling selects it by itself (`HdrPostSettings::effective_jitter`).
 
 `FrameConfig::validate` admits the sample counts every device guarantees (1 and 4).
 `FrameConfig::validate_device` also admits 2 and 8 when the device enabled
@@ -652,7 +653,7 @@ enabled are in [docs/rendering.md](../../docs/rendering.md#material-mip-bias).
 
 #### Qualification on the Radeon 780M
 
-The same measurements, repeated from [docs/rendering.md](../../docs/rendering.md#qualification-on-the-radeon-780m) so the crate page is complete. Section 7 of issue #256 measured `Temporal` against fixed gates on a composite scene that no tuning used. The runner is `qualification_matrix` in `crates/render-scene/src/compositor/qualification_matrix_tests.rs`. It drives `ConfiguredFrameRenderer` at two outputs (1920x1080 and 1452x921), three scales (0.50, 0.67, 0.77) and five modes: M1 bilinear, M2 EASU, M3 reduced TAA plus EASU, M4 `Temporal` and M5 full-resolution 1x TAA with no upscale. RCAS is off in all of them, `Temporal` ships with locks and the water producer off, and the mip bias is 0. The gates and the outcome rule were fixed before the first measurement and are not changed here.
+The same measurements, repeated from [docs/rendering.md](../../docs/rendering.md#qualification-on-the-radeon-780m) so the crate page is complete. Section 7 of issue #256 measured `Temporal` against fixed gates on a composite scene that no tuning used. The runner is `qualification_matrix` in `crates/render-scene/src/compositor/qualification_matrix_tests.rs`. It drives `ConfiguredFrameRenderer` at two outputs (1920x1080 and 1452x921), three scales (0.50, 0.67, 0.77) and five modes: M1 bilinear, M2 EASU, M3 reduced TAA plus EASU, M4 `Temporal` and M5 full-resolution 1x TAA with no upscale. RCAS is off in all of them, `Temporal` ships with locks off and no mask producer, and the mip bias is 0. The gates and the outcome rule were fixed before the first measurement and are not changed here.
 
 Device: AMD Radeon 780M, Mesa 26.0.8 RADV. Quality cells use a 4x4 supersampled reference, 64 warm-up frames and 4 measured frames per cell. Cost cells use the whole-frame GPU timestamp envelope (a timestamp pair around scene, post, copies and clears), 30 warm-up frames and 120 measured frames, one frame submitted and waited for at a time, so the numbers are per-frame latency on an idle queue. The full matrix took 1470 s. Lavapipe ran the same tests for correctness only; its times come from a CPU rasteriser and are not cost evidence.
 
@@ -725,7 +726,7 @@ every other mode no mask exists.
   clear is in the frame's own encoder, so a frame whose encoder is dropped never submits its producers' writes
   and the next frame clears again (`temporal_mask_clear_tests`, including a stale 1.0 that would otherwise be
   dilated and consumed).
-* Producer contract, for water today and for any future alpha or particle feature. Declare the mask as an
+* Producer contract, for any alpha, particle or water feature. Declare the mask as an
   indexed colour output with `AttachmentLoad::Load` and the view with `with_retained_contents()`, so the
   frame validator accepts the host clear as the producer. Write with `BlendOperation::Max` on both
   channels, so overlapping producers combine monotonically and no producer lowers another's value. Never
@@ -733,8 +734,8 @@ every other mode no mask exists.
   would erase an earlier producer and hide a stale mask from the cancelled-frame guarantee. Draw at one
   sample. Cap the value in the producer; the consumer applies no cap, so reactive 1 means the history weight
   is zero. A producer that is not a pass of its own must stay within the 32 byte colour attachment limit
-  (`ContractError::ColorAttachmentBytes`); see the water pass in the
-  [render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water).
+  (`ContractError::ColorAttachmentBytes`); the stock water pass already uses all 32 bytes, so a water
+  producer needs a pass of its own (see the [render-scene README](../render-scene/README.md#temporal-reactive-mask)).
 * Dilation. When a mask exists, `temporal mask dilate` (`taa_mask.wgsl`, `taa_mask_gpu.rs`) is scheduled
   after `temporal depth clip` and before `temporal create locks` or `temporal upscale`. It takes the 3x3
   maximum of each channel (clamped at the image border) into a per-slot `Rg8Unorm` "temporal prepared mask"
@@ -779,9 +780,9 @@ every other mode no mask exists.
   the three scales on lavapipe (the static region is bit-equal to the zero-mask run) and on the Radeon 780M
   (17 tests of `temporal_translucent` and `temporal_mask`). The composition tests were not run on the Radeon.
 
-The only producer in the tree is the water surface, which ships off: see the
-[render-scene README](../render-scene/README.md#temporal-reactive-mask-producer-water) for the measurement
-table that decided it and the follow-up issue.
+No pass in the tree produces the mask: the host clear is its only writer. A water producer was measured,
+made the TAA output worse and was deleted; see the
+[render-scene README](../render-scene/README.md#temporal-reactive-mask).
 
 ### Native-resolution RCAS
 
@@ -904,9 +905,8 @@ blocks with edge clamping, so the last odd row and column remain represented.
 Each extent is `ceil(previous / 2)` on each axis. By default, a requested level
 after 1x1 is rejected by the factory before target allocation. Set
 `bloom.policies.terminal = BloomTerminal::Repeat` to retain the requested level
-count on small extents. Small images can use `gaussian_extents` for default
-validation or `gaussian_extents_with_terminal(size, count, terminal)` to inspect
-the selected policy's extents.
+count on small extents. `gaussian_extents(size, count, terminal)` returns the
+extents the selected policy admits.
 
 After all downsample passes, levels execute from coarsest to finest. A horizontal
 Gaussian blur writes a scratch target. The vertical blur writes back into that
@@ -1048,7 +1048,7 @@ exposure metering, bloom and the tone stage read the TAA output. `taa.wgsl` foll
 compressed-luma clip); the current frame uses the nearest jittered sample (1x; a multisampled
 frame is not jittered, so the sample is the MSAA pixel and a static 4x image equals MSAA alone,
 0.00046 against 0.00161 with jitter at 64x64; resampling the shifted frame gave 0.00153), the box is the
-3x3 min/max, the blend is linear and history is read with Catmull-Rom; the history weight is scaled by `clamp(1 - k * offset_px, 0, 1)` (a motion-adaptive blend factor, as in Karis 2014 and later TAA talks), k = 1.5 at 1x and 16 on multisampled frames, so static pixels keep the full weight (static 1x 0.00201 against 0.00436 aliased, static 4x equal to MSAA alone) and in motion 4x TAA equals MSAA alone (0.00036 and 0.00043 against 0.00036 and 0.00043) while 1x TAA is 0.88x and 0.73x the history-reset error (mean over frames, +41 and -29 mm per frame); the cost is less supersampling of moving pixels. An explicit `with_jitter` sequence on a multisampled target is ignored; `taa_reference.rs` is the f64 reference the GPU tests compare against.
+3x3 min/max, the blend is linear and history is read with Catmull-Rom; the history weight is scaled by `clamp(1 - k * offset_px, 0, 1)` (a motion-adaptive blend factor, as in Karis 2014 and later TAA talks), k = 1.5 at 1x and 16 on multisampled frames, so static pixels keep the full weight (static 1x 0.00201 against 0.00436 aliased, static 4x equal to MSAA alone) and in motion 4x TAA equals MSAA alone (0.00036 and 0.00043 against 0.00036 and 0.00043) while 1x TAA is 0.88x and 0.73x the history-reset error (mean over frames, +41 and -29 mm per frame); the cost is less supersampling of moving pixels. A multisampled target is never jittered; `taa_reference.rs` is the f64 reference the GPU tests compare against.
 
 `taa resolve` reads the resolved scene color, the frame depth (`texture_depth_2d`, or
 `texture_depth_multisampled_2d` with a per-sample minimum when MSAA is on), the history texture and
@@ -1069,7 +1069,7 @@ texel, and from the minimum-depth sample when the target is multisampled, where 
 reprojection alone, so a cleared target needs no special case. With `velocity: None` the resolve binds
 a 1x1 zero texture of the same sample count, which is what a scene without velocity pipelines gets:
 object passes of `render-scene` write the wind residual only when built with `with_taa_velocity`
-(`ShadowedScene::with_taa_velocity` for shadow receivers; SSR scenes write it when the colour budget fits), and
+(`ShadowedTarget::velocity` for shadow receivers; SSR scenes write it when the colour budget fits), and
 output is unchanged from a build without the binding. The motion-adaptive
 weight reads the total displacement including the residual. The reference and GPU tests for this are in
 `taa_gpu_tests/velocity_tests.rs`.

@@ -48,8 +48,6 @@ pub enum CaptureRequestError {
     InvalidRecipe,
     #[error("capture recipe execution mode is not supported")]
     UnsupportedRecipe,
-    #[error("linear HDR capture requires an HDR frame profile")]
-    HdrRequired,
     #[error("requested frame does not produce {output:?}")]
     FeatureUnavailable { output: CaptureOutput },
     #[error("capture recipe requires {required} bytes, limit is {limit}")]
@@ -101,12 +99,6 @@ impl Captures {
         let mut reserved = 0;
         for (id, recipe) in &mut self.recipes {
             recipe.frame_samples = options.frame_profile.target().1;
-            if (recipe.outputs.contains(&CaptureOutput::LinearHdr)
-                || recipe.native_rcas().is_some())
-                && matches!(options.frame_profile, crate::FrameProfile::Legacy)
-            {
-                return Err(CaptureRequestError::HdrRequired);
-            }
             let bytes =
                 options
                     .capture_pool
@@ -315,12 +307,7 @@ impl RetainedHost {
         if self.initial_scene.is_none() {
             return self.queue_initial_recipe(generation, recipe);
         }
-        recipe.frame_samples = match self.options.frame_profile {
-            crate::FrameProfile::Legacy => 1,
-            crate::FrameProfile::Hdr { samples, .. }
-            | crate::FrameProfile::HdrNativeRcas { samples, .. }
-            | crate::FrameProfile::HdrUpscaled { samples, .. } => samples,
-        };
+        recipe.frame_samples = self.options.frame_profile.target().1;
         recipe.ao_format = self.validate_capture_features(generation, &recipe)?;
         let reserved: u64 = self.captures.reservations.values().sum();
         let limit = self.capture_pool;
@@ -331,11 +318,6 @@ impl RetainedHost {
             .reservation_bytes(&recipe, self.size, limit, reserved)?;
         if recipe.outputs.iter().any(|output| output.term().is_some()) && recipe.accumulated() {
             return Err(CaptureRequestError::UnsupportedRecipe);
-        }
-        if (recipe.outputs.contains(&CaptureOutput::LinearHdr) || recipe.native_rcas().is_some())
-            && matches!(self.options.frame_profile, crate::FrameProfile::Legacy)
-        {
-            return Err(CaptureRequestError::HdrRequired);
         }
         let id = self.request_capture_with_dependency(generation, recipe.require_pages)?;
         if recipe.require_geometry {

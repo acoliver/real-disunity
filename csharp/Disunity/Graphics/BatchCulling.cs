@@ -12,6 +12,7 @@ public struct MetadataValue
 /// <summary>What a culling callback is asked to cull for.</summary>
 public struct BatchCullingContext
 {
+    public BatchCullingViewType viewType;
     public NativeArray<Plane> cullingPlanes;
     public uint cullingLayerMask;
 }

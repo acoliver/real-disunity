@@ -221,9 +221,9 @@ impl Geometry {
                     extent: [0, 1, 2].map(|axis| (high[axis] - low[axis]) / 2.0),
                 },
                 resource: String::new(),
+                bind_poses: Vec::new(),
             },
             bytes,
-            notes: Vec::new(),
         }
     }
 }

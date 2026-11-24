@@ -1,5 +1,5 @@
-//! A game that reads the opaque snapshots in a scene that also has stock water. With the water
-//! draws suppressed the frame plans no water pass, so the snapshot request comes from the game's
+//! A game that reads the opaque snapshots in a scene that also has stock water. When the game
+//! draws the water the frame plans no water pass, so the snapshot request comes from the game's
 //! declared reads alone. With the stock draws the game's request joins the water's own requests
 //! for the final depth and the depth after the water. The frames are real: a configured HDR
 //! renderer over the synthetic quad scene with one water body, on lavapipe.
@@ -13,7 +13,7 @@ use super::snapshots::{COLOR, COVERED, DEPTHS, plane_depth};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_scene::compositor::{
-    FrameSnapshotError, GamePasses, SnapshotReads, SnapshotStatistics, WaterDraws,
+    FrameSnapshotError, GamePasses, SnapshotReads, SnapshotStatistics, StockReplacement,
 };
 
 /// A pixel in the ring of open water around the quad: 3.5 m east of the view centre, where the
@@ -37,11 +37,11 @@ pub(super) fn water_scene() -> RenderScene {
         .unwrap()
 }
 
-/// An HDR rig with one water body, drawn or suppressed as `draws` says, and the game installed.
-fn rig(draws: WaterDraws, inventory: GamePasses) -> Rig {
+/// An HDR rig with one water body and the game installed, which draws the water or not as its
+/// declaration says.
+fn rig(inventory: GamePasses) -> Rig {
     Rig::hdr(&water_scene(), SIZE, |settings| {
         settings.water = vec![water_body()];
-        settings.water_draws = draws;
         settings.game_passes = inventory;
     })
 }
@@ -52,23 +52,27 @@ fn water_calls(rig: &Rig) -> u64 {
 
 /// Renders one frame of a game that reads both depth snapshots into the depth probe, and checks
 /// what the game was lent and what it read at the covered pixel and in the open water.
-fn read_depths_in_a_frame(draws: WaterDraws) -> Rig {
-    let (inventory, seen) = SnapGame::inventory(DEPTHS, depth_plan());
-    let mut rig = rig(draws, inventory);
+fn read_depths_in_a_frame(replaces: StockReplacement) -> Rig {
+    let plan = Plan {
+        replaces,
+        ..depth_plan()
+    };
+    let (inventory, seen) = SnapGame::inventory(DEPTHS, plan);
+    let mut rig = rig(inventory);
     rig.render().expect("the frame renders without refusal");
-    assert_eq!(seen.lock().unwrap().lent, [Ok(())], "{draws:?}: lent");
+    assert_eq!(seen.lock().unwrap().lent, [Ok(())], "{replaces:?}: lent");
 
     let probe = rig.renderer.game_targets().texture(DEPTH_PROBE).unwrap();
     let probed = read_texels(&rig, &probe, 16);
     let [device, linear, ..] = texel(&probed, 4, COVERED.0, COVERED.1);
     assert!(
         (device - plane_depth()).abs() < 1e-5,
-        "{draws:?}: device depth {device}, expected {}",
+        "{replaces:?}: device depth {device}, expected {}",
         plane_depth()
     );
     assert!(
         (linear - 5.0).abs() < 1e-3,
-        "{draws:?}: {linear} m, expected 5 m"
+        "{replaces:?}: {linear} m, expected 5 m"
     );
 
     // The snapshots are of the opaque frame, so the water, which is drawn later, is not in them.
@@ -76,19 +80,19 @@ fn read_depths_in_a_frame(draws: WaterDraws) -> Rig {
     assert_eq!(
         device.to_bits(),
         1.0_f32.to_bits(),
-        "{draws:?}: the open water leaves the cleared device depth"
+        "{replaces:?}: the open water leaves the cleared device depth"
     );
     assert!(
         (linear - 10.0).abs() < 1e-3,
-        "{draws:?}: {linear} m, expected the 10 m far plane in the open water"
+        "{replaces:?}: {linear} m, expected the 10 m far plane in the open water"
     );
     rig
 }
 
 #[test]
-fn a_game_reading_depths_gets_them_when_the_water_is_suppressed_and_no_water_pass_runs() {
+fn a_game_reading_depths_gets_them_when_it_draws_the_water_and_no_water_pass_runs() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let rig = read_depths_in_a_frame(WaterDraws::Suppressed);
+    let rig = read_depths_in_a_frame(StockReplacement::WATER);
     assert_eq!(water_calls(&rig), 0, "no stock water pass records draws");
     assert_eq!(
         rig.renderer.snapshot_statistics(),
@@ -104,7 +108,7 @@ fn a_game_reading_depths_gets_them_when_the_water_is_suppressed_and_no_water_pas
 #[test]
 fn a_game_reading_depths_gets_them_beside_the_stock_water_passes() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let rig = read_depths_in_a_frame(WaterDraws::Stock);
+    let rig = read_depths_in_a_frame(StockReplacement::NONE);
     assert!(water_calls(&rig) > 0, "the stock water pass records draws");
     assert_eq!(
         rig.renderer.snapshot_statistics(),
@@ -118,7 +122,7 @@ fn a_game_reading_depths_gets_them_beside_the_stock_water_passes() {
 }
 
 #[test]
-fn a_game_reading_colour_gets_the_opaque_colour_when_the_water_is_suppressed() {
+fn a_game_reading_colour_gets_the_opaque_colour_when_it_draws_the_water() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut stock = Rig::hdr(&quad_scene(), SIZE, |_| {});
     stock.render().unwrap();
@@ -131,10 +135,11 @@ fn a_game_reading_colour_gets_the_opaque_colour_when_the_water_is_suppressed() {
         Plan {
             copy_color: true,
             fill: Fill::AfterTransparent,
+            replaces: StockReplacement::WATER,
             ..Plan::default()
         },
     );
-    let mut rig = rig(WaterDraws::Suppressed, inventory);
+    let mut rig = rig(inventory);
     rig.render().expect("the frame renders without refusal");
     assert_eq!(water_calls(&rig), 0, "no stock water pass records draws");
     assert_eq!(seen.lock().unwrap().lent, [Ok(())]);
@@ -154,21 +159,22 @@ fn a_game_reading_colour_gets_the_opaque_colour_when_the_water_is_suppressed() {
 }
 
 #[test]
-fn a_game_with_no_declared_reads_is_lent_nothing_beside_suppressed_water() {
+fn a_game_with_no_declared_reads_is_lent_nothing_beside_water_it_draws() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let (inventory, seen): (_, Arc<Mutex<Seen>>) = SnapGame::inventory(
         SnapshotReads::NONE,
         Plan {
             fill: Fill::AfterTransparent,
+            replaces: StockReplacement::WATER,
             ..Plan::default()
         },
     );
-    let mut rig = rig(WaterDraws::Suppressed, inventory);
+    let mut rig = rig(inventory);
     rig.render().expect("the frame renders without refusal");
     assert_eq!(water_calls(&rig), 0);
     assert_eq!(
         seen.lock().unwrap().lent,
         [Err(FrameSnapshotError::NotPrepared)],
-        "suppressed water asks for no snapshot on the game's behalf"
+        "water that the game draws asks for no snapshot on its behalf"
     );
 }

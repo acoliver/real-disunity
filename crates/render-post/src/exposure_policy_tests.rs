@@ -20,6 +20,7 @@ fn gpu_output_scale_precedes_bloom_addition() {
             .unwrap()
             .with_effects(&device, settings)
             .unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let out = color_texture(

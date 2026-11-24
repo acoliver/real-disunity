@@ -5,6 +5,12 @@ use super::common::{self, Counts, graphics, texture_binding};
 use std::sync::{Arc, Mutex};
 use wgpu::TextureFormat;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BuildContext;
+use worldrunner_render_post::{
+    DrawContext, FeatureDeclaration, FrameError, FrameFeature, GamePlace, PassDeclaration,
+    PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::EngineSemantic;
 use worldrunner_render_program::binding::ResourceLayout;
 use worldrunner_render_program::module::StageDeclarations;
@@ -13,16 +19,10 @@ use worldrunner_render_program::runtime::{
     PreparedProgramDraw, ProgramRuntime, TargetSignature,
 };
 use worldrunner_render_program::state::RasterState;
-use worldrunner_render_scene::executor::AttachmentView;
-use worldrunner_render_scene::executor::BuildContext;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec,
-        GameTargets, PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        DrawContext, FeatureDeclaration, FrameError, FrameFeature, GamePlace, PassDeclaration,
-        PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+        GameTargets, PassTarget, StockReplacement, TargetDeclaration, TargetExtent,
     },
     wgpu,
 };
@@ -67,7 +67,7 @@ pub const LIGHT_WGSL: &str = "
     return vec4<f32>(a.r, b.g, c.b, select(0.0, 1.0, d == 7u));
 }";
 
-/// The four formats of the engine's G-buffer, in attachment order.
+/// The four formats of a game's G-buffer, in attachment order.
 pub const FORMATS: [TextureFormat; 4] = [
     TextureFormat::Rgb10a2Unorm,
     TextureFormat::Rgba8UnormSrgb,
@@ -94,6 +94,8 @@ pub struct Knobs {
     pub without_depth: bool,
     /// Place the light pass after Opaque, where it draws over what the stock object drew.
     pub light_after_opaque: bool,
+    /// The stock surfaces the game draws, declared when the factory is installed.
+    pub replaces: StockReplacement,
     pub counts: Counts,
     /// The program runtime's counters after the latest preparation.
     pub stats: Option<worldrunner_render_program::runtime::RuntimeStats>,
@@ -116,6 +118,10 @@ pub struct StripGame {
 impl GameFeatureFactory for StripGame {
     fn name(&self) -> &'static str {
         "strip game"
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.knobs.lock().unwrap().replaces
     }
 
     fn targets(&self) -> Vec<TargetDeclaration> {

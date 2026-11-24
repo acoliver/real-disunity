@@ -11,8 +11,9 @@ namespace UnityEngine;
 /// <remarks>
 /// A sprite of a player's resources or made by <see cref="Create(Texture2D, Rect, Vector2)"/> keeps its managed
 /// <see cref="Texture2D"/>; a sprite of the scene has none, so <see cref="texture"/> is null for it, its
-/// <see cref="textureRect"/> is its <see cref="rect"/> and it has no border. A sprite is drawn as its rectangle:
-/// polygon meshes, extrusion and the mesh type are not simulated. A packed sprite draws the rectangle of its
+/// <see cref="textureRect"/> is its <see cref="rect"/> and it has no border. A sprite is drawn as its rectangle, so
+/// <see cref="Create(Texture2D, Rect, Vector2, float, uint, SpriteMeshType, Vector4, bool)"/> refuses the tight mesh type, extrusion and a
+/// fallback physics shape. A packed sprite draws the rectangle of its
 /// packed pixels, <see cref="textureRect"/>, while <see cref="rect"/> reports the rectangle it had before packing.
 /// </remarks>
 public sealed class Sprite : Object
@@ -58,14 +59,20 @@ public sealed class Sprite : Object
     /// <summary>Whether the sprite's pixels were packed into an atlas texture.</summary>
     public bool packed => Details?.Packed ?? false;
 
+    /// <summary>The overloads without a mesh type pass <see cref="SpriteMeshType.FullRect"/>, an extrude of 0 and no physics shape: the
+    /// sprite is its full rectangle, which is how the engine draws every sprite. The engine builds no tight outline mesh, so a
+    /// caller that leaves the mesh type out gets the rectangle and one that asks for <see cref="SpriteMeshType.Tight"/> by name
+    /// gets <see cref="NotSupportedException"/> from the overload that takes the mesh type.</summary>
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot) =>
         Create(texture, rect, pivot, DefaultPixelsPerUnit);
 
+    /// <inheritdoc cref="Create(Texture2D, Rect, Vector2)"/>
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit) =>
         Create(texture, rect, pivot, pixelsPerUnit, 0);
 
+    /// <inheritdoc cref="Create(Texture2D, Rect, Vector2)"/>
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit, uint extrude) =>
-        Create(texture, rect, pivot, pixelsPerUnit, extrude, SpriteMeshType.Tight);
+        Create(texture, rect, pivot, pixelsPerUnit, extrude, SpriteMeshType.FullRect);
 
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit, uint extrude, SpriteMeshType meshType) =>
         Create(texture, rect, pivot, pixelsPerUnit, extrude, meshType, Vector4.zero);
@@ -73,8 +80,10 @@ public sealed class Sprite : Object
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit, uint extrude, SpriteMeshType meshType, Vector4 border) =>
         Create(texture, rect, pivot, pixelsPerUnit, extrude, meshType, border, false);
 
-    /// <summary>Makes a sprite over <paramref name="rect"/> of <paramref name="texture"/>, whose pivot is a fraction of the rect.
-    /// Extrusion, the mesh type and the fallback physics shape are accepted and not simulated.</summary>
+    /// <summary>Makes a sprite over <paramref name="rect"/> of <paramref name="texture"/>, whose pivot is a fraction of the rect,
+    /// drawn as that rectangle. A tight mesh (<see cref="SpriteMeshType.Tight"/>), a nonzero <paramref name="extrude"/> and a
+    /// <paramref name="generateFallbackPhysicsShape"/> of true change geometry the engine does not build, so each throws
+    /// <see cref="NotSupportedException"/> naming the argument.</summary>
     public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit, uint extrude, SpriteMeshType meshType,
         Vector4 border, bool generateFallbackPhysicsShape)
     {
@@ -85,6 +94,12 @@ public sealed class Sprite : Object
             throw new ArgumentException($"Sprite.Create: pivot {pivot} must be finite");
         if (!InsideTexture(texture, rect))
             throw new ArgumentException($"Sprite.Create: rect {rect} must have a positive size and lie inside the {texture.width}x{texture.height} texture");
+        if (meshType == SpriteMeshType.Tight)
+            throw new NotSupportedException("Sprite.Create is not supported yet with SpriteMeshType.Tight: the engine draws a sprite as its full rectangle");
+        if (extrude > 0)
+            throw new NotSupportedException($"Sprite.Create is not supported yet with extrude {extrude}: the engine draws a sprite as its rectangle without extruded edges");
+        if (generateFallbackPhysicsShape)
+            throw new NotSupportedException("Sprite.Create is not supported yet with generateFallbackPhysicsShape: the engine builds no physics shape for a sprite");
         return DisunityHost.CreateSprite(texture, new SpriteDetails(rect, rect, Vector2.zero, border, false), pivot, pixelsPerUnit);
     }
 

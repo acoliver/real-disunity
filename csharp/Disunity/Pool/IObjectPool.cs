@@ -9,8 +9,8 @@ public interface IObjectPool<T> where T : class
     void Clear();
 }
 
-/// <summary>A handle that returns its element to the pool it came from when disposed. Disposing a
-/// default handle does nothing.</summary>
+/// <summary>A handle that returns its element to the pool it came from when disposed. A default handle names no
+/// pool and no element, so disposing it releases nothing.</summary>
 public readonly struct PooledObject<T> : IDisposable where T : class
 {
     private readonly T? _value;

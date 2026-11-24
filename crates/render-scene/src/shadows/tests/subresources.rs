@@ -1,4 +1,6 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_post::{BufferReadback, FrameError as ScheduleError};
 
 fn texture(context: &GpuContext, format: wgpu::TextureFormat) -> wgpu::Texture {
@@ -177,11 +179,13 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let mut shadowed = shadowed(&context, &source, settings()).unwrap();
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let mut shadow_scheduler = crate::compositor::FrameRenderer::new(context.device());
     for shadows in [false, true] {
         for (mip, layer) in [(0, 1), (1, 0), (1, 1)] {
             let color = texture(&context, OffscreenTarget::COLOR_FORMAT);
@@ -193,21 +197,26 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
             assert_eq!(color_view.size(), [514 >> mip, 482 >> mip]);
             assert_eq!(color_view.format(), OffscreenTarget::COLOR_FORMAT);
             if shadows {
-                // The submitting convenience API must preserve the same selection.
-                shadowed
-                    .render(&context, &view(), &color_view, &depth_view)
-                    .unwrap();
-            } else {
-                let mut encoder = context.submission().begin(context.device()).unwrap();
-                crate::compositor::encode_scene(
-                    &mut scheduler,
-                    context.device(),
-                    &mut encoder,
-                    (&mut gpu, &pipelines),
+                render_views(
+                    &mut shadowed,
+                    &mut shadow_scheduler,
+                    &context,
+                    &view(),
                     (&color_view, &depth_view),
-                    FrameUniform::new(&view(), source.effects()).unwrap(),
                 )
                 .unwrap();
+            } else {
+                let mut encoder = context.submission().begin(context.device()).unwrap();
+                scheduler
+                    .encoding()
+                    .encode_scene(
+                        context.device(),
+                        &mut encoder,
+                        (&mut gpu, &pipelines),
+                        (&color_view, &depth_view),
+                        FrameUniform::new(&view(), source.effects()).unwrap(),
+                    )
+                    .unwrap();
                 encoder.finish().submit().unwrap();
             }
             let after = [read_all(&context, &color), read_all(&context, &depth)];

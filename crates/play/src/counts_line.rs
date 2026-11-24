@@ -28,18 +28,15 @@ pub(crate) fn top_counts_line(
     })
 }
 
-/// `constants or state properties no layer set: _A, _B`: the first `top` of `names` in name order,
-/// and `and N more` for those past them. There is no line for no names.
-pub(crate) fn unset_constants_line(unset: &BTreeSet<String>, top: usize) -> Option<String> {
-    if unset.is_empty() {
+/// `title: _A, _B`: the first `top` of `names` in name order, and `and N more` for those past
+/// them. There is no line for no names.
+pub(crate) fn names_line(title: &str, names: &BTreeSet<String>, top: usize) -> Option<String> {
+    if names.is_empty() {
         return None;
     }
-    let shown: Vec<&str> = unset.iter().take(top).map(String::as_str).collect();
-    let line = format!(
-        "constants or state properties no layer set: {}",
-        shown.join(", ")
-    );
-    Some(match unset.len().saturating_sub(top) {
+    let shown: Vec<&str> = names.iter().take(top).map(String::as_str).collect();
+    let line = format!("{title}: {}", shown.join(", "));
+    Some(match names.len().saturating_sub(top) {
         0 => line,
         more => format!("{line}, and {more} more"),
     })
@@ -84,15 +81,15 @@ mod tests {
     }
 
     #[test]
-    fn the_unset_constants_line_names_the_first_names_in_order_and_counts_the_rest() {
+    fn the_names_line_names_the_first_names_in_order_and_counts_the_rest() {
         assert_eq!(
-            unset_constants_line(&names(&["_B", "_C", "_A"]), 8).as_deref(),
-            Some("constants or state properties no layer set: _A, _B, _C")
+            names_line("t", &names(&["_B", "_C", "_A"]), 8).as_deref(),
+            Some("t: _A, _B, _C")
         );
         assert_eq!(
-            unset_constants_line(&names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
-            Some("constants or state properties no layer set: _A, _B, and 3 more")
+            names_line("t", &names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
+            Some("t: _A, _B, and 3 more")
         );
-        assert_eq!(unset_constants_line(&BTreeSet::new(), 8), None);
+        assert_eq!(names_line("t", &BTreeSet::new(), 8), None);
     }
 }

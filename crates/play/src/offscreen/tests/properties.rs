@@ -35,7 +35,10 @@ fn each_kind_of_value_keeps_its_name_and_its_numbers() {
         WorldValue::Matrix("_Map".into(), matrix),
     ]);
     let (render, stored) = no_textures();
-    let layer = layer(&found, &mut Textures::new(&render, &stored));
+    let layer = layer(
+        &found,
+        &mut Textures::new(&render, &stored, &BTreeMap::new()),
+    );
     assert_eq!(
         layer.values.get("_Cutoff"),
         Some(&PropertyValue::Float(0.5))
@@ -59,7 +62,10 @@ fn a_name_that_two_kinds_hold_takes_the_later_kind() {
         WorldValue::Vector("_Both".into(), [2.0; 4]),
     ]);
     let (render, stored) = no_textures();
-    let layer = layer(&found, &mut Textures::new(&render, &stored));
+    let layer = layer(
+        &found,
+        &mut Textures::new(&render, &stored, &BTreeMap::new()),
+    );
     assert_eq!(
         layer.values.get("_Both"),
         Some(&PropertyValue::Vector([2.0; 4]))
@@ -78,7 +84,10 @@ fn an_array_keeps_its_name_and_its_elements_in_order() {
         WorldValue::MatrixArray("_Bones".into(), matrices.clone()),
     ]);
     let (render, stored) = no_textures();
-    let layer = layer(&found, &mut Textures::new(&render, &stored));
+    let layer = layer(
+        &found,
+        &mut Textures::new(&render, &stored, &BTreeMap::new()),
+    );
     assert_eq!(
         layer.values.get("_Weights"),
         Some(&PropertyValue::VectorArray(vectors))
@@ -99,7 +108,10 @@ fn a_name_that_a_single_value_and_an_array_hold_takes_the_array_and_the_matrix_a
         WorldValue::MatrixArray("_Arrays".into(), vec![[6.0; 16]]),
     ]);
     let (render, stored) = no_textures();
-    let layer = layer(&found, &mut Textures::new(&render, &stored));
+    let layer = layer(
+        &found,
+        &mut Textures::new(&render, &stored, &BTreeMap::new()),
+    );
     assert_eq!(
         layer.values.get("_Single"),
         Some(&PropertyValue::VectorArray(vec![[4.0; 4]]))
@@ -126,7 +138,8 @@ fn a_texture_slot_names_a_render_texture_a_stored_texture_or_nothing() {
         WorldValue::Texture("_Gone".into(), texture_slot(TextureRef::Render(gone))),
         WorldValue::Texture("_None".into(), TextureSlot::default()),
     ]);
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = layer(&found, &mut textures);
     let names: Vec<_> = layer.textures.keys().map(String::as_str).collect();
     assert_eq!(names, ["_Render", "_Stored"]);
@@ -159,7 +172,10 @@ fn a_texture_scale_and_offset_add_no_value() {
     let found = properties(vec![WorldValue::Texture("_Main".into(), slot)]);
     let (render, _) = no_textures();
     let stored = BTreeSet::from([5]);
-    let layer = layer(&found, &mut Textures::new(&render, &stored));
+    let layer = layer(
+        &found,
+        &mut Textures::new(&render, &stored, &BTreeMap::new()),
+    );
     assert!(layer.values.get("_Main_ST").is_none());
     assert!(layer.values.get("_Main").is_none());
 }

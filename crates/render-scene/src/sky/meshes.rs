@@ -78,6 +78,10 @@ pub(crate) struct MeshDraw {
     pub anchored: bool,
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
+    /// The level's first index in `indices` and the vertex its indices count from in `vertices`,
+    /// which hold other levels as well.
+    pub first_index: u32,
+    pub base_vertex: i32,
     pub count: u32,
     /// The scene material the body draws with, whose prepared set the program path binds.
     pub material_index: usize,
@@ -339,14 +343,14 @@ impl Meshes {
             pipeline.bind(pass);
             pass.set_bind_group(0, frame, &[]);
             let geometry = GeometryDraw::new(
-                &layout,
+                layout,
                 &[draw.vertices.clone(), draw.instance.clone()],
                 &ImportedGeometry::Indexed(ImportedIndices {
                     buffer: draw.indices.clone(),
                     format: wgpu::IndexFormat::Uint32,
-                    first: 0,
+                    first: draw.first_index,
                     count: draw.count,
-                    base_vertex: 0,
+                    base_vertex: draw.base_vertex,
                 }),
                 0..1,
             )
@@ -411,7 +415,9 @@ mod tests {
         let scene = crate::renderer::ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
-        );
+            1,
+        )
+        .unwrap();
         let family = scene.object_context().family();
         let authority = context.submission();
         for physical in [false, true] {

@@ -14,6 +14,8 @@ use worldrunner_render_program::unity::synthetic::{
 use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
 use worldrunner_world_simulation::graphics::ComputeBufferId;
 
+use crate::offscreen::Settling;
+
 use super::super::flush::{HEIGHT, scaling};
 use super::super::kernels::{copy_object, write_compute};
 use super::super::support::{compute_buffer, dispatch};
@@ -237,7 +239,9 @@ fn a_frame_binds_the_materials_buffer_and_counts_the_property_of_one_that_is_gon
         let directory = tempfile::tempdir().unwrap();
         let mut host = host(PlayerKernels::new(directory.path()));
 
-        let (operations, report) = host.frame(&snapshot(&mut world), &meshes).unwrap();
+        let (operations, report) = host
+            .frame(&snapshot(&mut world), &meshes, Settling::Wait, &[])
+            .unwrap();
 
         assert!(operations.is_some(), "destroyed {destroyed}");
         let left_out: BTreeMap<_, _> = if destroyed {

@@ -2,9 +2,7 @@
 //! with the highest depth that draws to display 0 and not into a texture.
 use worldrunner_camera::CameraLens;
 use worldrunner_world_simulation::graphics::RenderTextureId;
-use worldrunner_world_simulation::presentation::extraction::{
-    SpriteTextures, WorldRenderPlan, extract_world,
-};
+use worldrunner_world_simulation::presentation::extraction::{WorldRenderPlan, extract_world};
 use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentError, ObjectDesc, World, WorldError, WorldSettings,
@@ -22,7 +20,7 @@ fn world_of(cameras: &[Camera]) -> World {
 }
 
 fn plan(cameras: &[Camera]) -> Result<WorldRenderPlan, WorldError> {
-    extract_world(&world_of(cameras), &SpriteTextures::default(), [64, 32])
+    extract_world(&world_of(cameras), [64, 32])
 }
 
 fn lens_of(plan: &WorldRenderPlan) -> CameraLens {

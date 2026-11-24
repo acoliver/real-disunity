@@ -4,21 +4,35 @@ use super::camera::FrameCameraHandle;
 use super::engine::EngineConstants;
 use super::environment::FrameEnvironmentHandle;
 use super::occlusion::FrameOcclusionHandle;
-use super::resources::{GameResources, SharedTextures};
+use super::replacement::StockReplacement;
+use super::resources::GameResources;
+use super::resources::SharedTextures;
 use super::scene_meshes::FrameSceneMeshesHandle;
 use super::scene_textures::FrameSceneTexturesHandle;
-use super::shadows::{FrameShadowHandle, FrameShadows};
-use super::snapshots::{FrameSnapshotHandle, SnapshotReads};
-use super::targets::{GameTargets, TargetDeclaration, TargetStore};
+use super::shadows::FrameShadowHandle;
+use super::shadows::FrameShadows;
+use super::snapshots::FrameSnapshotHandle;
+use super::snapshots::SnapshotReads;
+use super::targets::GameTargets;
+use super::targets::TargetDeclaration;
+use super::targets::TargetStore;
 use super::terrain::FrameTerrainHandle;
 use crate::compositor::FrameRenderer;
 use crate::device::GpuContext;
 use std::sync::Arc;
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
-use worldrunner_render_post::{
-    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-    FrameFeature, PassDeclaration, PostError, PrepareContext, PreparedFeature,
-};
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_post::AttachmentView;
+use worldrunner_render_post::BuildContext;
+use worldrunner_render_post::DrawContext;
+use worldrunner_render_post::FeatureDeclaration;
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_post::FrameError;
+use worldrunner_render_post::FrameFeature;
+use worldrunner_render_post::PassDeclaration;
+use worldrunner_render_post::PostError;
+use worldrunner_render_post::PrepareContext;
+use worldrunner_render_post::PreparedFeature;
 
 /// What a factory is given to build the feature of one renderer generation.
 pub struct GameBuild<'a> {
@@ -91,6 +105,14 @@ pub trait GameFeatureFactory: Send + Sync {
     /// planning.
     fn snapshot_reads(&self) -> SnapshotReads {
         SnapshotReads::NONE
+    }
+
+    /// The stock surfaces this contribution's passes draw themselves. The default replaces
+    /// nothing. When any factory of the inventory declares the terrain surface or the water, the
+    /// renderer built from it draws neither in its stock frames, and the declaration holds for
+    /// every frame of that generation.
+    fn replaces_stock(&self) -> StockReplacement {
+        StockReplacement::NONE
     }
 
     /// Builds the feature for one generation. It plans its passes with
@@ -187,6 +209,15 @@ impl GamePasses {
             })
     }
 
+    /// The stock surfaces any factory of the inventory draws itself.
+    pub(crate) fn stock_replacement(&self) -> StockReplacement {
+        self.factories
+            .iter()
+            .fold(StockReplacement::NONE, |replaced, factory| {
+                replaced.union(factory.replaces_stock())
+            })
+    }
+
     fn declarations(&self) -> Vec<TargetDeclaration> {
         self.factories
             .iter()
@@ -243,6 +274,7 @@ impl GamePasses {
         if self.factories.is_empty() {
             return Ok(());
         }
+        renderer.game.replaces = self.stock_replacement();
         let frame = renderer.targets().config();
         let store = Arc::new(TargetStore::build(
             context.device(),
@@ -301,6 +333,10 @@ impl GamePasses {
 /// What the game inventory installed on one renderer generation.
 #[derive(Default)]
 pub(crate) struct Installed {
+    /// The stock surfaces the inventory's factories draw themselves, set when the inventory is
+    /// installed. The stock water registers after that, so a game that draws the water leaves
+    /// the chain with no stock water feature.
+    pub(crate) replaces: StockReplacement,
     /// How many features the factories registered on the chain.
     pub(crate) features: usize,
     /// The textures behind the declared targets: made from the previous generation's, and handed

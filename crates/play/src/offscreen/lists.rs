@@ -31,17 +31,30 @@ use std::sync::Arc;
 use glam::Vec3;
 use worldrunner_render_program::ids::RendererId;
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record};
-use worldrunner_render_program::unity::shader::{PassSelector, tag_values_match};
-use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
-use worldrunner_world_simulation::shadows::{CASTS_NO_SHADOW, SHADOWS_ONLY};
+use worldrunner_render_program::unity::offscreen::frame::DrawList;
+use worldrunner_render_program::unity::offscreen::frame::Instances;
+use worldrunner_render_program::unity::offscreen::frame::ListDraw;
+use worldrunner_render_program::unity::offscreen::frame::Record;
+use worldrunner_render_program::unity::shader::PassSelector;
+use worldrunner_render_program::unity::shader::tag_values_match;
+use worldrunner_world_simulation::graphics::RendererListDesc;
+use worldrunner_world_simulation::graphics::RendererView;
+use worldrunner_world_simulation::shadows::CASTS_NO_SHADOW;
+use worldrunner_world_simulation::shadows::SHADOWS_ONLY;
 
-use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
-use super::builtins::{add_screen_size, view_layer};
-use super::frame::{
-    LIST_UNTAGGED_LIGHT_MODE, Mapper, PASS_TAG, RendererSkip, ShaderInfo, Skip, fills_target,
-};
-use super::light_data::{MainLight, item_values};
+use super::bounds::enclosing_sphere;
+use super::bounds::outside_planes;
+use super::bounds::touches_sphere;
+use super::builtins::view_layer;
+use super::frame::LIST_UNTAGGED_LIGHT_MODE;
+use super::frame::Mapper;
+use super::frame::PASS_TAG;
+use super::frame::RendererSkip;
+use super::frame::ShaderInfo;
+use super::frame::Skip;
+use super::frame::fills_target;
+use super::light_data::MainLight;
+use super::light_data::item_values;
 use super::script::Culled;
 
 /// The `LightMode` value of the passes that draw a shadow caster into a shadow map. The names of
@@ -60,8 +73,9 @@ const NO_CASTER_PASS: &str = "no shadow caster pass";
 const NO_SHADOW_CAST: &str = "casts no shadow";
 const SHADOWS_ONLY_LEFT_OUT: &str = "casts shadows only";
 
-/// The winding that counts as a front face for a list or a mesh draw. The image is the other way
-/// up (see `camera::clip_from_gl`), which reverses a winding, as for a camera render.
+/// The winding that counts as a front face for every draw the player plans: camera renders, lists,
+/// mesh and procedural draws. It follows from the clip-space Y the stages write (see
+/// `camera::clip_from_gl`).
 pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
 
 impl ShaderInfo {
@@ -77,7 +91,7 @@ impl ShaderInfo {
     /// draws. A pass with no `LightMode` has [`LIST_UNTAGGED_LIGHT_MODE`]; a pass tagged with
     /// another value, `Always` included, keeps it. [`list_pass_selector`] picks the pass by the
     /// same rule.
-    fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
+    pub(super) fn list_tag<'t>(&self, tags: &'t [String]) -> Option<&'t String> {
         tags.iter().find(|tag| {
             self.has_light_mode(tag)
                 || (self.has_untagged && tag_values_match(LIST_UNTAGGED_LIGHT_MODE, tag))
@@ -105,17 +119,21 @@ struct Candidate {
 }
 
 impl<'a> Mapper<'a> {
-    /// Keeps the renderers a culling record admits: those whose layer is in `mask` and that are
-    /// not wholly outside one of `planes`. The renderers of the mask that the planes drop are kept
-    /// apart for the shadow lists, which cast from outside the camera's view.
-    pub(super) fn cull(&mut self, id: u64, mask: u32, planes: &[[f32; 4]]) {
+    /// Keeps the renderers the culling record at `record` admits: those of its set, which the world
+    /// fixed when the script culled on the layers of `mask`, that are not wholly outside one of
+    /// `planes`. The world makes a set for every cull; a record without one keeps nothing. The
+    /// renderers of the mask that the planes drop are kept apart for the shadow lists, which cast
+    /// from outside the camera's view; they come from the same set, so a caster that was not
+    /// drawable when the record was made stays out.
+    pub(super) fn cull(&mut self, record: usize, id: u64, mask: u32, planes: &[[f32; 4]]) {
         let snapshot = self.snapshot;
-        let (mut by_layer, mut by_planes) = (0, 0);
+        let candidates = snapshot.record_renderers(record).unwrap_or_default();
+        let mut by_planes = 0;
         let mut culled = Culled::default();
-        for (index, view) in snapshot.renderers.iter().enumerate() {
-            if view.layer >= 32 || (mask >> view.layer) & 1 == 0 {
-                by_layer += 1;
-            } else if !planes.is_empty() && outside_planes(planes, &self.corners_of(view)) {
+        for &index in candidates {
+            let index = index as usize;
+            let view = &snapshot.renderers[index];
+            if !planes.is_empty() && outside_planes(planes, &self.corners_of(view)) {
                 by_planes += 1;
                 culled.outside_view.push(index);
             } else {
@@ -125,7 +143,6 @@ impl<'a> Mapper<'a> {
         let report = &mut self.report.lists;
         report.culls += 1;
         report.kept += culled.kept.len();
-        report.out_by_layer += by_layer;
         report.out_by_planes += by_planes;
         self.script.culls.insert(id, Arc::new(culled));
         self.script.cull_masks.insert(id, mask);
@@ -217,10 +234,12 @@ impl<'a> Mapper<'a> {
         match &self.script.camera {
             Some(setup) if !fills_target(setup.viewport) => Err(Skip::PartialViewport),
             Some(setup) => {
-                let mut values = view_layer(&setup.view, &setup.projection, self.settings.depth);
-                if let Some(size) = self.target_size() {
-                    add_screen_size(&mut values, size);
-                }
+                let values = view_layer(
+                    &setup.view,
+                    &setup.projection,
+                    self.target_size(),
+                    setup.half_height,
+                );
                 Ok((values, setup.view.inverse().w_axis.truncate()))
             }
             None => Ok((PropertyLayer::default(), Vec3::ZERO)),
@@ -435,7 +454,7 @@ impl<'a> Mapper<'a> {
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
-                    instances: 1,
+                    instances: Instances::Count(1),
                     per_draw: item_values(main, layer),
                 }
             })

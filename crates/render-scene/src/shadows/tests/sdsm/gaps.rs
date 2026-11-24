@@ -1,5 +1,6 @@
 mod fixes;
 use super::*;
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 
 #[test]
@@ -7,7 +8,8 @@ fn gpu_sdsm_capture_rejects_changed_layer_count_before_encoding() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     renderer
         .set_depth_fitting(
             &context,
@@ -25,11 +27,12 @@ fn gpu_sdsm_capture_rejects_changed_layer_count_before_encoding() {
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let serial = context.submission().submitted_serial();
     let error = renderer
-        .render_depth_fitted(
+        .render_depth_fitted_host(
             &context,
             &view(),
             (&target.color_attachment(), &target.depth_attachment()),
-            0,
+            (Some(0), false, &[]),
+            &mut scheduler,
         )
         .unwrap_err();
     assert!(matches!(
@@ -44,18 +47,19 @@ fn gpu_sdsm_capture_rejects_changed_layer_count_before_encoding() {
     renderer.set_effects(source.effects().unwrap()).unwrap();
     assert!(
         renderer
-            .render_depth_fitted(
+            .render_depth_fitted_host(
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                0,
+                (Some(0), false, &[]),
+                &mut scheduler
             )
             .unwrap()
             .is_some()
     );
     renderer.set_depth_fitting(&context, None).unwrap();
     renderer.set_effects(configured.effects().unwrap()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(renderer.map.depth.layers(), 2);
 }
 
@@ -64,7 +68,8 @@ fn gpu_sdsm_capture_includes_cold_and_invalidated_terrain_pages() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     enable_pages(&context, &mut renderer, 5);
     renderer
         .set_depth_fitting(
@@ -82,11 +87,12 @@ fn gpu_sdsm_capture_includes_cold_and_invalidated_terrain_pages() {
             renderer.gpu.invalidate_terrain_pages([0.0; 2], [1.0; 2]);
         }
         let fit = renderer
-            .render_depth_fitted(
+            .render_depth_fitted_host(
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                frame,
+                (Some(frame), false, &[]),
+                &mut scheduler,
             )
             .unwrap()
             .unwrap();
@@ -95,7 +101,14 @@ fn gpu_sdsm_capture_includes_cold_and_invalidated_terrain_pages() {
         );
         assert!(renderer.gpu.terrain_pages_ready());
         let actual = target.read_rgba8(&context).unwrap();
-        assert_fitted_pixels(&mut renderer, &context, &view(), &mut target, fit, &actual);
+        assert_fitted_pixels(
+            (&mut renderer, &mut scheduler),
+            &context,
+            &view(),
+            &mut target,
+            fit,
+            &actual,
+        );
         outputs.push(actual);
     }
     assert_eq!(outputs[0], outputs[1]);
@@ -106,7 +119,8 @@ fn gpu_sdsm_capture_reuses_page_uploads_across_segments() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     enable_pages(&context, &mut renderer, 1);
     renderer
         .set_depth_fitting(
@@ -120,11 +134,12 @@ fn gpu_sdsm_capture_reuses_page_uploads_across_segments() {
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     for frame in 0..3 {
         let fit = renderer
-            .render_depth_fitted(
+            .render_depth_fitted_host(
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                frame,
+                (Some(frame), false, &[]),
+                &mut scheduler,
             )
             .unwrap()
             .unwrap();

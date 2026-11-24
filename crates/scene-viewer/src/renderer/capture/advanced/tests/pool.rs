@@ -57,7 +57,7 @@ fn setup_pool(size: [u32; 2]) -> (RetainedHost, Renderer) {
         },
     )
     .unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     (host, renderer)
 }
 
@@ -172,7 +172,7 @@ fn default_capture_pool_execution_after_resize_preserves_driver_error() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let temporal = RetainedCaptureRecipe::new(
         1,
         2,

@@ -1,9 +1,9 @@
 use super::*;
-use crate::player_ui::PlayerUi;
-use worldrunner_render_plan::{
-    SceneTexture, TexelFormat, TextureColorSpace,
-    ui::{UiDraw, UiDrawKind, UiPresentation},
-};
+use crate::player_ui::{PlayerUi, Screen};
+use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
+use worldrunner_scene_viewer::RetainedUpdate;
+use worldrunner_world_simulation::ui::UiTexture;
+use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
 
 fn fixture() -> (UiPresentation, SpriteTextures) {
     let identity = FIRST_PLAYER_TEXTURE;
@@ -29,7 +29,8 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
             corners: [[0., 0., 0.], [8., 0., 0.], [8., 8., 0.], [0., 8., 0.]],
             uv_rect: [0., 0., 1., 1.],
             color: [1.; 4],
-            texture: Some(identity),
+            texture: Some(UiTexture::Image(identity)),
+            material: None,
             sorting_layer: 0,
             sorting_order: 0,
             hierarchy_order: 1,
@@ -40,6 +41,14 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
     (plan, textures)
 }
 
+/// A square screen of 64 pixels on a device that takes large textures.
+fn square() -> Screen {
+    Screen {
+        size: [64, 64],
+        max_texture: 4096,
+    }
+}
+
 fn changes(
     ui: &mut PlayerUi,
     plan: &UiPresentation,
@@ -47,9 +56,18 @@ fn changes(
     textures: &SpriteTextures,
     player: &PlayerTextures,
 ) -> bool {
-    ui.update(plan.clone(), [width, 64], textures, player, |_| {})
-        .unwrap()
-        .is_some()
+    ui.update(
+        plan.clone(),
+        Screen {
+            size: [width, 64],
+            max_texture: 4096,
+        },
+        textures,
+        player,
+        |_| {},
+    )
+    .unwrap()
+    .is_some()
 }
 
 #[test]
@@ -80,7 +98,7 @@ fn unavailable_images_leave_other_ui_draws_in_the_frame() {
     plan.draws.push(solid);
     for identity in [7, FIRST_PLAYER_TEXTURE + 1, 7] {
         let mut missing = plan.draws[0].clone();
-        missing.texture = Some(identity);
+        missing.texture = Some(UiTexture::Image(identity));
         plan.draws.push(missing);
     }
     let mut ui = PlayerUi::default();
@@ -88,7 +106,7 @@ fn unavailable_images_leave_other_ui_draws_in_the_frame() {
     let mut reports = vec![];
     for frame in 0..3 {
         let update = ui
-            .update(plan.clone(), [64, 64], &textures, &player, |line| {
+            .update(plan.clone(), square(), &textures, &player, |line| {
                 reports.push(line);
             })
             .unwrap();
@@ -146,7 +164,7 @@ fn conversion_failure_removes_the_image_and_later_storage_restores_it() {
     let mut reports = vec![];
     for frame in 0..3 {
         let update = ui
-            .update(plan.clone(), [64, 64], &textures, &player, |line| {
+            .update(plan.clone(), square(), &textures, &player, |line| {
                 reports.push(line);
             })
             .unwrap();
@@ -168,10 +186,11 @@ fn conversion_failure_removes_the_image_and_later_storage_restores_it() {
 fn unavailable_text_coverage_is_still_an_error() {
     let (mut plan, textures) = fixture();
     plan.draws[0].kind = UiDrawKind::Text;
+    plan.draws[0].texture = Some(UiTexture::Coverage(FIRST_PLAYER_TEXTURE));
     let error = PlayerUi::default()
         .update(
             plan,
-            [64, 64],
+            square(),
             &textures,
             &PlayerTextures::default(),
             |_| {},
@@ -183,8 +202,117 @@ fn unavailable_text_coverage_is_still_an_error() {
 #[test]
 fn generic_overlay_still_rejects_unresolved_graphics() {
     let (plan, _) = fixture();
-    let error =
-        worldrunner_render_scene::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new())
-            .unwrap_err();
+    let error = worldrunner_render_scene::simulation::UiOverlay::from_presentation(
+        &plan,
+        &BTreeMap::new(),
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap_err();
     assert!(error.to_string().contains("unresolved UI texture identity"));
+}
+
+mod targets {
+    use super::*;
+    use crate::gpu_player::UiOffer;
+    use worldrunner_render_plan::{TextureFilter, TextureSampler, TextureWrap};
+    use worldrunner_render_scene::simulation::UiTarget;
+    use worldrunner_world_simulation::graphics::RenderTextureId;
+
+    fn id(bits: u64) -> RenderTextureId {
+        RenderTextureId::from_bits(bits)
+    }
+
+    fn target(bits: u64) -> UiTarget {
+        let sampler = TextureSampler {
+            filter: TextureFilter::Point,
+            wrap_u: TextureWrap::Clamp,
+            wrap_v: TextureWrap::Clamp,
+        };
+        UiTarget::new(id(bits), None, sampler).unwrap()
+    }
+
+    fn over(bits: u64) -> UiDraw {
+        let (plan, _) = fixture();
+        UiDraw {
+            texture: Some(UiTexture::Target(id(bits))),
+            ..plan.draws[0].clone()
+        }
+    }
+
+    fn plan_of(bits: &[u64]) -> UiPresentation {
+        UiPresentation {
+            draws: bits.iter().map(|bits| over(*bits)).collect(),
+            ..UiPresentation::default()
+        }
+    }
+
+    #[test]
+    fn a_draw_whose_texture_the_host_answers_for_stays_and_its_texture_is_offered() {
+        let mut ui = PlayerUi::default();
+        let mut plan = plan_of(&[1, 2]);
+        let mut reports = Vec::new();
+        let offers = vec![
+            (id(1), UiOffer::Written(target(1))),
+            (id(2), UiOffer::Unwritten(target(2))),
+        ];
+        let offered = ui.offer_targets(&mut plan, offers, |line| reports.push(line));
+        assert_eq!(
+            offered.iter().map(UiTarget::id).collect::<Vec<_>>(),
+            [id(1), id(2)]
+        );
+        assert_eq!(plan.draws.len(), 2);
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].contains("shows nothing until a frame draws it"));
+    }
+
+    #[test]
+    fn a_draw_over_an_unavailable_texture_is_left_out_and_named_once() {
+        let mut ui = PlayerUi::default();
+        let mut reports = Vec::new();
+        for _ in 0..3 {
+            let mut plan = plan_of(&[1, 2]);
+            let offers = vec![
+                (id(1), UiOffer::Unavailable("destroyed")),
+                (id(2), UiOffer::Unavailable("multisampled")),
+            ];
+            let offered = ui.offer_targets(&mut plan, offers, |line| reports.push(line));
+            assert!(offered.is_empty());
+            assert!(plan.draws.is_empty());
+        }
+        assert_eq!(reports.len(), 2, "{reports:?}");
+        assert!(reports[0].contains("left out: destroyed"));
+        assert!(reports[1].contains("left out: multisampled"));
+    }
+
+    #[test]
+    fn an_image_draw_is_not_touched_by_the_offer() {
+        let (plan, _) = fixture();
+        let mut kept = plan.clone();
+        let mut ui = PlayerUi::default();
+        let offered = ui.offer_targets(&mut kept, Vec::new(), |_| {});
+        assert!(offered.is_empty());
+        assert_eq!(kept, plan);
+    }
+
+    #[test]
+    fn the_overlay_the_player_builds_names_the_targets_the_offer_answers() {
+        let mut ui = PlayerUi::default();
+        let mut plan = plan_of(&[1]);
+        let offers = vec![(id(1), UiOffer::Written(target(1)))];
+        ui.offer_targets(&mut plan, offers, |_| {});
+        let textures = SpriteTextures::default();
+        let update = ui
+            .update(
+                plan,
+                square(),
+                &textures,
+                &PlayerTextures::default(),
+                |_| {},
+            )
+            .unwrap();
+        let Some(RetainedUpdate::Ui(overlay)) = update else {
+            panic!("a draw over an offered target changes the overlay");
+        };
+        assert_eq!(overlay.targets(), [id(1)]);
+    }
 }

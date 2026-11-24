@@ -12,7 +12,7 @@ fn capture_offscreen(ordinary_prewarm_frames: usize) {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     for _ in 0..ordinary_prewarm_frames {
         assert!(renderer.render_retained(&mut host).unwrap());
         renderer.drain().unwrap();
@@ -75,7 +75,7 @@ fn accumulated_capture_keeps_offscreen_packet_when_admission_is_blocked() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let device = renderer.context.device().clone();
     let authority = renderer.context.submission().clone();
     let (operations, image, _runtime) = clearing_operations(&device, &authority);
@@ -97,12 +97,20 @@ fn accumulated_capture_keeps_offscreen_packet_when_admission_is_blocked() {
     let before = authority.submitted_serial();
     let first = renderer
         .execution
-        .acquire_capture(&renderer.context, [64, 64])
+        .acquire_capture(
+            &renderer.context,
+            [64, 64],
+            renderer.presentation.output_format(),
+        )
         .unwrap()
         .unwrap();
     let second = renderer
         .execution
-        .acquire_capture(&renderer.context, [64, 64])
+        .acquire_capture(
+            &renderer.context,
+            [64, 64],
+            renderer.presentation.output_format(),
+        )
         .unwrap()
         .unwrap();
 

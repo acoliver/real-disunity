@@ -1,13 +1,10 @@
 //! Terrain material arrays: the resident textures that scene terrain surfaces name, gathered into
 //! one 2D array per channel for a game's pass to index by layer.
-use super::{EngineConstants, SceneSources};
+use super::{EngineConstants, SceneSources, fill::Fill};
 use crate::compositor::game::lent::FrameInputError;
 use crate::compositor::game::resources::{GameResourceError, GameResources};
 use crate::compositor::game::scene_textures::FrameSceneTextureError;
-use std::cell::Cell;
-use std::rc::Rc;
 use worldrunner_render_gpu::census::{ResourceClass, Tracked, texture_backing_bytes};
-use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_plan::{SceneTerrain, TerrainLayer, TextureHandle};
 use worldrunner_render_post::PrepareContext;
 use worldrunner_render_program::binding::EngineSemantic;
@@ -78,10 +75,8 @@ pub(super) struct MaterialArray {
     /// One hold for each factory (by `GameResources::id`) that asked for the array, in its
     /// runtime ledger. The array's bytes are counted there until the array is dropped.
     holds: Vec<(u64, ExternalHold)>,
-    /// Set when a submitted frame has copied every layer.
-    ready: Rc<Cell<bool>>,
-    /// The frame that stages the copies, while it has not submitted.
-    staged: Option<Publications>,
+    /// The frame that stages the copy of every layer.
+    copies: Fill,
 }
 
 impl MaterialArray {
@@ -240,16 +235,10 @@ impl EngineConstants {
         let array = &mut arrays[at];
         array.charge_to(charge)?;
         let frame = context.publications();
-        let staged_here = array
-            .staged
-            .as_ref()
-            .is_some_and(|staged| staged.same_frame(&frame));
-        if !array.ready.get() && !staged_here {
+        if array.copies.is_needed_in(&frame) {
             let (textures, _) = resolve(&sources, terrain, (channel, layers))?;
             stage_copies(context, &textures, &array.texture);
-            let ready = array.ready.clone();
-            context.publish(move || ready.set(true));
-            array.staged = Some(frame);
+            array.copies.stage_in(frame);
         }
         Ok(Import::texture_array(
             semantic,
@@ -311,8 +300,7 @@ impl EngineConstants {
             view,
             bytes,
             holds: vec![(charge.id(), hold)],
-            ready: Rc::default(),
-            staged: None,
+            copies: Fill::default(),
         })
     }
 }

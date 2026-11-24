@@ -7,6 +7,7 @@ mod order;
 mod replacement;
 use super::*;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::TerrainStreamingPolicy;
 
 fn streamed_scene() -> RenderScene {
@@ -36,8 +37,8 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
     let context = context();
     let device = context.device();
     let source = streamed_scene();
-    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     let frame = frame_from(pose());
     gpu.set_frame(context.queue(), frame);
     let abandoned = context
@@ -57,12 +58,12 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
         },
     )
     .unwrap();
-    let streamed = target.render(&context, &gpu, &pipelines).unwrap();
+    let streamed = target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(resident_count(&gpu), 4);
-    let base =
-        SceneGpu::upload(device, context.submission(), &terrain_scene(1), &pipelines).unwrap();
+    let mut base =
+        upload_scene(device, context.submission(), &terrain_scene(1), &pipelines).unwrap();
     base.set_frame(context.queue(), frame);
-    let default = target.render(&context, &base, &pipelines).unwrap();
+    let default = target.render(&context, &mut base, &pipelines).unwrap();
     assert_eq!(streamed, default);
     device
         .poll(wgpu::PollType::Wait {
@@ -76,8 +77,8 @@ fn streaming_admits_contact_pages_and_capture_publications() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = streamed_scene();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_from(pose());
     assert!(
         gpu.terrain_residency_request(&frame, [TARGET; 2])
@@ -141,9 +142,8 @@ fn withheld_completion_setup(budget: u32) -> (GpuContext, SceneGpu, FrameUniform
     let source = source
         .with_terrain(Some(std::sync::Arc::new(terrain)))
         .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let near = frame_from(pose());
     let far_matrix = far_matrix();
     (context, gpu, near, far_matrix)
@@ -204,13 +204,13 @@ fn retired_and_pending_allocations_hold_the_budget_until_completion() {
 }
 
 #[test]
-fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
+fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = streamed_scene();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = target(&context);
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let frame = frame_from(pose());
@@ -218,8 +218,7 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            crate::compositor::encode_scene(
-                &mut renderer,
+            renderer.encoding().encode_scene(
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
@@ -227,28 +226,19 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
                 frame,
             )?;
             let buffers = streaming(&gpu).prepared_buffers();
-            crate::compositor::encode_scene(
-                &mut renderer,
+            renderer.encoding().encode_scene(
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
                 (&target.color_attachment(), &target.depth_attachment()),
                 frame,
             )?;
-            crate::compositor::encode_resident(
-                &mut renderer,
-                context.device(),
-                encoder,
-                (&gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
-            )?;
             assert_eq!(streaming(&gpu).prepared_buffers(), buffers);
             assert_eq!(streaming(&gpu).allocation_counts(), (1, 4, 0));
             let mut changed = frame;
             changed.view_projection *= glam::Mat4::from_scale(glam::Vec3::splat(2.0));
             assert_eq!(
-                crate::compositor::encode_scene(
-                    &mut renderer,
+                renderer.encoding().encode_scene(
                     context.device(),
                     encoder,
                     (&mut gpu, &pipelines),
@@ -270,10 +260,10 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
 fn streaming_allows_non_camera_resident_edits_without_replacing_chunks() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = streamed_scene();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let handle = gpu.instance_handles().next().unwrap();
     let object = gpu.instance(handle).unwrap().0;
     let buffer = streaming(&gpu).committed.borrow()[0].1.vertices.clone();
@@ -303,8 +293,8 @@ fn geometry_dependency_waits_for_submitted_chunks_and_rejects_other_sources() {
         .submit()
         .unwrap();
     assert!(gpu.terrain_geometry_ready(&request).unwrap());
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let other = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let other = upload_scene(
         context.device(),
         context.submission(),
         &streamed_scene(),

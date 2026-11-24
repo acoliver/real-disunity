@@ -1,12 +1,13 @@
 //! A camera's target buffers through the ABI: set and read back, replaced by a target texture and
 //! carried by the camera setup record.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
 use worldrunner_disunity_ffi::{
-    abi::*, camera::*, graphics::*, graphics_commands::*, graphics_context::*,
-    graphics_offscreen::*, sprites::*,
+    abi::*, camera::*, graphics::*, graphics_commands::*, graphics_context::*, sprites::*,
 };
-use worldrunner_world_simulation::graphics::{
-    CameraBuffers, OffscreenWork, RenderTextureId, snapshot_wire::decode_work,
-};
+use worldrunner_world_simulation::graphics::{CameraBuffers, OffscreenWork, RenderTextureId};
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -77,38 +78,6 @@ fn target_texture(world: u64, camera: u64) -> u64 {
     let mut value = DisunityCamera::default();
     unsafe { assert_eq!(disunity_camera_read(world, camera, &mut value).code, 0) };
     value.target_texture
-}
-
-/// The frame's work, taken and decoded.
-fn take_work(world: u64) -> Vec<OffscreenWork> {
-    let (mut count, mut records) = (0, [DisunityOffscreenWork::default(); 8]);
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 8, &mut count).code,
-            0
-        )
-    };
-    assert_eq!(count, 2, "only the two accepted calls recorded");
-    records[..count as usize]
-        .iter()
-        .map(|record| {
-            let (mut length, mut bytes) = (0, [0_u8; 512]);
-            unsafe {
-                assert_eq!(
-                    disunity_offscreen_detail(
-                        world,
-                        record.bindings,
-                        bytes.as_mut_ptr(),
-                        512,
-                        &mut length
-                    )
-                    .code,
-                    0
-                );
-            }
-            decode_work(&bytes[..length as usize]).unwrap()
-        })
-        .collect()
 }
 
 #[test]
@@ -267,7 +236,8 @@ fn a_camera_setup_carries_the_buffers_it_is_given_with_the_camera_target() {
             );
         }
     }
-    let decoded = take_work(world);
+    let decoded = snapshot(world).work;
+    assert_eq!(decoded.len(), 2, "only the two accepted calls recorded");
     let want = CameraBuffers::new(
         &ids[..3]
             .iter()

@@ -17,9 +17,10 @@ impl Execution {
         context: &GpuContext,
         size: [u32; 2],
         capacity: usize,
+        format: wgpu::TextureFormat,
     ) -> Result<Self, ViewerError> {
         Ok(Self::Offscreen {
-            texture: texture(context.device(), size),
+            texture: texture(context.device(), size, format),
             flight: FrameAdmission::new(capacity).map_err(|e| ViewerError::Gpu(e.to_string()))?,
         })
     }
@@ -30,26 +31,21 @@ impl Execution {
                 texture: target, ..
             } => {
                 if !size.contains(&0) {
-                    *target = texture(device, size);
+                    *target = texture(device, size, target.format());
                 }
                 Ok(())
             }
         }
     }
-    pub fn acquire(
-        &mut self,
-        context: &GpuContext,
-        update: impl FnOnce() -> Result<(), ViewerError>,
-    ) -> Result<Option<ReadyFrame>, ViewerError> {
+    pub fn acquire(&mut self, context: &GpuContext) -> Result<Option<ReadyFrame>, ViewerError> {
         match self {
-            Self::Surface(surface) => surface.acquire(context, update),
+            Self::Surface(surface) => surface.acquire(context),
             Self::Offscreen { texture, flight } => {
                 let admission = match flight.try_acquire() {
                     Ok(admission) => admission,
                     Err(AdmissionError::WouldBlock) => return Ok(None),
                     Err(error) => return Err(ViewerError::Gpu(error.to_string())),
                 };
-                update()?;
                 Ok(Some(ReadyFrame {
                     admission,
                     frame: super::execution::OutputFrame {
@@ -73,16 +69,21 @@ impl Execution {
                 .map_err(|e| ViewerError::Gpu(e.to_string())),
         }
     }
+    pub fn flight(&self) -> &FrameAdmission {
+        match self {
+            Self::Surface(surface) => surface.capture_flight(),
+            Self::Offscreen { flight, .. } => flight,
+        }
+    }
+    /// A capture's own output target, in `format`: the format the frame chain's output stages are
+    /// built for.
     pub fn acquire_capture(
         &self,
         context: &GpuContext,
         size: [u32; 2],
+        format: wgpu::TextureFormat,
     ) -> Result<Option<ReadyFrame>, ViewerError> {
-        let flight = match self {
-            Self::Surface(surface) => surface.capture_flight(),
-            Self::Offscreen { flight, .. } => flight,
-        };
-        let admission = match flight.try_acquire() {
+        let admission = match self.flight().try_acquire() {
             Ok(admission) => admission,
             Err(AdmissionError::WouldBlock) => return Ok(None),
             Err(error) => return Err(ViewerError::Gpu(error.to_string())),
@@ -90,7 +91,7 @@ impl Execution {
         Ok(Some(ReadyFrame {
             admission,
             frame: super::execution::OutputFrame {
-                texture: texture(context.device(), size),
+                texture: texture(context.device(), size, format),
                 surface: None,
             },
         }))
@@ -100,11 +101,7 @@ impl Execution {
         ready: ReadyFrame,
         prepared: PreparedFrame,
     ) -> Result<CompletionTicket, ViewerError> {
-        let flight = match self {
-            Self::Surface(surface) => surface.capture_flight(),
-            Self::Offscreen { flight, .. } => flight,
-        };
-        flight
+        self.flight()
             .submit_prepared(ready.admission, prepared)
             .map_err(|e| ViewerError::Gpu(e.to_string()))
     }
@@ -115,13 +112,8 @@ impl Execution {
         }
     }
 }
-fn texture(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
-    worldrunner_render_post::color_texture(
-        device,
-        "retained output",
-        size,
-        crate::presentation::COLOR,
-    )
+fn texture(device: &wgpu::Device, size: [u32; 2], format: wgpu::TextureFormat) -> wgpu::Texture {
+    worldrunner_render_post::color_texture(device, "retained output", size, format)
 }
 
 #[cfg(all(test, target_os = "linux"))]

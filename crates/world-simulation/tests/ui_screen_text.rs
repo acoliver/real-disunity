@@ -6,7 +6,7 @@ mod ui_font;
 
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::presentation::extraction::{
-    SpriteQuad, SpriteTextures, append_ui_from, extract_world,
+    SpriteQuad, append_ui_from, extract_world,
 };
 use worldrunner_world_simulation::ui::contribution::extract_ui;
 use worldrunner_world_simulation::ui::{
@@ -52,7 +52,7 @@ fn presented(
     }
     let ui = extract_ui(&world, &fonts, VIEWPORT).unwrap();
     let overlay = ui.texts[0].overlay;
-    let mut plan = extract_world(&world, &SpriteTextures::default(), VIEWPORT).unwrap();
+    let mut plan = extract_world(&world, VIEWPORT).unwrap();
     append_ui_from(&mut plan, ui, 1)?;
     Ok((overlay, plan.quads))
 }

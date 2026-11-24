@@ -16,6 +16,8 @@
 //! A draw is prepared, and retained by the frame's encoder, when the frame's water feature is
 //! made, before the pass opens. Recording it in the pass only sets state.
 
+#[cfg(test)]
+mod test_hooks;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -110,20 +112,6 @@ impl Programs {
 
     pub(crate) fn runtime(&self) -> &ProgramRuntime {
         &self.runtime
-    }
-
-    /// How many programs have been built, one for each key a feature has drawn with.
-    #[cfg(test)]
-    pub(crate) fn built(&self) -> usize {
-        self.by_key.len()
-    }
-
-    /// Draws bodies of `key` with `source` compiled for `options` from now on, in place of the
-    /// composed text: the substitution the equation tests make.
-    #[cfg(test)]
-    pub(crate) fn substitute(&mut self, key: Key, source: &str, options: [u32; 5]) {
-        self.by_key.remove(&key);
-        self.sources.insert(key, (source.to_owned(), options));
     }
 
     /// The program of `key`, built on first use.
@@ -247,7 +235,7 @@ fn texture(dimension: TextureViewDimension, filterable: bool) -> ResourceKind {
     }
 }
 
-/// Set 0 as `input_layout` declares it.
+/// Set 0 of the body program.
 pub(super) fn bindings() -> Vec<ResourceBinding> {
     use TextureViewDimension::{Cube, D2};
     let (fragment, both) = (ShaderStages::FRAGMENT, ShaderStages::VERTEX_FRAGMENT);
@@ -385,7 +373,7 @@ pub(super) fn vertex_inputs(
         .collect()
 }
 
-/// What `snapshot_group` binds, as imports.
+/// What the body program binds in set 0, as imports.
 fn imports(inputs: &BodyInputs<'_>) -> Vec<Import> {
     let named = |name: &str| EngineSemantic::named(name);
     let view =

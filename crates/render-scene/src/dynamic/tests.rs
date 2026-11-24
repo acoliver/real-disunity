@@ -18,7 +18,8 @@ impl Fixture {
     fn new() -> Self {
         let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
             .expect("actual GPU required");
-        let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+        let pipelines =
+            ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
         let gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
         let viewport = Viewport {
             width: 128,
@@ -60,7 +61,7 @@ impl Fixture {
 
     fn image(&mut self) -> RgbaImage {
         self.target
-            .render(&self.context, &self.gpu, &self.pipelines)
+            .render(&self.context, &mut self.gpu, &self.pipelines)
             .unwrap()
     }
 }
@@ -207,7 +208,7 @@ fn gpu_camera_background_uses_existing_target_clear_color() {
         .target
         .render_with_clear_color(
             &f.context,
-            &f.gpu,
+            &mut f.gpu,
             &f.pipelines,
             wgpu::Color {
                 r: 0.25,

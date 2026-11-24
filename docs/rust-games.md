@@ -107,22 +107,31 @@ Physics works in the XY plane by default, with gravity of -9.81 m/s² on Y. `Wor
 
 ## Draw a 2D world in a window
 
-The renderer never reads world state directly. Each frame, `extract_world` turns the world's sprites, tiles and active camera into a render plan, the renderer prepares it, and the viewer presents it. Texture pixels come from the game in a `SpriteTextures` table keyed by the texture number that each `Sprite` refers to.
+The renderer never reads world state directly. Each frame, `extract_world` turns the world's sprites, tiles and active camera into a render plan, the renderer prepares it, and the viewer presents it. Texture pixels come from the game in a `SpriteTextures` table keyed by the texture number that each `Sprite` refers to; the game passes that table to `WorldSceneContribution::new` beside the plan.
 
-The viewer drives the game through the `LiveDriver` trait. This is a complete windowed program that draws one orange square:
+The desktop viewer is the retained host. A game implements `RetainedDriver` and `RetainedHost::run` calls it once per frame. Each frame the game advances its world, extracts the render plan and applies it to the host as `RetainedUpdate::World`. The frame carries the camera's view and background colour, so a world host needs no scene of its own: it starts from an empty `RenderScene` and ignores the options' `pose`, `camera` and `orbit`, which `ViewerOptions` still requires. This is a complete windowed program that draws one orange square:
 
 ```rust
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use worldrunner::glam::Vec3;
 use worldrunner::scene::{
-    gpu::simulation::WorldSceneContribution,
-    plan::{SceneTexture, TexelFormat, TextureColorSpace, simulation::{SpriteTextures, extract_world}},
-    viewer::{LiveDriver, LiveFrame, LiveOptions, LiveTick, run_live},
+    camera::ViewConvention,
+    gpu::{CameraPose, simulation::WorldSceneContribution},
+    plan::{
+        RenderScene, SceneCamera, SceneGeometry, SceneParts, SceneResources, SceneTexture,
+        TexelFormat, TextureColorSpace, simulation::SpriteTextures,
+    },
+    viewer::{
+        ActivityReason, CapturePoolPolicy, FrameProfile, GameRendering, OrbitLimits, PresentMode,
+        PresentationBudget, PresentationCadence, RenderClock, RetainedDriver, RetainedHost,
+        RetainedTick, RetainedUpdate, ToneMap, ViewerOptions, ViewerStart, WindowMode,
+        WindowSizeUnit,
+    },
 };
 use worldrunner::simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, TimeSpan, World, WorldSettings,
-    presentation::{Camera, Sprite, SpriteRenderer},
+    presentation::{Camera, Sprite, SpriteRenderer, extraction::extract_world},
 };
 
 struct Game {
@@ -172,26 +181,77 @@ impl Game {
     }
 }
 
-impl LiveDriver for Game {
-    fn update(&mut self, tick: &LiveTick) -> Result<LiveFrame, String> {
+impl RetainedDriver for Game {
+    fn update(&mut self, viewer: &mut RetainedHost, tick: &RetainedTick) -> Result<(), String> {
         let nanos = u64::try_from(tick.dt.as_nanos()).map_err(|e| e.to_string())?;
         let dt = TimeSpan::from_nanos(nanos).map_err(|e| e.to_string())?;
         self.world.advance(dt).map_err(|e| e.to_string())?;
-        let viewport = [tick.viewport.width, tick.viewport.height];
-        let plan = extract_world(&self.world, &self.textures, viewport).map_err(|e| e.to_string())?;
-        let contribution = WorldSceneContribution::new(plan).map_err(|e| e.to_string())?;
-        Ok(LiveFrame::from_world(contribution))
+        let plan = extract_world(&self.world, viewer.size()).map_err(|e| e.to_string())?;
+        let frame = WorldSceneContribution::new(plan, &self.textures.textures)
+            .map_err(|e| e.to_string())?;
+        viewer
+            .apply(RetainedUpdate::World(Arc::new(frame)))
+            .map_err(|e| e.to_string())
+    }
+}
+
+fn options() -> ViewerOptions {
+    ViewerOptions {
+        activity_reason: ActivityReason::default(),
+        presentation_budget: PresentationBudget::default().into(),
+        capture_pool: CapturePoolPolicy::default(),
+        camera_convention: ViewConvention::RIGHT_HANDED,
+        ssr: None,
+        title: "My game".into(),
+        window_size_unit: WindowSizeUnit::default(),
+        window_mode: WindowMode::default(),
+        size: [800, 600],
+        pose: CameraPose {
+            eye_millimeters: [0, -2000, 2000],
+            target_millimeters: [0, 0, 0],
+        },
+        camera: SceneCamera {
+            vertical_fov_millidegrees: 60_000,
+            near_plane_millimeters: 100,
+            far_plane_millimeters: 1_000_000,
+        },
+        orbit: OrbitLimits {
+            min_distance_millimeters: 100.0,
+            max_distance_millimeters: 10_000.0,
+            min_elevation_radians: -1.4,
+            max_elevation_radians: 1.4,
+        },
+        shadows: None,
+        frame_profile: FrameProfile::Hdr {
+            samples: 1,
+            tone_map: ToneMap::Clamp,
+        },
+        frames_in_flight: 2,
+        gpu_timing: false,
+        present_mode: PresentMode::Fifo,
+        desired_maximum_frame_latency: 2,
+        texture_tiers: None,
+        adapter_callback: None,
+        cadence: PresentationCadence::default(),
+        render_clock: RenderClock::default(),
+        game: GameRendering::default(),
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut game = Game::new()?;
-    run_live(&mut game, LiveOptions::new("My game", [800, 600]))?;
+    let scene = RenderScene::new(SceneParts {
+        resources: SceneResources::new(vec![], vec![])?,
+        geometry: SceneGeometry::new(vec![], vec![])?,
+        terrain: None,
+        effects: None,
+    })?;
+    RetainedHost::new(scene, options())?.run(ViewerStart::new()?, &mut game)?;
     Ok(())
 }
 ```
 
-Keyboard, focus and resize events arrive in `LiveTick::input`. Convert the keys you care about into `InputEvent`s and push them before calling `advance`. Set `LiveFrame::exit` to close the window. For UI text, enable the `ui` feature, register a TrueType font in a `FontBook`, add `Canvas`, `RectTransform` and `Text` components, and append `extract_ui` output to the plan with `append_ui`.
+Keyboard, focus and resize events arrive in `RetainedDriver::event` as `RetainedEvent::Input`. Convert the keys you care about into `InputEvent`s and push them before calling `advance`. Call `RetainedEventHost::request_exit` to close the window. The tick's `dt` is the time the window took for the last frame; a replay that needs a fixed step uses its own constant in place of it, and `RetainedHost::request_capture` returns the presented frame as pixels in a `RetainedEvent::Capture`. For UI text, enable the `ui` feature, register a TrueType font in a `FontBook`, add `Canvas`, `RectTransform` and `Text` components, and append `extract_ui` output to the plan with `presentation::extraction::append_ui`.
 
 For a caller-owned immediate overlay without Canvas objects, see
 [Drawing an immediate overlay](immediate-ui.md). It builds a detached presentation
@@ -199,9 +259,9 @@ for the existing retained compositor.
 
 ## Draw a 3D scene
 
-3D content goes through `RenderScene`, a validated description of meshes, materials, textures, terrain, lights and effects. A game builds one with the constructors in `worldrunner::scene::plan` and hands it to `worldrunner::scene::viewer::run` for a window, or to `worldrunner::scene::gpu::offscreen::capture_scene` for a headless image. `run_with_updates` gives a per-frame callback that can move, add and hide instances without re-uploading the scene.
+3D content goes through `RenderScene`, a validated description of meshes, materials, textures, terrain, lights and effects. A game builds one with the constructors in `worldrunner::scene::plan` and hands it to `RetainedHost::new` for a window, or to `worldrunner::scene::gpu::offscreen::capture_scene` for a headless image. The same `RetainedDriver` that draws a 2D world edits a 3D scene: `RetainedUpdate::Add`, `Replace`, `Remove` and `Objects` move, add and hide instances without re-uploading the scene, and `RetainedUpdate::Camera` moves the camera. The host leaves camera control to the game; `OrbitNavigation` turns the window's pointer, wheel and the R and Home keys into orbit poses.
 
-The viewer example in `crates/worldrunner/examples/scene-viewer.rs` builds a scene with meshes, terrain, water and shadows from code, and is the best reference for the scene API. [Rendering features](rendering.md) lists what a scene can turn on.
+The viewer example in `crates/worldrunner/examples/scene-viewer.rs` builds a scene with meshes, terrain, water and shadows from code, and orbits it with `OrbitNavigation`. It is the best reference for the scene API. [Rendering features](rendering.md) lists what a scene can turn on.
 
 ## Next steps
 

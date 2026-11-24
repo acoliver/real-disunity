@@ -16,11 +16,15 @@ mod camera_buffers;
 mod commands;
 mod compute;
 mod context;
+mod draw_batch;
 pub mod environment;
 mod material;
+mod material_versions;
 mod offscreen;
+mod ordered_globals;
 mod properties;
 mod readback;
+mod render_sets;
 mod render_texture;
 mod renderer_lists;
 mod slab;
@@ -35,6 +39,7 @@ pub use compute::{
     WorldComputeBuffer, WorldComputeShader,
 };
 pub use context::MAX_CULL_PLANES;
+pub use draw_batch::{DrawBatch, MAX_BATCH_PASS_TAGS, MAX_BATCH_VISIBLE};
 pub use environment::Environment;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};
@@ -214,6 +219,14 @@ pub(crate) struct GraphicsState {
     /// Bytes the live compute buffers hold.
     compute_bytes: u64,
     global: GlobalShaderState,
+    /// The global state as it was before the first change since the work was last taken, which
+    /// the next take's replay starts from. `None` while nothing has changed.
+    global_start: Option<GlobalShaderState>,
+    /// The global values and keywords written directly since the last record, which the next
+    /// record, or the take, is preceded by as ordered records.
+    direct_writes: ordered_globals::DirectWrites,
+    /// The states of materials that the frame's draws named, apart from the materials' own.
+    versions: material_versions::MaterialVersions,
     /// The scene's ambient light and default reflection.
     environment: Environment,
     offscreen: Vec<OffscreenWork>,
@@ -231,16 +244,25 @@ pub(crate) struct GraphicsState {
     /// The target buffers of the cameras whose scripts set them. An entry outlives its camera
     /// until the next set, and a read answers only for a live camera.
     camera_buffers: std::collections::BTreeMap<crate::ComponentHandle, CameraBuffers>,
+    /// The renderers the frame's camera renders draw, fixed when each was recorded.
+    render_sets: render_sets::RenderSets,
+    /// Counts the changes that may alter which renderers are drawable; a set made at one count
+    /// serves every record until the count moves.
+    drawable_epoch: u64,
 }
 
 impl GraphicsState {
     /// Drops the offscreen work of the previous frame that nobody took.
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
+        self.direct_writes.clear();
+        self.global_start = None;
+        self.versions.clear();
         self.handles.clear();
         self.lists.clear();
         self.readbacks.clear();
         self.retired_textures.clear();
+        self.render_sets.clear();
     }
 
     pub(crate) const fn new() -> Self {
@@ -252,6 +274,9 @@ impl GraphicsState {
             compute_buffers: Slab::new(MAX_COMPUTE_BUFFERS),
             compute_bytes: 0,
             global: GlobalShaderState::new(),
+            global_start: None,
+            direct_writes: ordered_globals::DirectWrites::new(),
+            versions: material_versions::MaterialVersions::new(),
             environment: Environment::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
@@ -260,6 +285,8 @@ impl GraphicsState {
             readbacks: readback::Readbacks::new(),
             retired_textures: std::collections::BTreeMap::new(),
             camera_buffers: std::collections::BTreeMap::new(),
+            render_sets: render_sets::RenderSets::new(),
+            drawable_epoch: 0,
         }
     }
 }

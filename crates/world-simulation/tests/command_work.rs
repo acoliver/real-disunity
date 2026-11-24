@@ -120,12 +120,12 @@ fn every_command_is_recorded_and_taken_in_call_order() {
         world.record_offscreen(record).unwrap();
     }
     assert_eq!(world.offscreen_work(), records.as_slice());
-    assert_eq!(world.take_offscreen(), records);
-    assert!(world.take_offscreen().is_empty());
+    assert_eq!(world.take_offscreen().0, records);
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
-fn a_command_is_not_folded_into_the_global_shader_state() {
+fn a_recorded_global_is_ordered_work_and_is_not_folded_into_the_global_shader_state() {
     let mut world = world();
     world
         .record_offscreen(OffscreenWork::SetGlobal(PropertyValue::Float(
@@ -143,6 +143,63 @@ fn a_command_is_not_folded_into_the_global_shader_state() {
     assert!(state.properties.is_empty());
     assert!(state.keywords.is_empty());
     assert_eq!(state.generation, 0);
+}
+
+/// The calls the managed side makes when a command buffer sets a global: the write
+/// `Shader.SetGlobal*` makes, which is a direct write of the world's global state.
+#[test]
+fn a_global_written_directly_is_still_set_after_the_work_that_followed_it_is_taken() {
+    let mut world = world();
+    let id = texture(&mut world);
+    let grab = PropertyValue::Texture(
+        "_Grab".into(),
+        TextureSlot {
+            texture: TextureRef::Render(id),
+            ..TextureSlot::default()
+        },
+    );
+    world.set_global_property(grab).unwrap();
+    world
+        .set_global_property(PropertyValue::Float("_Level".into(), 0.5))
+        .unwrap();
+    world.set_global_keyword("_GRABBED", true).unwrap();
+    // A direct write adds no record of its own, so a frame that holds only writes has no work.
+    assert!(world.take_offscreen().0.is_empty());
+    // A later take, whatever its work, starts from a state that still holds the values.
+    world
+        .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 1 })
+        .unwrap();
+    let next = GraphicsSnapshot::take(&mut world).unwrap();
+    let state = next
+        .global
+        .expect("a frame with work carries the global state");
+    let slot = state
+        .properties
+        .texture("_Grab")
+        .expect("the texture is held");
+    assert_eq!(slot.texture, TextureRef::Render(id));
+    assert_eq!(state.properties.float("_Level"), Some(0.5));
+    assert!(state.keywords.iter().any(|name| name == "_GRABBED"));
+}
+
+#[test]
+fn a_global_that_only_a_record_set_is_gone_from_the_next_take() {
+    let mut world = world();
+    world
+        .record_offscreen(OffscreenWork::SetGlobal(PropertyValue::Float(
+            "_Recorded".into(),
+            1.0,
+        )))
+        .unwrap();
+    assert_eq!(world.take_offscreen().0.len(), 1);
+    world
+        .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 1 })
+        .unwrap();
+    let state = GraphicsSnapshot::take(&mut world)
+        .unwrap()
+        .global
+        .expect("a frame with work carries the global state");
+    assert_eq!(state.properties.float("_Recorded"), None);
 }
 
 #[test]
@@ -164,7 +221,7 @@ fn commands_interleave_with_other_offscreen_work_in_call_order() {
     for record in records.clone() {
         world.record_offscreen(record).unwrap();
     }
-    assert_eq!(world.take_offscreen(), records);
+    assert_eq!(world.take_offscreen().0, records);
 }
 
 #[test]
@@ -190,7 +247,7 @@ fn a_target_that_names_a_destroyed_render_texture_is_refused() {
             GraphicsError::StaleRenderTexture
         );
     }
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -201,7 +258,7 @@ fn targets_of_a_name_the_world_does_not_track_are_accepted() {
         Some(TargetRef::CameraTarget),
     );
     world.record_offscreen(record.clone()).unwrap();
-    assert_eq!(world.take_offscreen(), [record]);
+    assert_eq!(world.take_offscreen().0, [record]);
 }
 
 #[test]
@@ -259,7 +316,7 @@ fn a_clear_with_a_value_that_is_not_finite_is_refused() {
             GraphicsError::NotFinite
         );
     }
-    assert_eq!(world.take_offscreen().len(), 1);
+    assert_eq!(world.take_offscreen().0.len(), 1);
 }
 
 #[test]
@@ -309,7 +366,7 @@ fn global_values_need_a_name_and_finite_numbers() {
     for (record, error) in refused {
         assert_eq!(graphics_error(world.record_offscreen(record)), error);
     }
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -344,7 +401,7 @@ fn a_temporary_is_allocated_with_a_description_the_world_accepts() {
     world
         .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 5 })
         .unwrap();
-    assert_eq!(world.take_offscreen().len(), 2);
+    assert_eq!(world.take_offscreen().0.len(), 2);
 }
 
 #[test]
@@ -357,7 +414,7 @@ fn commands_share_the_frame_cap() {
     }
     let over = world.record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 1 });
     assert!(matches!(over, Err(WorldError::CapacityExceeded(_))));
-    assert_eq!(world.take_offscreen().len(), MAX_OFFSCREEN_WORK);
+    assert_eq!(world.take_offscreen().0.len(), MAX_OFFSCREEN_WORK);
 }
 
 fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot {
@@ -368,8 +425,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_seventeen_and_every_command_round_trips() {
-    assert_eq!(WIRE_VERSION, 17);
+fn the_wire_version_is_twenty_one_and_every_command_round_trips() {
+    assert_eq!(WIRE_VERSION, 21);
     let mut world = world();
     let id = texture(&mut world);
     let records = every_command(id);
@@ -430,15 +487,14 @@ fn clear_values_keep_their_bits_on_the_wire() {
     assert_eq!(*stencil_value, u32::MAX);
 }
 
-/// A snapshot body that holds one record and nothing else: three empty maps, no global, the
-/// work list of one, then `record`, and the empty remainder.
+/// A snapshot body that holds one record and nothing else: the work list of one, then `record`,
+/// three empty maps, no global, no environment ambient or reflection, and the empty remainder.
 fn one_record(record: &[u8]) -> Vec<u8> {
-    let mut body = vec![0; 12];
-    body.push(0);
-    // No environment ambient or reflection.
-    body.extend_from_slice(&[0; 2]);
-    body.extend_from_slice(&1_u32.to_le_bytes());
+    let mut body = 1_u32.to_le_bytes().to_vec();
     body.extend_from_slice(record);
+    body.extend_from_slice(&[0; 12]);
+    body.push(0);
+    body.extend_from_slice(&[0; 2]);
     body.extend_from_slice(&[0; 16]);
     let mut bytes = b"DGSN".to_vec();
     bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());

@@ -28,10 +28,13 @@
 //! * Matrices are column-major, as the world stores them.
 //! * The view, the projection and the camera position follow the engine layer's camera
 //!   ([`camera`]), mapped to the clip space render-program's conventions tests measured.
-//! * Depth runs as the run's [`DepthRange`] says, reversed (near 1, far 0) for a built player
-//!   unless the run chooses forward. The one value reaches the render-program state, the clip
-//!   space of every camera and the managed side's request; see [`DepthRange`] for the setting,
-//!   its default and the run that is the evidence.
+//! * Depth is reversed: near is 1 and far is 0. The render-program state clears depth to the far
+//!   value and reverses depth tests and the shadow comparison, every camera's clip space maps near
+//!   to w ([`clip_from_gl`]), and `prepare_player` tells the managed side's `PlayerDevice` that
+//!   the buffer is reversed. An Old World `RomeTurn42` run, frame 16 (board 133, posts 3214, 3220
+//!   and 3238), measured the difference: with forward depth every camera texture held one value
+//!   across the screen (normals exactly (0, 0, -1, 0), depth 0.0076), and with reversed depth the
+//!   normals varied across the screen and real geometry won the depth test.
 //! * The built-in values and the evidence for each name are in [`builtins`].
 //! * Texture rows are bottom first, as the engine stores them, which is the orientation of a
 //!   render texture's rows.
@@ -56,7 +59,6 @@ mod camera;
 mod census;
 mod compute;
 mod defaults;
-mod depth_range;
 mod environment;
 mod flush;
 mod frame;
@@ -75,6 +77,7 @@ mod procedural_draw;
 mod properties;
 mod raster;
 mod record_names;
+mod record_sets;
 mod records;
 mod report;
 mod screen;
@@ -83,48 +86,113 @@ mod shaders;
 mod sink;
 mod stand_ins;
 mod supplied;
+mod taps;
 mod trace;
+mod ui_frame;
 mod volume_assets;
 
 #[cfg(test)]
 mod tests;
 
+pub use adapter::OffscreenAdapter;
 pub(crate) use adapter::Settling;
-pub use adapter::{OffscreenAdapter, build};
-pub use assets::{
-    AssetError, Assets, Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world,
-    texture_of,
-};
+pub use adapter::build;
+pub use assets::AssetError;
+pub use assets::Assets;
+pub use assets::Emptiness;
+pub use assets::MeshError;
+pub use assets::mesh_of;
+pub use assets::sampler_of_stored;
+pub use assets::sampler_of_world;
+pub use assets::texture_of;
 pub use bounds::Bounds;
-pub use builtins::{
-    CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
-    PROJECTION_PARAMS, SCREEN_PARAMS, SH_AB, SH_AG, SH_AR, SH_BB, SH_BG, SH_BR, SH_C,
-    SPEC_CUBE0_HDR, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS, add_ambient,
-    add_main_light, add_screen_size, camera_layer, draw_layer,
-};
-pub use camera::{clip_from_gl, projection, world_to_camera};
-pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};
-pub use compute::{
-    BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
-    SampledSource, TextureTrace,
-};
-pub use defaults::{DefaultTexture, STAND_INS_MAGENTA_ENV, StandInLook};
-pub use depth_range::{DepthRange, REVERSED_DEPTH_ENV};
-pub use environment::{SPEC_CUBE0, add_environment};
-pub use flush::{BufferWrite, FlushError, FlushOutcome, OffscreenHost};
-pub use frame::{
-    Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,
-    Skip, TEST_CLEAR, adapt, adapt_probing,
-};
+pub use builtins::CAMERA_POSITION;
+pub use builtins::MAIN_LIGHT_COLOR;
+pub use builtins::MAIN_LIGHT_POSITION;
+pub use builtins::OBJECT_TO_WORLD;
+pub use builtins::ORTHO_PARAMS;
+pub use builtins::PROJECTION_PARAMS;
+pub use builtins::SCREEN_PARAMS;
+pub use builtins::SH_AB;
+pub use builtins::SH_AG;
+pub use builtins::SH_AR;
+pub use builtins::SH_BB;
+pub use builtins::SH_BG;
+pub use builtins::SH_BR;
+pub use builtins::SH_C;
+pub use builtins::SPEC_CUBE0_HDR;
+pub use builtins::VIEW;
+pub use builtins::VIEW_PROJECTION;
+pub use builtins::WORLD_TO_OBJECT;
+pub use builtins::WORLD_TRANSFORM_PARAMS;
+pub use builtins::add_ambient;
+pub use builtins::add_main_light;
+pub use builtins::camera_layer;
+pub use builtins::draw_layer;
+pub use camera::clip_from_gl;
+pub use camera::projection;
+pub use camera::world_to_camera;
+pub use census::ComputeCensus;
+pub use census::ShaderCensus;
+pub use census::compute_census;
+pub use census::shader_census;
+pub use compute::BufferTrace;
+pub use compute::ComputeAdapter;
+pub use compute::ComputeLoadError;
+pub use compute::ComputeSupply;
+pub use compute::DispatchTrace;
+pub use compute::NoKernels;
+pub use compute::SampledSource;
+pub use compute::TextureTrace;
+pub use defaults::DefaultTexture;
+pub use defaults::StandInLook;
+pub use environment::SPEC_CUBE0;
+pub use environment::add_environment;
+pub use flush::BufferWrite;
+pub use flush::FlushError;
+pub use flush::FlushOutcome;
+pub use flush::OffscreenHost;
+pub use flush::UiRead;
+pub use frame::Adapted;
+pub use frame::Available;
+pub use frame::BLIT_MESH;
+pub use frame::Placed;
+pub use frame::Reclaimed;
+pub use frame::RendererSkip;
+pub use frame::Report;
+pub use frame::Settings;
+pub use frame::ShaderInfo;
+pub use frame::Skip;
+pub use frame::TEST_CLEAR;
+pub use frame::adapt;
+pub use frame::adapt_probing;
 pub use kernels::PlayerKernels;
-pub use pixels::{
-    PixelAnswer, REFUSED_BUDGET, REFUSED_FORMAT, REFUSED_INTEGER, REFUSED_NO_COPY,
-    REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED, REFUSED_NOT_READ, is_integer_format,
-};
-pub use screen::{REFUSED_SCREEN_FORMAT, ScreenImage};
+pub use pixels::PixelAnswer;
+pub use pixels::REFUSED_BUDGET;
+pub use pixels::REFUSED_FORMAT;
+pub use pixels::REFUSED_INTEGER;
+pub use pixels::REFUSED_NO_COPY;
+pub use pixels::REFUSED_NO_TEXTURE;
+pub use pixels::REFUSED_NOT_DECODED;
+pub use pixels::REFUSED_NOT_READ;
+pub use pixels::is_integer_format;
+#[cfg(test)]
+pub use screen::REFUSED_SCREEN_FORMAT;
+#[cfg(test)]
+pub use screen::ScreenImage;
 pub use script::temporary_ids;
-pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
+pub use shaders::LoadedShader;
+pub use shaders::ShaderLoadError;
+pub use shaders::ShaderLoader;
+pub use shaders::ShaderSupply;
 pub use sink::BufferSink;
-pub use stand_ins::{StandInCounts, StandInReason};
-pub use supplied::{SuppliedGlobal, supplied_line};
-pub use trace::{Phases, WorkTrace};
+pub use stand_ins::GlobalReads;
+pub use stand_ins::StandInCounts;
+pub use stand_ins::StandInReason;
+pub use supplied::SuppliedGlobal;
+pub use supplied::supplied_line;
+pub use trace::Phases;
+pub use trace::WorkTrace;
+pub use ui_frame::UiAssets;
+pub use ui_frame::UiFrame;
+pub use ui_frame::atlas_id;

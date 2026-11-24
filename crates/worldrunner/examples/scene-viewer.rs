@@ -8,11 +8,15 @@ use worldrunner::scene::{
         MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode,
         SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneEffects,
         SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh,
-        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneShadowCascades, SceneSky,
-        SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat, TextureColorSpace,
-        TextureHandle,
+        SceneMeshLod, SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades,
+        SceneSky, SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat,
+        TextureColorSpace, TextureHandle,
     },
-    viewer::{OrbitLimits, PresentMode, ViewerOptions, run},
+    viewer::{
+        OrbitLimits, OrbitNavigation, PresentMode, RetainedDriver, RetainedEvent,
+        RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate,
+        ViewerOptions, ViewerStart,
+    },
 };
 use worldrunner_render_plan::{
     SceneDirection, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface,
@@ -86,23 +90,27 @@ fn effects(terrain: bool) -> SceneEffects {
 }
 
 fn identity() -> SceneTransform {
-    SceneTransform::from_world_schema(
-        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
-        [0; 3],
-        [0, 0, 0, ROTATION_MICRO_SCALE],
-        1_000_000,
-    )
-    .expect("the example placement uses the schema boundary")
+    SceneTransform {
+        position_millimeters: [0; 3],
+        rotation: SceneRotation {
+            x: 0,
+            y: 0,
+            z: 0,
+            w: ROTATION_MICRO_SCALE,
+        },
+        scale_millionths: 1_000_000,
+    }
 }
 
-fn vertex(position: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
-    SceneVertex::from_world_schema(
-        worldrunner::scene::plan::world_schema::WorldCoordinateFrame::RightHandedYUp,
-        position,
-        [0, MICRO, 0],
-        texcoord,
-    )
-    .expect("the example mesh uses the schema boundary")
+/// A vertex given in Y-up (x, up, z) millimetres, placed in the scene's Z-up basis
+/// (east, north, elevation) as `(x, -z, up)`, facing up.
+fn vertex([x, up, z]: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
+    SceneVertex {
+        position_millimeters: [x, -z, up],
+        normal_micro: [0, 0, MICRO],
+        tangent_micro: None,
+        texcoord_micro: texcoord,
+    }
 }
 
 /// A two-metre ground quad at elevation zero, facing up.
@@ -233,6 +241,49 @@ fn refresh_policy() -> CascadeRefreshPolicy {
     }
 }
 
+/// Orbits the camera with the window's pointer and wheel, resets it with R or Home and closes the
+/// window on Escape. The retained host draws the camera it is sent and leaves moving it to the
+/// application.
+struct Orbit {
+    navigation: OrbitNavigation,
+    size: [u32; 2],
+    lens: SceneCamera,
+    convention: worldrunner_camera::ViewConvention,
+}
+
+impl RetainedDriver for Orbit {
+    fn update(&mut self, host: &mut RetainedHost, _: &RetainedTick) -> Result<(), String> {
+        self.size = host.size();
+        if let Some(pose) = self.navigation.take_moved() {
+            host.apply(RetainedUpdate::Camera {
+                pose,
+                lens: self.lens,
+                convention: self.convention,
+            })
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn event(
+        &mut self,
+        host: &mut RetainedEventHost<'_>,
+        event: &RetainedEvent,
+    ) -> Result<(), String> {
+        if let RetainedEvent::Input(input) = event {
+            self.navigation.accept(input, self.size);
+            if let RetainedInput::Key {
+                key, pressed: true, ..
+            } = input
+                && key == "escape"
+            {
+                host.request_exit();
+            }
+        }
+        Ok(())
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let terrain = std::env::args().any(|arg| arg == "--terrain");
     let shadows =
@@ -247,50 +298,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 normal_bias_meters: 0.01,
                 refresh_policy: refresh_policy(),
             });
-    run(
-        scene(terrain),
-        ViewerOptions {
-            activity_reason: worldrunner_scene_viewer::ActivityReason::default(),
-            presentation_budget: worldrunner_scene_viewer::PresentationBudget::default().into(),
-            capture_pool: worldrunner_scene_viewer::CapturePoolPolicy::default(),
-            window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
-            window_mode: worldrunner_scene_viewer::WindowMode::default(),
-            camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
-            frames_in_flight: 2,
-            present_mode: PresentMode::Fifo,
-            desired_maximum_frame_latency: 2,
-            texture_tiers: None,
-            gpu_timing: false,
-            adapter_callback: None,
-            cadence: worldrunner_scene_viewer::PresentationCadence::default(),
-            ssr: None,
-            render_clock: worldrunner_scene_viewer::RenderClock::default(),
-            game: worldrunner_scene_viewer::GameRendering::default(),
-            frame_profile: frame_profile(),
-            camera: SceneCamera {
-                vertical_fov_millidegrees: 60_000,
-                near_plane_millimeters: 100,
-                far_plane_millimeters: 1_000_000,
-            },
-            title: "Generic scene viewer".into(),
-            size: [800, 600],
-            pose: CameraPose {
-                eye_millimeters: if terrain {
-                    [0, -7_000, 6_000]
-                } else {
-                    [0, -2000, 2000]
-                },
-                target_millimeters: [0, 0, 0],
-            },
-            orbit: OrbitLimits {
-                min_distance_millimeters: 100.0,
-                max_distance_millimeters: 10_000.0,
-                min_elevation_radians: -1.4,
-                max_elevation_radians: 1.4,
-            },
-            shadows,
+    let options = ViewerOptions {
+        activity_reason: worldrunner_scene_viewer::ActivityReason::default(),
+        presentation_budget: worldrunner_scene_viewer::PresentationBudget::default().into(),
+        capture_pool: worldrunner_scene_viewer::CapturePoolPolicy::default(),
+        window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
+        window_mode: worldrunner_scene_viewer::WindowMode::default(),
+        camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+        frames_in_flight: 2,
+        present_mode: PresentMode::Fifo,
+        desired_maximum_frame_latency: 2,
+        texture_tiers: None,
+        gpu_timing: false,
+        adapter_callback: None,
+        cadence: worldrunner_scene_viewer::PresentationCadence::default(),
+        ssr: None,
+        render_clock: worldrunner_scene_viewer::RenderClock::default(),
+        game: worldrunner_scene_viewer::GameRendering::default(),
+        frame_profile: frame_profile(),
+        camera: SceneCamera {
+            vertical_fov_millidegrees: 60_000,
+            near_plane_millimeters: 100,
+            far_plane_millimeters: 1_000_000,
         },
-    )?;
+        title: "Generic scene viewer".into(),
+        size: [800, 600],
+        pose: CameraPose {
+            eye_millimeters: if terrain {
+                [0, -7_000, 6_000]
+            } else {
+                [0, -2000, 2000]
+            },
+            target_millimeters: [0, 0, 0],
+        },
+        orbit: OrbitLimits {
+            min_distance_millimeters: 100.0,
+            max_distance_millimeters: 10_000.0,
+            min_elevation_radians: -1.4,
+            max_elevation_radians: 1.4,
+        },
+        shadows,
+    };
+    let mut driver = Orbit {
+        navigation: OrbitNavigation::default(),
+        size: options.size,
+        lens: options.camera,
+        convention: options.camera_convention,
+    };
+    driver.navigation.start(options.pose, options.orbit)?;
+    RetainedHost::new(scene(terrain), options)?.run(ViewerStart::new()?, &mut driver)?;
     Ok(())
 }
 
@@ -321,12 +377,8 @@ fn frame_profile() -> worldrunner::scene::viewer::FrameProfile {
             },
         };
     }
-    if std::env::args().any(|arg| arg == "--hdr" || arg == "--water") {
-        FrameProfile::Hdr {
-            samples,
-            tone_map: ToneMap::Reinhard,
-        }
-    } else {
-        FrameProfile::Legacy
+    FrameProfile::Hdr {
+        samples,
+        tone_map: ToneMap::Reinhard,
     }
 }

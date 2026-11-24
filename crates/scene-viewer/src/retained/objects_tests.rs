@@ -91,7 +91,7 @@ fn a_batch_rejects_edits_that_depend_on_its_own_removals() {
                 SceneObjectEdit::Remove(ObjectId(0)),
                 SceneObjectEdit::Remove(ObjectId(0)),
             ],
-            "object edit 1: live driver failed: unknown object ID",
+            "object edit 1: driver failed: unknown object ID",
         ),
         (
             vec![
@@ -101,11 +101,11 @@ fn a_batch_rejects_edits_that_depend_on_its_own_removals() {
                     object: object_at(3),
                 },
             ],
-            "object edit 1: live driver failed: unknown object ID",
+            "object edit 1: driver failed: unknown object ID",
         ),
         (
             vec![add(5, 50), add(6, 60), add(5, 52)],
-            "object edit 2: live driver failed: duplicate object ID",
+            "object edit 2: driver failed: duplicate object ID",
         ),
     ] {
         let error = host.apply(RetainedUpdate::Objects(edits)).unwrap_err();

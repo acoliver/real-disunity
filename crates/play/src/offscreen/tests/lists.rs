@@ -17,7 +17,6 @@ use worldrunner_world_simulation::{
 };
 
 use super::super::bounds::Bounds;
-use super::super::depth_range::DepthRange;
 use super::super::frame::{Adapted, Available, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{available, material, render_texture, shader, snapshot, world};
@@ -268,7 +267,6 @@ fn a_culling_result_keeps_the_renderers_of_the_layers_in_its_mask() {
     let adapted = run(&mut world, |_| {});
     assert_eq!(adapted.report.lists.culls, 1);
     assert_eq!(adapted.report.lists.kept, 3);
-    assert_eq!(adapted.report.lists.out_by_layer, 1);
 }
 
 #[test]
@@ -618,19 +616,19 @@ fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
         Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
     );
     assert_eq!(values.get("_MainLightPosition"), None);
-    // The script's projection is the identity, which has no perspective divide and puts the
-    // near plane at 1.
+    // The script's projection is the identity, which has no perspective divide, puts the near
+    // plane at 1 and the far plane at -1 and has the half sizes 1. The target is 8 by 8.
     assert_eq!(
         values.get("unity_OrthoParams"),
-        Some(&PropertyValue::Vector([0.0, 0.0, 0.0, 1.0]))
+        Some(&PropertyValue::Vector([1.0, 1.0, 0.0, 1.0]))
     );
     assert_eq!(
         values.get("_ProjectionParams"),
-        Some(&PropertyValue::Vector([1.0, 1.0, 0.0, 0.0]))
+        Some(&PropertyValue::Vector([1.0, 1.0, -1.0, -1.0]))
     );
     assert_eq!(
         values.get("_ScreenParams"),
-        Some(&PropertyValue::Vector([8.0, 8.0, 0.0, 0.0]))
+        Some(&PropertyValue::Vector([8.0, 8.0, 1.125, 1.125]))
     );
     assert_eq!(
         values.get("unity_MatrixV"),
@@ -638,13 +636,13 @@ fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 2.0, 3.0, 1.0
         ]))
     );
-    // The clip depth takes (z + w) / 2, so the translation's z of 3 becomes 2 and z scales by half.
-    // The player's stages negate clip Y, so the matrix negates it first: y scales by -1 and the
-    // translation's y of 2 becomes -2.
+    // The clip depth takes (w - z) / 2, so the translation's z of 3 becomes -1 and z scales by
+    // -1/2. The player's stages negate clip Y, so the matrix negates it first: y scales by -1 and
+    // the translation's y of 2 becomes -2.
     assert_eq!(
         values.get("unity_MatrixVP"),
         Some(&PropertyValue::Matrix([
-            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0, -2.0, 2.0, 1.0
+            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, -2.0, -1.0, 1.0
         ]))
     );
     assert_eq!(
@@ -652,30 +650,6 @@ fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
         Some(&PropertyValue::Vector([-1.0, -2.0, -3.0, 0.0]))
     );
     assert!(!first.target.colors.is_empty() && first.target.depth.is_some());
-}
-
-#[test]
-fn a_draw_list_takes_the_clip_depth_the_settings_say() {
-    let mut world = world();
-    let [lit, ..] = shaders(&mut world);
-    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
-    scene(
-        &mut world,
-        Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)),
-        u32::MAX,
-    );
-    draw(&mut world, drawing(&[FORWARD]));
-    let settings = Settings::default().with_depth(DepthRange::Reversed);
-    let adapted = run_with(&mut world, &settings, |_| {});
-    let values = &lists(&adapted)[0].values.values;
-    // Reversed depth takes (w - z) / 2: the translation's z of 3 becomes -1 and z scales by -1/2.
-    // Y is negated for the player's stages, as in the forward case.
-    assert_eq!(
-        values.get("unity_MatrixVP"),
-        Some(&PropertyValue::Matrix([
-            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 1.0, -2.0, -1.0, 1.0
-        ]))
-    );
 }
 
 #[test]
@@ -865,7 +839,7 @@ fn a_draw_into_a_mip_has_the_size_of_that_mip() {
     let adapted = run(&mut world, |_| {});
     assert_eq!(
         lists(&adapted)[0].values.values.get("_ScreenParams"),
-        Some(&PropertyValue::Vector([4.0, 2.0, 0.0, 0.0])),
+        Some(&PropertyValue::Vector([4.0, 2.0, 1.25, 1.5])),
         "level 2 of a 16 by 8 texture is 4 by 2"
     );
 }
@@ -890,6 +864,6 @@ fn a_draw_into_a_depth_target_alone_has_the_size_of_the_depth_target() {
     let adapted = run(&mut world, |_| {});
     assert_eq!(
         lists(&adapted)[0].values.values.get("_ScreenParams"),
-        Some(&PropertyValue::Vector([6.0, 2.0, 0.0, 0.0]))
+        Some(&PropertyValue::Vector([6.0, 2.0, 1.0 + 1.0 / 6.0, 1.5]))
     );
 }

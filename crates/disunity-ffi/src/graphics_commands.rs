@@ -1,29 +1,18 @@
-//! The work command buffers record into the frame's offscreen list: render targets, clears,
-//! global values and keywords, and temporary render textures. Each call validates its arguments
-//! and forwards one record; the world checks the rest and keeps the order.
-//!
-//! Taking the frame's offscreen work (see [`crate::graphics_offscreen`]) gives these records a
-//! kind from [`KIND_SET_RENDER_TARGET`] up and a token, from 1, that [`disunity_offscreen_detail`]
-//! reads the record's bytes by. A token is valid until the next call that takes work.
+//! The work command buffers record into the frame's offscreen list: render targets, clears, a
+//! global texture, and temporary render textures. Each call validates its arguments and forwards
+//! one record; the world checks the rest and keeps the order. Global floats, vectors, matrices,
+//! arrays and keywords are direct writes of the world's global state (`graphics_properties`);
+//! the world puts a record for each in front of the next one.
 use crate::{
     DisunityResult,
     callbacks::mutate,
     errors::AbiError,
     graphics::{DisunityRenderTexture, text},
-    graphics_context::context_kind,
-    graphics_properties::{DisunityTextureSlot, copy_elements},
+    graphics_properties::DisunityTextureSlot,
 };
 use worldrunner_world_simulation::graphics::{
     MAX_COLOR_TARGETS, OffscreenWork, PropertyValue, RenderTextureId, TargetRef,
-    snapshot_wire::encode_work,
 };
-
-pub(crate) const KIND_SET_RENDER_TARGET: u32 = 4;
-pub(crate) const KIND_CLEAR_RENDER_TARGET: u32 = 5;
-pub(crate) const KIND_SET_GLOBAL: u32 = 6;
-pub(crate) const KIND_SET_GLOBAL_KEYWORD: u32 = 7;
-pub(crate) const KIND_ALLOCATE_TEMPORARY: u32 = 8;
-pub(crate) const KIND_RELEASE_TEMPORARY: u32 = 9;
 
 const TARGET_RENDER: u32 = 0;
 const TARGET_TEMPORARY: u32 = 1;
@@ -33,12 +22,6 @@ const TARGET_NONE: u32 = 3;
 const CLEAR_COLOR: u32 = 1;
 const CLEAR_DEPTH: u32 = 2;
 const CLEAR_STENCIL: u32 = 4;
-
-const GLOBAL_FLOAT: u32 = 0;
-const GLOBAL_INT: u32 = 1;
-const GLOBAL_VECTOR: u32 = 2;
-const GLOBAL_MATRIX: u32 = 3;
-const GLOBAL_TEXTURE: u32 = 4;
 
 /// A target. `kind` is 0 for a render texture (`render` is its id), 1 for a temporary render
 /// texture (`name_id` is the property name id it was allocated under), 2 for the camera's
@@ -149,130 +132,31 @@ pub unsafe extern "C" fn disunity_offscreen_clear_render_target(
     })
 }
 
-/// Records a global shader value to set when the host reaches the record. `kind` is 0 for a
-/// float (`floats` holds 1), 1 for an integer (`int_value`), 2 for a vector (4 floats), 3 for a
-/// matrix (16 floats, column-major) and 4 for a texture (`slot`).
+/// Records a global texture to set when the host reaches the record. The slot names the texture,
+/// by the kinds `disunity_shader_texture_write` takes and also a temporary render texture, which
+/// has no world identity that outlives its frame and so cannot be written to the global state.
+/// Every other global value is a direct write of the global state (`disunity_shader_*`); the
+/// world orders that write in front of the next record.
 ///
 /// # Safety
-/// `name` spans `length` readable bytes; `floats` is readable for the floats the kind needs;
-/// `slot` is readable for one record when the kind is 4.
+/// `name` spans `length` readable bytes; `slot` is readable for one record.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_offscreen_set_global(
+pub unsafe extern "C" fn disunity_offscreen_set_global_texture(
     world: u64,
-    kind: u32,
     name: *const u8,
     length: u32,
-    floats: *const f32,
-    int_value: i32,
     slot: *const DisunityTextureSlot,
 ) -> DisunityResult {
-    record(world, || {
-        let name = unsafe { text(name, length) }?;
-        let value =
-            match kind {
-                GLOBAL_FLOAT => PropertyValue::Float(name, unsafe { floats_of::<1>(floats) }?[0]),
-                GLOBAL_INT => PropertyValue::Int(name, int_value),
-                GLOBAL_VECTOR => PropertyValue::Vector(name, unsafe { floats_of::<4>(floats) }?),
-                GLOBAL_MATRIX => PropertyValue::Matrix(name, unsafe { floats_of::<16>(floats) }?),
-                GLOBAL_TEXTURE if !slot.is_null() => {
-                    PropertyValue::Texture(name, unsafe { *slot }.to_native()?)
-                }
-                GLOBAL_TEXTURE => return Err("a texture value needs a slot".into()),
-                _ => return Err(
-                    "a global value is a float (0), int (1), vector (2), matrix (3) or texture (4)"
-                        .into(),
-                ),
-            };
-        Ok(OffscreenWork::SetGlobal(value))
-    })
-}
-
-/// Records a global vector array to set when the host reaches the record: `count` vectors of 4
-/// floats at `values`, in element order. The count is 1 to 1023 and every float must be finite.
-/// The floats are copied before the call returns. The record changes only the host's global
-/// state at that point in the work; the world's own global state stays as it is.
-///
-/// # Safety
-/// `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_offscreen_set_global_vector_array(
-    world: u64,
-    name: *const u8,
-    length: u32,
-    values: *const f32,
-    count: u32,
-) -> DisunityResult {
-    let elements = match unsafe { copy_elements::<4>(values, count) } {
-        Ok(elements) => elements,
-        Err(refused) => return refused,
-    };
-    record(world, || {
-        let name = unsafe { text(name, length) }?;
-        Ok(OffscreenWork::SetGlobal(PropertyValue::VectorArray(
-            name, elements,
-        )))
-    })
-}
-
-/// Records a global matrix array to set when the host reaches the record: `count` matrices of
-/// 16 floats at `values`, each column-major, in element order. The count is 1 to 1023 and every
-/// float must be finite. The floats are copied before the call returns.
-///
-/// # Safety
-/// `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_offscreen_set_global_matrix_array(
-    world: u64,
-    name: *const u8,
-    length: u32,
-    values: *const f32,
-    count: u32,
-) -> DisunityResult {
-    let elements = match unsafe { copy_elements::<16>(values, count) } {
-        Ok(elements) => elements,
-        Err(refused) => return refused,
-    };
-    record(world, || {
-        let name = unsafe { text(name, length) }?;
-        Ok(OffscreenWork::SetGlobal(PropertyValue::MatrixArray(
-            name, elements,
-        )))
-    })
-}
-
-/// Reads `N` floats.
-///
-/// # Safety
-/// `floats` is readable for `N` floats when it is not null.
-unsafe fn floats_of<const N: usize>(floats: *const f32) -> Result<[f32; N], AbiError> {
-    if floats.is_null() {
-        return Err("a float value needs its floats".into());
-    }
-    let mut out = [0.0; N];
-    unsafe { std::ptr::copy_nonoverlapping(floats, out.as_mut_ptr(), N) };
-    Ok(out)
-}
-
-/// Records a global shader keyword to turn on (`enabled` 1) or off (0) when the host reaches
-/// the record.
-///
-/// # Safety
-/// `name` spans `length` readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_offscreen_set_global_keyword(
-    world: u64,
-    name: *const u8,
-    length: u32,
-    enabled: u32,
-) -> DisunityResult {
-    if enabled > 1 {
+    if slot.is_null() {
         return DisunityResult::invalid_argument();
     }
+    let slot = unsafe { *slot };
     record(world, || {
-        Ok(OffscreenWork::SetGlobalKeyword {
-            name: unsafe { text(name, length) }?,
-            enabled: enabled == 1,
-        })
+        let name = unsafe { text(name, length) }?;
+        Ok(OffscreenWork::SetGlobal(PropertyValue::Texture(
+            name,
+            slot.to_native()?,
+        )))
     })
 }
 
@@ -303,62 +187,4 @@ pub unsafe extern "C" fn disunity_offscreen_allocate_temporary(
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_offscreen_release_temporary(world: u64, name_id: i32) -> DisunityResult {
     record(world, || Ok(OffscreenWork::ReleaseTemporary { name_id }))
-}
-
-/// The kind a taken command record has, or `None` for other work.
-pub(crate) fn command_kind(work: &OffscreenWork) -> Option<u32> {
-    match work {
-        OffscreenWork::SetRenderTarget { .. } => Some(KIND_SET_RENDER_TARGET),
-        OffscreenWork::ClearRenderTarget { .. } => Some(KIND_CLEAR_RENDER_TARGET),
-        OffscreenWork::SetGlobal(_) => Some(KIND_SET_GLOBAL),
-        OffscreenWork::SetGlobalKeyword { .. } => Some(KIND_SET_GLOBAL_KEYWORD),
-        OffscreenWork::AllocateTemporary { .. } => Some(KIND_ALLOCATE_TEMPORARY),
-        OffscreenWork::ReleaseTemporary { .. } => Some(KIND_RELEASE_TEMPORARY),
-        other => context_kind(other),
-    }
-}
-
-/// The bytes of a command record, as the world's snapshot encoding writes it.
-pub(crate) fn detail_of(work: &OffscreenWork) -> Result<Vec<u8>, AbiError> {
-    encode_work(work).map_err(|error| AbiError::Message(error.to_string()))
-}
-
-/// Reads the encoded bytes of a command record by the token its take gave it (see
-/// `worldrunner_world_simulation::graphics::snapshot_wire::decode_work`). Writes the length to
-/// `length`; with a zero `capacity` that is all it does, and a smaller `capacity` is rejected.
-///
-/// # Safety
-/// `buffer` is writable for `capacity` bytes, or null when `capacity` is zero; `length` is
-/// writable for one value.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn disunity_offscreen_detail(
-    world: u64,
-    token: u32,
-    buffer: *mut u8,
-    capacity: u32,
-    length: *mut u32,
-) -> DisunityResult {
-    if length.is_null() || (capacity > 0 && buffer.is_null()) {
-        return DisunityResult::invalid_argument();
-    }
-    mutate(world, |s| {
-        let index = usize::try_from(token)
-            .ok()
-            .and_then(|token| token.checked_sub(1))
-            .ok_or("a detail token is nonzero")?;
-        let held = s
-            .work_details
-            .get(index)
-            .ok_or("the detail token names no command of the last take")?;
-        let needed = u32::try_from(held.len()).map_err(|_| "detail overflow")?;
-        unsafe { *length = needed };
-        if capacity == 0 {
-            return Ok(());
-        }
-        if capacity < needed {
-            return Err("the buffer is too small for the record".into());
-        }
-        unsafe { std::ptr::copy_nonoverlapping(held.as_ptr(), buffer, held.len()) };
-        Ok(())
-    })
 }

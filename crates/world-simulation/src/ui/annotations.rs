@@ -147,6 +147,7 @@ fn draw(corners: [[f32; 3]; 4], colour: [f32; 4]) -> UiDraw {
         uv_rect: [0.; 4],
         color: colour,
         texture: None,
+        material: None,
         sorting_layer: 0,
         sorting_order: 0,
         hierarchy_order: 0,

@@ -7,6 +7,7 @@
 //! offset, which the tests compute on the CPU.
 use super::super::foliage::cutout_texture;
 use super::*;
+use crate::test_support::upload_scene;
 use glam::Mat3;
 use worldrunner_render_plan::SceneTransform;
 
@@ -95,7 +96,7 @@ impl Card {
             (
                 self::scene(mask),
                 effects(),
-                ScenePipelines::with_samples(device, HDR, samples.count()).unwrap(),
+                ScenePipelines::new(device, HDR, samples.count()).unwrap(),
             )
         } else {
             let (scene, effects) = with_taa(&self::scene(mask));
@@ -112,7 +113,7 @@ impl Card {
             };
             (scene, effects, pipelines)
         };
-        let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
         let (renderer, color, depth) = taa_target(&context, &effects, samples);
         let handle = gpu.instance_handles().next().unwrap();
         Self {
@@ -135,18 +136,20 @@ impl Card {
             .unwrap();
         self.renderer.select_frame_slot((self.frame % 3).into());
         self.renderer
-            .set_frame_time(f32::from(self.frame) * 0.03125)
-            .unwrap();
+            .set_frame_time(std::time::Duration::from_secs_f32(
+                f32::from(self.frame) * 0.03125,
+            ));
         let mut encoder = self.context.submission().begin(device).unwrap();
-        crate::compositor::encode_scene(
-            &mut self.renderer,
-            device,
-            &mut encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&self.color, &self.depth),
-            frame_from(pose),
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                device,
+                &mut encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&self.color, &self.depth),
+                frame_from(pose),
+            )
+            .unwrap();
         if let Some(view) = view {
             self.renderer.encode_output(&mut encoder, view).unwrap();
         }

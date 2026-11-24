@@ -1,9 +1,10 @@
 //! Depth fitting without SSAO or SSR still draws the prepass; Opaque must reuse its depth.
-mod gbuffer;
 
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
 use crate::renderer::depth::DepthMode;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use worldrunner_render_post::{Readback, ToneMap};
 
@@ -53,12 +54,11 @@ fn fitted_color(context: &GpuContext, independent: bool) -> Vec<u8> {
     if independent {
         frame.independent_depth_for_test(context.device());
     }
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     renderer
@@ -87,7 +87,13 @@ fn fitted_color(context: &GpuContext, independent: bool) -> Vec<u8> {
     assert_eq!(metadata.depth == *depth.texture(), !independent);
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
     let fit = renderer
-        .render_depth_fitted_with(context, &view(), (&color, &depth), 0, &mut frame)
+        .render_depth_fitted_host(
+            context,
+            &view(),
+            (&color, &depth),
+            (Some(0), false, &[]),
+            &mut frame,
+        )
         .unwrap()
         .expect("a same-frame capture adopts its own fit");
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));
@@ -253,12 +259,11 @@ fn depth_fitted_frame(context: &GpuContext, source: &RenderScene, computed: bool
                 .is_some()
         );
     }
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     renderer
@@ -284,7 +289,7 @@ fn depth_fitted_frame(context: &GpuContext, source: &RenderScene, computed: bool
         .map(|term| TermCapture::new(context.device(), size, term));
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
     let fit = renderer
-        .render_depth_fitted_host_terms(
+        .render_depth_fitted_host(
             context,
             &view(),
             (&color, &depth),
@@ -537,6 +542,7 @@ fn encode_with_declared_reader(context: &GpuContext, reads: &[ResourceRef]) -> D
         context.device(),
         &mut encoder,
         (&[opaque, after], &[color, output]),
+        None,
         &mut [BorrowedFeature {
             declaration: FeatureDeclaration {
                 passes: vec![pass],
@@ -544,7 +550,7 @@ fn encode_with_declared_reader(context: &GpuContext, reads: &[ResourceRef]) -> D
             },
             prepared: &mut reader,
         }],
-        (
+        &(
             crate::frame::FrameUniform::new(&view(), None).unwrap(),
             None,
         ),

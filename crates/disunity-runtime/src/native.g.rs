@@ -73,6 +73,9 @@ pub struct DisunityUiGraphicInfo {
     pub texture: u64,
     pub vertex_count: u32,
     pub index_count: u32,
+    /// 0 a stored image identity, 1 a render texture; see `disunity_canvas_renderer_texture_write`.
+    pub texture_kind: u32,
+    pub padding: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -634,7 +637,7 @@ pub struct DisunityMeshRange {
     pub topology: u32,
 }
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 22;
+pub const DISUNITY_ABI_VERSION: u32 = 31;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -16,6 +16,9 @@ mod initialized_allocation;
 #[path = "contracts_prepared_writes.rs"]
 mod prepared_writes;
 
+#[path = "contracts_attachment_views.rs"]
+mod attachment_views;
+
 #[test]
 fn mrt_rejects_mixed_samples_and_resolve_semantics() {
     let (device, _) = device();
@@ -26,6 +29,7 @@ fn mrt_rejects_mixed_samples_and_resolve_semantics() {
             ResourceLifetime::FrameLocal,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     let multi = registry
@@ -34,6 +38,7 @@ fn mrt_rejects_mixed_samples_and_resolve_semantics() {
             ResourceLifetime::FrameLocal,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     let exposed = registry
@@ -42,6 +47,7 @@ fn mrt_rejects_mixed_samples_and_resolve_semantics() {
             ResourceLifetime::FrameLocal,
             Semantic::ExposedLinearColor,
             None,
+            &[],
         )
         .unwrap();
     let mixed = pass(
@@ -65,6 +71,7 @@ fn reader(
             ResourceLifetime::FrameLocal,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     pass(name, &[view(registry, key, 1)])
@@ -82,8 +89,20 @@ fn stock_lowering_preserves_exact_clear_load_and_resolve_bytes() {
     let (device, queue) = device();
     for samples in [1, 4] {
         let config = crate::FrameConfig::new([4, 4], wgpu::TextureFormat::Rgba8Unorm, samples);
-        let direct = crate::FrameTargets::new(&device, config).unwrap();
-        let lowered = crate::FrameTargets::new(&device, config).unwrap();
+        let direct = crate::FrameTargets::new(
+            &device,
+            config,
+            crate::TargetOptions::default(),
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
+        let lowered = crate::FrameTargets::new(
+            &device,
+            config,
+            crate::TargetOptions::default(),
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         for load in [wgpu::LoadOp::Clear(wgpu::Color::GREEN), wgpu::LoadOp::Load] {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -99,9 +118,9 @@ fn stock_lowering_preserves_exact_clear_load_and_resolve_bytes() {
                 ..Default::default()
             });
         }
-        direct.encode_resolve(&mut encoder);
+        direct.encode_resolve(&mut encoder, None);
         encode_stock_fixture(&device, &mut encoder, &lowered);
-        lowered.encode_resolve(&mut encoder);
+        lowered.encode_resolve(&mut encoder, None);
         queue.submit([encoder.finish()]);
         let mut readback = crate::Readback::new(
             &device,
@@ -199,6 +218,7 @@ fn retired_backing_cannot_be_reimported_as_a_fresh_identity() {
             ResourceLifetime::FrameLocal,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     registry.replace(key, &texture(&device, 1)).unwrap();
@@ -208,7 +228,8 @@ fn retired_backing_cannot_be_reimported_as_a_fresh_identity() {
                 &old_texture,
                 ResourceLifetime::FrameLocal,
                 Semantic::LinearColor,
-                None
+                None,
+                &[]
             )
             .is_err()
     );
@@ -238,6 +259,7 @@ fn mip_layer_validity_is_local_and_discard_invalidates_loads() {
             ResourceLifetime::FrameLocal,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     let selected = registry
@@ -283,6 +305,7 @@ fn load_advances_versions_without_a_physical_replacement() {
             ResourceLifetime::PersistentMutable,
             Semantic::LinearColor,
             Some(4),
+            &[],
         )
         .unwrap();
     let mut loaded = pass("load", &[view(&registry, key, 5)]);
@@ -366,6 +389,7 @@ fn allocation_identity_generation_and_range_are_checked() {
             ResourceLifetime::FrameLocal,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     assert_eq!(
@@ -375,7 +399,8 @@ fn allocation_identity_generation_and_range_are_checked() {
                 &texture.clone(),
                 ResourceLifetime::FrameLocal,
                 Semantic::LinearColor,
-                None
+                None,
+                &[]
             )
             .unwrap()
     );
@@ -434,6 +459,7 @@ fn missing_producers_stale_versions_and_aliases_fail() {
             ResourceLifetime::FrameLocal,
             Semantic::LinearColor,
             None,
+            &[],
         )
         .unwrap();
     let first = view(&registry, key, 1);
@@ -471,6 +497,7 @@ fn checked_bindings_reject_sample_semantic_and_undeclared_access() {
             ResourceLifetime::ImportedReadOnly,
             Semantic::LinearColor,
             Some(0),
+            &[],
         )
         .unwrap();
     let input = view(&registry, key, 0);
@@ -515,6 +542,7 @@ fn authored_shadow_prepass_orders_are_not_sorted() {
                     ResourceLifetime::FrameLocal,
                     Semantic::LinearColor,
                     None,
+                    &[],
                 )
                 .unwrap()
         })
@@ -548,6 +576,7 @@ fn mrt_resolves_execute_at_one_and_four_samples() {
                         ResourceLifetime::FrameLocal,
                         Semantic::LinearColor,
                         None,
+                        &[],
                     )
                     .unwrap();
                 view(&registry, key, 1)
@@ -564,6 +593,7 @@ fn mrt_resolves_execute_at_one_and_four_samples() {
                             ResourceLifetime::FrameLocal,
                             Semantic::LinearColor,
                             None,
+                            &[],
                         )
                         .unwrap();
                     view(&registry, key, 1)

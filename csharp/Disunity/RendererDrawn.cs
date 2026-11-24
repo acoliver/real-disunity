@@ -3,26 +3,16 @@ using Disunity.Native;
 
 namespace UnityEngine;
 
-/// <summary>What the host draws each material slot of a renderer with: a colour and a texture identity per slot, and the
-/// world material of the slot, sent whenever the shared materials are set. The colour and texture identity are not sent
-/// again when the material changes; the world material follows its own changes, and the host draws a slot that has a
-/// world material from the material's current <c>_Color</c> or <c>_BaseColor</c> and <c>_MainTex</c>, so the colour
-/// and texture identity sent here are what it draws a slot with no world material with. A property block set for every
-/// material is sent to the world and applies to every slot; one set for a single material index is sent too and applies
-/// to that slot, above the all-material block.</summary>
+/// <summary>What the host draws each material slot of a renderer with: the slot's world material, sent whenever the shared
+/// materials are set. The world material follows its own changes, and the host draws a slot from the material's current
+/// <c>_Color</c> or <c>_BaseColor</c> and <c>_MainTex</c>, and white with no texture when the slot has no material. A
+/// property block set for every material is sent to the world and applies to every slot; one set for a single material
+/// index is sent too and applies to that slot, above the all-material block.</summary>
 public abstract partial class Renderer
 {
-    /// <summary>Sends, per slot, the material's <c>_Color</c> or else <c>_BaseColor</c> as the material holds it (white
-    /// when it has neither, or when the slot is empty) and the renderer identity of its main texture when that is a
-    /// <see cref="Texture2D"/> with pixels (0 for no texture, any other texture type, or an empty slot).</summary>
-    private unsafe void SendDrawnMaterials(IReadOnlyList<Material?> materials)
+    /// <summary>Sends the world material of each slot, 0 for an empty slot.</summary>
+    private void SendSlotMaterials(IReadOnlyList<Material?> materials)
     {
-        var slots = new DisunityDrawnMaterial[materials.Count];
-        for (var i = 0; i < slots.Length; i++) slots[i] = DrawnOf(materials[i]);
-        if (this is MeshRenderer mesh) WhiteRenderers.NoteSent(mesh, materials.Count > 0 ? materials[0] : null);
-        fixed (DisunityDrawnMaterial* pointer = slots)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_renderer_slots_write(
-                DisunityHost.WorldHandle, Handle, slots.Length == 0 ? null : pointer, (uint)slots.Length));
         WorldGraphics.WriteRendererMaterials(Handle, materials.Select(material => material is { } own && own ? own.WorldLink.Id : 0UL).ToArray());
     }
 
@@ -53,17 +43,4 @@ public abstract partial class Renderer
     /// <summary>The main texture the host draws a slot with: a <see cref="Texture2D"/> with pixels, else null.</summary>
     internal static Texture2D? DrawableMainTexture(Material material) =>
         material.mainTexture is Texture2D { width: > 0, height: > 0 } plain ? plain : null;
-
-    private static DisunityDrawnMaterial DrawnOf(Material? material)
-    {
-        if (material is null) return new DisunityDrawnMaterial { r = 1, g = 1, b = 1, a = 1 };
-        var color = material.HasProperty("_Color") ? material.GetColor("_Color")
-            : material.HasProperty("_BaseColor") ? material.GetColor("_BaseColor")
-            : Color.white;
-        var texture = DrawableMainTexture(material)?.RendererIdentity ?? 0UL;
-        return new DisunityDrawnMaterial { r = Channel(color.r), g = Channel(color.g), b = Channel(color.b), a = Channel(color.a), texture = texture };
-    }
-
-    /// <summary>The host takes finite, non-negative channels: a negative one is 0 and a value that is not a number is 1.</summary>
-    private static float Channel(float value) => float.IsFinite(value) ? Math.Max(0f, value) : 1f;
 }

@@ -58,7 +58,7 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
             fxaa_strength
                 .filter(|weight| *weight > 0.0)
                 .map_or(PostResolve::None, |weight| {
-                    PostResolve::fxaa_with(weight, fxaa_quality)
+                    PostResolve::fxaa(weight, fxaa_quality)
                 })
         },
         PostResolve::taa_with,
@@ -121,9 +121,8 @@ fn smaa(
 pub(crate) fn jitter(
     post: &HdrPostSettings,
     config: worldrunner_render_post::FrameConfig,
-    explicit: Option<ProjectionJitter>,
 ) -> Result<Option<ProjectionJitter>, PostError> {
-    post.effective_jitter(config, explicit)
+    post.effective_jitter(config)
 }
 /// Authored post settings with the descriptor's resolve and sharpening; the scene effects and
 /// the descriptor may not both choose a resolve.

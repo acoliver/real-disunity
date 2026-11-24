@@ -5,8 +5,8 @@ namespace UnityEngine.Networking;
 /// <summary>
 /// An HTTP request. The request object model works: the address, method, headers and handlers are
 /// stored and read back. The engine makes no web requests yet, so <see cref="SendWebRequest"/> throws
-/// <see cref="NotSupportedException"/>, and a request stays in progress with no response. Abort on a
-/// request that was never sent does nothing, which is the engine's choice.
+/// <see cref="NotSupportedException"/>, and a request stays in progress with no response. A request is never sent, so
+/// <see cref="Abort"/> has no transfer to stop and <see cref="Dispose"/> releases only its handlers.
 /// </summary>
 public sealed class UnityWebRequest : IDisposable
 {

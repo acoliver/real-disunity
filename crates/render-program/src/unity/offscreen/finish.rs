@@ -16,10 +16,11 @@ use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, RenderState};
 
+use super::blit_steps::BlitStep;
 use super::error::OffscreenError;
 use super::plan::DrawPlan;
 use super::resample::ResampleStep;
-use super::steps::{BlitStep, BufferReads, CameraDraw, Step, push_buffer_use};
+use super::steps::{BufferReads, CameraDraw, Step, push_buffer_use};
 use super::tracker::Tracker;
 
 /// The state turning steps into operations needs, borrowed from the offscreen state.
@@ -160,6 +161,9 @@ impl Finish<'_> {
             .plan
             .state
             .neutral_with_stencil(draw.front_face, draw.signature.has_stencil());
+        if draw.raster.coverage_alpha {
+            coverage_alpha(&mut state);
+        }
         if draw.topology.is_triangles() {
             // A depth bias is drawn for triangles only, and the pass's own state has none.
             if let Some(depth) = state.depth.as_mut() {
@@ -411,4 +415,25 @@ fn draw_colors(
             }
         })
         .collect())
+}
+
+/// Makes the alpha channel of a source alpha blend the coverage of what is drawn: where the pass
+/// blends the colour by the source alpha and its complement, the alpha channel blends by one and
+/// the complement. Any other blend keeps its alpha.
+fn coverage_alpha(state: &mut RenderState) {
+    for color in state.colors.iter_mut().flatten() {
+        let Some(blend) = color.blend.as_mut() else {
+            continue;
+        };
+        let over = blend.color.operation == wgpu::BlendOperation::Add
+            && blend.color.src_factor == wgpu::BlendFactor::SrcAlpha
+            && blend.color.dst_factor == wgpu::BlendFactor::OneMinusSrcAlpha;
+        if over {
+            blend.alpha = wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            };
+        }
+    }
 }

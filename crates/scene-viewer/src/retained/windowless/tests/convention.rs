@@ -173,7 +173,7 @@ fn retained_camera_conventions_preserve_culling_metadata_shadows_resize_and_fixe
         let mut driver = Driver::default();
         let events = driver.events.clone();
         let host = camera_host(shadows);
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         for size in [[64, 64], [48, 32]] {
             run.resize(size).unwrap();
             set_camera(&mut run, ViewHandedness::RightHanded);
@@ -205,7 +205,7 @@ fn both_camera_conventions_cull_mesh_and_terrain_undersides() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let host = camera_host(None);
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     for handedness in [
         ViewHandedness::RightHanded,
         ViewHandedness::DirectXLeftHanded,
@@ -307,7 +307,7 @@ fn retained_capture_decodes_gather_ao() {
         .unwrap(),
     )))
     .unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let captured = products(&mut run, &events);
     let ao = captured.ambient_occlusion.unwrap();
     assert_eq!(ao.pixels.len(), 64 * 64);

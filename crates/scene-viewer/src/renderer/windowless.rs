@@ -1,18 +1,23 @@
 use super::{Extents, Renderer, ViewerError, device_errors, readiness, required_features, target};
 
 impl Renderer {
-    #[cfg(test)]
-    pub(crate) async fn windowless(host: &mut crate::RetainedHost) -> Result<Self, ViewerError> {
-        Self::windowless_with(host, None).await
-    }
-
     /// A renderer with no window, on `shared`'s device when one is given, otherwise on a device
     /// of its own.
-    pub(crate) async fn windowless_with(
+    pub(crate) async fn windowless(
         host: &mut crate::RetainedHost,
         shared: Option<super::Shared>,
     ) -> Result<Self, ViewerError> {
-        let (instance, context) = windowless_context_with(host, shared).await?;
+        Self::windowless_with_format(host, shared, crate::presentation::COLOR).await
+    }
+
+    /// A windowless renderer whose output stands in for a surface of `format`: the frame chain
+    /// is built for `format` and every frame it draws targets a texture of that format.
+    pub(crate) async fn windowless_with_format(
+        host: &mut crate::RetainedHost,
+        shared: Option<super::Shared>,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, ViewerError> {
+        let (instance, context) = windowless_context(host, shared).await?;
         let scene = host.initial_scene();
         let options = &host.options;
         let shadow_policy = host.readiness.shadow_policy;
@@ -24,7 +29,7 @@ impl Renderer {
         .expect("validated nonzero extent");
         let mut presentation = super::assembly::configured_presentation(
             &context,
-            crate::presentation::COLOR,
+            format,
             [extents.render, extents.surface],
             options.frame_profile,
             scene.effects(),
@@ -54,8 +59,12 @@ impl Renderer {
             &mut presentation,
             &mut streaming.tiers,
         )?;
-        let execution =
-            target::Execution::offscreen(&context, options.size, options.frames_in_flight)?;
+        let execution = target::Execution::offscreen(
+            &context,
+            options.size,
+            options.frames_in_flight,
+            presentation.output_format(),
+        )?;
         let renderer = Self::assemble(super::assembly::RendererParts {
             execution,
             #[cfg(all(test, target_os = "linux"))]
@@ -77,7 +86,7 @@ impl Renderer {
     }
 }
 
-pub(super) async fn windowless_context_with(
+pub(super) async fn windowless_context(
     host: &mut crate::RetainedHost,
     shared: Option<super::Shared>,
 ) -> Result<(wgpu::Instance, super::GpuContext), ViewerError> {
@@ -89,13 +98,7 @@ pub(super) async fn windowless_context_with(
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await?;
     let size = host.options.size;
-    let resolved = super::startup::resolve(
-        super::SceneSource::Retained(host),
-        &adapter,
-        size,
-        None,
-        None,
-    )?;
+    let resolved = super::startup::resolve(host, &adapter, size, None, None)?;
     let context = super::timing::context(
         adapter,
         required_features(&resolved.scene),
@@ -128,13 +131,7 @@ fn adopt(
     } = shared;
     let adapter = context.adapter();
     let size = host.options.size;
-    let resolved = super::startup::resolve(
-        super::SceneSource::Retained(host),
-        adapter,
-        size,
-        None,
-        None,
-    )?;
+    let resolved = super::startup::resolve(host, adapter, size, None, None)?;
     let missing = required_features(&resolved.scene).difference(context.device().features());
     if !missing.is_empty() {
         return Err(

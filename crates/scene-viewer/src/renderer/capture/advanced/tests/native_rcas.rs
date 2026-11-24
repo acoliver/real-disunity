@@ -38,7 +38,7 @@ fn ordinary_capture(host: &mut RetainedHost, renderer: &mut Renderer) -> RgbaIma
 #[test]
 fn native_rcas_recipe_is_applied_and_ordinary_frames_restore_the_profile() {
     let mut host = edge_host();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let ordinary = completed(&mut host, &mut renderer, recipe(1, 1, CaptureJitter::None));
     assert_edge(&ordinary);
     let settings = crate::NativeRcasSettings {
@@ -65,7 +65,7 @@ fn native_rcas_recipe_is_applied_and_ordinary_frames_restore_the_profile() {
 #[test]
 fn native_rcas_profile_is_available_to_interactive_presentation() {
     let mut host = edge_host();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let ordinary = completed(&mut host, &mut renderer, recipe(1, 1, CaptureJitter::None));
     assert_edge(&ordinary);
     let rcas = crate::NativeRcasSettings {
@@ -77,7 +77,7 @@ fn native_rcas_profile_is_available_to_interactive_presentation() {
         tone_map: crate::ToneMap::Reinhard,
         rcas,
     };
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     assert_rcas(&renderer, Some(rcas));
     let first = completed(&mut host, &mut renderer, recipe(1, 1, CaptureJitter::None));
     assert_sharpened_edge(&ordinary, &first);
@@ -97,6 +97,34 @@ fn native_rcas_profile_is_available_to_interactive_presentation() {
     let restored = ordinary_capture(&mut host, &mut renderer);
     assert_rcas(&renderer, Some(rcas));
     assert_eq!(first.srgb8.unwrap(), restored);
+}
+
+/// A window's surface can be `Bgra8UnormSrgb` (macOS) while the scene renders `Rgba8UnormSrgb`.
+/// The recipe's RCAS is built for the surface's format, so each sample must draw into a target of
+/// that format, and its image must equal the one an `Rgba8UnormSrgb` output gives.
+#[test]
+fn native_rcas_recipe_on_a_bgra_surface_matches_an_rgba_output() {
+    let settings = crate::NativeRcasSettings {
+        stops: 0.75,
+        domain: crate::RcasDomain::EncodedOutput,
+    };
+    let sharpened = |format| {
+        let mut host = edge_host();
+        let mut renderer =
+            pollster::block_on(Renderer::windowless_with_format(&mut host, None, format)).unwrap();
+        assert_eq!(renderer.presentation.output_format(), format);
+        completed(
+            &mut host,
+            &mut renderer,
+            recipe(1, 1, CaptureJitter::None)
+                .with_native_rcas(settings)
+                .unwrap(),
+        )
+    };
+    let rgba = sharpened(wgpu::TextureFormat::Rgba8UnormSrgb);
+    let bgra = sharpened(wgpu::TextureFormat::Bgra8UnormSrgb);
+    assert!(bgra.srgb8.is_some());
+    assert_eq!(bgra.srgb8, rgba.srgb8);
 }
 
 fn edge_host() -> RetainedHost {

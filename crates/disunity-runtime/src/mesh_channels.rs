@@ -49,13 +49,9 @@ pub(crate) type Read = unsafe extern "C" fn(
 ) -> native::DisunityResult;
 
 impl DisunityHost {
-    /// The channels stored under mesh `identity`, or `None` when the managed engine stored none.
-    pub fn mesh_channels(&self, identity: u64) -> Result<Option<MeshChannels>, HostError> {
-        self.mesh_channels_since(identity, 0)
-    }
-
-    /// Like [`Self::mesh_channels`], and `None` too when the stored generation is still
-    /// `known_generation`, so an unchanged mesh costs no copy.
+    /// The channels stored under mesh `identity`, or `None` when the managed engine stored none or
+    /// when the stored generation is still `known_generation`, so an unchanged mesh costs no copy.
+    /// A stored generation is at least 1, so a `known_generation` of 0 always gets the channels.
     pub fn mesh_channels_since(
         &self,
         identity: u64,

@@ -6,7 +6,6 @@ use crate::compositor::{
     FrameOutput, forward_order, game::reconcile_loads, overlay::OverlayStage, snapshots,
 };
 use crate::frame::FrameUniform;
-use crate::gbuffer::Gbuffer;
 use crate::scene_metadata::SceneMetadata;
 use crate::ssao::passes::ScreenFeature;
 use crate::ssr::{ReflectionFeature, Ssr};
@@ -39,14 +38,9 @@ pub(crate) struct Environment<'s> {
     pub slot: usize,
     pub ssao: Option<&'s SceneMetadata>,
     pub ssr: Option<&'s Ssr>,
-    /// The water the stock passes draw. It is `None` while the draws are suppressed.
+    /// The water the stock passes draw. It is `None` while a game feature draws the water.
     pub water: Option<&'s Water>,
-    /// Whether the chain carries the water registration, which plans whether or not it draws.
-    pub water_registered: bool,
-    pub gbuffer: Option<&'s Gbuffer>,
     pub velocity: Option<wgpu::Texture>,
-    /// The temporal reactive mask the water pass is followed by, when the frame has one.
-    pub temporal_mask: Option<wgpu::Texture>,
     /// The screen-space settings the renderer was configured with.
     pub requested: (Option<SceneSsao>, Option<SceneSsr>),
     /// Whether depth-tested overlay geometry reads the post-water depth.
@@ -146,7 +140,7 @@ pub(crate) fn plan_frame<'s>(
         overlay,
     } = parts;
     let probe = probe(environment, authored, snapshots.as_ref());
-    let cacheable = chain.registered_feature_count() == usize::from(environment.water_registered);
+    let cacheable = chain.registered_feature_count() == usize::from(environment.water.is_some());
     let lookup = if cacheable {
         cache.borrow_mut().frames.lookup(&probe)
     } else {
@@ -319,16 +313,6 @@ fn derive<'s>(
         &retained,
         (&mut passes, &mut views),
     )?;
-    if let Some(gbuffer) = environment.gbuffer {
-        let declared = authored
-            .features
-            .iter()
-            .chain(&screen_declaration)
-            .chain(&reflection_declaration)
-            .chain(&snapshot_declaration)
-            .chain(&retained);
-        gbuffer.schedule(&mut passes, &mut views, declared)?;
-    }
     let mut features = authored.features.to_vec();
     // An Opaque entry may repeat with its own colour layout, so each feature pass takes the
     // formats of the planned pass for its own entry. A pass with no planned entry is left

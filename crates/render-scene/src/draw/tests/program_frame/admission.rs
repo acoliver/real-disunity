@@ -5,14 +5,14 @@ use super::rig::{ARENA, BLACK as BLACK_PIXEL, Fixture, RED as RED_PIXEL, engine_
 use super::{COLOR_FORMAT, DEPTH_FORMAT, settings};
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use crate::draw::DrawCount;
+use crate::draw::PreparedScene;
 use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::{DirectionalShadowSettings, ShadowError, ShadowedScene};
 use worldrunner_render_gpu::configuration::{AllocationBudget, ConfigurationError};
 use worldrunner_render_gpu::submission::LeaseError;
 use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
-use worldrunner_render_post::{
-    AttachmentView, FrameConfig, FrameError, HdrPostSettings, PostResolve, ResourceRef, ToneMap,
-};
+use worldrunner_render_post::{FrameConfig, FrameError, HdrPostSettings, PostResolve, ToneMap};
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::unity::runtime::{Geometry, ProgramRuntime, TargetSignature};
 
@@ -20,7 +20,7 @@ const HDR: TextureFormat = TextureFormat::Rgba16Float;
 
 fn stock() -> Fixture {
     Fixture::new(settings(), |device| {
-        ScenePipelines::new(device, COLOR_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     })
 }
 
@@ -52,7 +52,9 @@ fn attempt(fixture: &mut Fixture, signature: TargetSignature) -> (Result<(), Fra
 fn draws_prepared_for_other_attachments_are_refused_before_any_draw() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
-    let prepared = TargetSignature::new(&[HDR], Some(DEPTH_FORMAT), 1).unwrap();
+    // The stock scene colour is Rgba16Float; these draws were prepared for an 8-bit target.
+    let prepared = TargetSignature::new(&[COLOR_FORMAT], Some(DEPTH_FORMAT), 1).unwrap();
+    assert_ne!(prepared, fixture.signature());
     let (encoded, scene) = attempt(&mut fixture, prepared);
     assert_eq!(
         refusal(encoded.unwrap_err()),
@@ -79,9 +81,9 @@ fn expect_unsupported(mut fixture: Fixture, effect: &'static str) {
 fn a_multisampled_scene_refuses_programs_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = settings();
-    settings.frame = FrameConfig::new([TARGET; 2], COLOR_FORMAT, 4);
+    settings.frame = FrameConfig::new([TARGET; 2], SCENE_FORMAT, 4);
     let fixture = Fixture::new(settings, |device| {
-        ScenePipelines::with_samples(device, COLOR_FORMAT, 4).unwrap()
+        ScenePipelines::new(device, SCENE_FORMAT, 4).unwrap()
     });
     expect_unsupported(fixture, "player programs with multisampling");
 }
@@ -89,9 +91,8 @@ fn a_multisampled_scene_refuses_programs_by_name() {
 #[test]
 fn a_temporally_reconstructed_scene_refuses_programs_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut settings = RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new([TARGET; 2], COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new([TARGET; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.post = HdrPostSettings {
         resolve: PostResolve::taa(0.9),
         upscale: Some(UpscaleSettings {
@@ -101,16 +102,17 @@ fn a_temporally_reconstructed_scene_refuses_programs_by_name() {
         ..HdrPostSettings::default()
     };
     // Plain pipelines write no velocity; the jitter alone makes the frame temporal.
-    let fixture = Fixture::new(settings, |device| ScenePipelines::new(device, HDR));
+    let fixture = Fixture::new(settings, |device| {
+        ScenePipelines::new(device, HDR, 1).unwrap()
+    });
     expect_unsupported(fixture, "player programs with temporal reconstruction");
 }
 
 #[test]
 fn a_scene_with_screen_space_passes_refuses_programs_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut settings = RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new([TARGET; 2], COLOR_FORMAT, ToneMap::Reinhard);
     settings.frame = FrameConfig::new([TARGET; 2], HDR, 1);
-    settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.ssao = Some(super::super::ssao::settings(1_000_000));
     let fixture = Fixture::with_scene(
         &super::super::ssao::source(1_000_000, true, 255),
@@ -200,55 +202,6 @@ fn draws_with_a_range_past_their_buffers_are_refused_at_admission_and_the_frame_
 }
 
 #[test]
-fn programs_admitted_to_a_scene_encoded_on_the_resident_path_are_refused_by_name() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let mut fixture = stock();
-    let authority = fixture.context.submission().clone();
-    let device = fixture.context.device().clone();
-    let mut recording = authority.begin(&device).unwrap();
-    let signature = fixture.signature();
-    let admitted = fixture.admit(&recording, signature).unwrap();
-    fixture.gpu.admit_programs(admitted);
-    // The resident path draws with a frame the caller has already set.
-    fixture
-        .gpu
-        .set_frame(fixture.context.queue(), super::rig::frame());
-    let mut renderer = crate::compositor::FrameRenderer::with_output(
-        &device,
-        FrameConfig::new([TARGET; 2], COLOR_FORMAT, 1),
-        COLOR_FORMAT,
-    )
-    .unwrap();
-    let color = AttachmentView::new(
-        ResourceRef::new("scene color"),
-        renderer.targets().scene().texture(),
-    )
-    .unwrap();
-    let depth = AttachmentView::new(
-        ResourceRef::new("scene depth"),
-        renderer.targets().depth().texture(),
-    )
-    .unwrap();
-    let encoded = crate::compositor::encode_resident(
-        &mut renderer,
-        &device,
-        &mut recording,
-        (&fixture.gpu, &fixture.pipelines),
-        (&color, &depth),
-    );
-    assert!(
-        matches!(
-            encoded,
-            Err(FrameError::UnsupportedEffect(
-                "player programs on the resident path"
-            ))
-        ),
-        "got {encoded:?}"
-    );
-    recording.finish().cancel();
-}
-
-#[test]
 fn programs_admitted_to_a_shadowed_scene_are_refused_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
@@ -261,19 +214,26 @@ fn programs_admitted_to_a_shadowed_scene_are_refused_by_name() {
         normal_bias_meters: 0.01,
         refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
     };
-    let mut shadowed = ShadowedScene::new(&fixture.context, &engine_scene(), settings).unwrap();
+    let mut shadowed = ShadowedScene::new(
+        &fixture.context,
+        PreparedScene::new(&engine_scene()).unwrap(),
+        settings,
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
+    )
+    .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(fixture.context.device());
     let target = OffscreenTarget::new(fixture.context.device(), view().viewport()).unwrap();
     let authority = fixture.context.submission().clone();
     let mut recording = authority.begin(fixture.context.device()).unwrap();
     let signature = fixture.signature();
     let admitted = fixture.admit(&recording, signature).unwrap();
     shadowed.scene_mut().admit_programs(admitted);
-    let encoded = shadowed.encode(
+    let encoded = shadowed.encode_with(
         &fixture.context,
         &view(),
-        &target.color_attachment(),
-        &target.depth_attachment(),
+        (&target.color_attachment(), &target.depth_attachment()),
         &mut recording,
+        &mut scheduler,
     );
     assert!(
         matches!(

@@ -64,11 +64,10 @@ impl StageFactory for FrameOutput {
     }
 }
 
-/// Opt-in attachment and output policy. Scene anti-aliasing effects remain independent.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// Attachment and output policy: an `Rgba16Float` scene of `samples` per pixel, shown through
+/// `tone_map`. Scene anti-aliasing effects remain independent.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FrameProfile {
-    #[default]
-    Legacy,
     Hdr {
         samples: u32,
         tone_map: worldrunner_render_post::ToneMap,
@@ -88,7 +87,6 @@ pub enum FrameProfile {
 impl FrameProfile {
     pub const fn target(self) -> (wgpu::TextureFormat, u32) {
         match self {
-            Self::Legacy => (wgpu::TextureFormat::Rgba8UnormSrgb, 1),
             Self::Hdr { samples, .. }
             | Self::HdrNativeRcas { samples, .. }
             | Self::HdrUpscaled { samples, .. } => (wgpu::TextureFormat::Rgba16Float, samples),

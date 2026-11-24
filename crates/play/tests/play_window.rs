@@ -11,8 +11,9 @@ mod scenarios {
     use std::process::Command;
     use std::time::Duration;
 
-    use worldrunner_play::{Capture, Game, PlayDriver, prepare};
-    use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
+    use worldrunner_play::{
+        Capture, Game, PlayerWindow, ScheduledKey, key_code, play_game_window, prepare,
+    };
 
     const SIZE: [u32; 2] = [480, 270];
     const SEED: i32 = 77;
@@ -73,36 +74,36 @@ mod scenarios {
         ))
     }
 
-    fn key(frame: u64, key: &str, pressed: bool) -> ScheduledInput {
-        let event = LiveInputEvent::Key {
-            key: key.into(),
+    fn key(frame: u64, name: &str, pressed: bool) -> ScheduledKey {
+        let code = key_code(name).expect("the engine has the key");
+        ScheduledKey {
+            frame,
+            code,
             pressed,
-            repeat: false,
-        };
-        ScheduledInput { frame, event }
+        }
     }
 
     /// Plays `game` for `frames` fixed 20 ms frames with `input`, returning the captured frames
     /// in order.
-    fn play(game: Game, frames: u64, input: Vec<ScheduledInput>, captures: &[u64]) -> Vec<Capture> {
+    fn play(game: Game, frames: u64, keys: Vec<ScheduledKey>, captures: &[u64]) -> Vec<Capture> {
         // A fixed seed fixes Pong's random launch direction, so every run plays the same rally.
         let prepared = prepare(game, None, Some(SEED)).unwrap();
-        let mut driver = PlayDriver::new(prepared, captures.iter().copied()).unwrap();
-        let mut options = LiveOptions::new(format!("play {}", game.name()), SIZE);
-        options.fixed_dt = Some(Duration::from_millis(20));
-        options.max_frames = Some(frames);
-        options.scheduled_input = input;
-        run_live(&mut driver, options).unwrap();
-        let presented: Vec<u64> = driver
-            .captures()
-            .iter()
-            .map(|capture| capture.frame)
-            .collect();
+        let window = PlayerWindow {
+            title: format!("play {}", game.name()),
+            size: SIZE,
+            fixed_dt: Some(Duration::from_millis(20)),
+            max_frames: Some(frames),
+            capture_frames: captures.iter().copied().collect(),
+            capture_files: Vec::new(),
+            keys,
+        };
+        let frames_shown = play_game_window(prepared, &window).unwrap();
+        let presented: Vec<u64> = frames_shown.iter().map(|capture| capture.frame).collect();
         assert_eq!(
             presented, captures,
             "every requested frame is presented and captured"
         );
-        driver.captures().to_vec()
+        frames_shown
     }
 
     fn white(capture: &Capture, x: u32, y: u32) -> bool {

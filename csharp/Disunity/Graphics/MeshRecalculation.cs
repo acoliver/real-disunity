@@ -9,6 +9,8 @@ public partial class Mesh
         Normals = (Vector3[])_normals.Clone(),
         Tangents = (Vector4[])_tangents.Clone(),
         Colors = (Color[])_colors.Clone(),
+        BoneWeights = (BoneWeight[])_boneWeights.Clone(),
+        BindPoses = (Matrix4x4[])_bindPoses.Clone(),
         Uvs = Map(_uvs, channel => (Vector4[])channel.Clone()),
         UvDimensions = (int[])_uvDimensions.Clone(),
         SubMeshes = Map(_subMeshes, subMesh => new MeshSubMeshData((int[])subMesh.Indices.Clone(), subMesh.Topology, subMesh.BaseVertex)),

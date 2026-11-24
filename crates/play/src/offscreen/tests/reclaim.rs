@@ -109,16 +109,24 @@ impl Room {
     /// Maps the snapshot, makes room for its frame as the host does, builds it and waits for the
     /// GPU, so that what was given back no longer counts.
     fn frame(&mut self, snapshot: &GraphicsSnapshot) -> (Result<(), OffscreenError>, Reclaimed) {
-        let adapted =
-            self.adapter
-                .adapt(snapshot, &self.textures, &mut self.state, &mut self.runtime);
-        let reclaimed = self
-            .adapter
-            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        let adapted = self.adapter.adapt(
+            snapshot,
+            &self.textures,
+            (&mut self.state, &mut self.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
+        let reclaimed = self.adapter.make_room(
+            &mut self.state,
+            &mut self.runtime,
+            &adapted.frame,
+            Settling::Wait,
+        );
         let built = self
             .state
             .build(&mut self.runtime, &self.device.2, &adapted.frame)
-            .map(drop);
+            .map(drop)
+            .map_err(|refusal| refusal.error);
         let _ = self
             .runtime
             .device()
@@ -138,20 +146,25 @@ impl Room {
 
     fn adapt(&mut self, snapshot: &GraphicsSnapshot) -> Report {
         self.adapter
-            .adapt(snapshot, &self.textures, &mut self.state, &mut self.runtime)
+            .adapt(
+                snapshot,
+                &self.textures,
+                (&mut self.state, &mut self.runtime),
+                (false, &std::collections::BTreeMap::new()),
+                Settling::Wait,
+            )
             .report
     }
 
     /// As `adapt`, for a frame the viewer submits: room is made from what the GPU has finished
     /// with, and nothing waits for the GPU.
     fn adapt_for_viewer(&mut self, snapshot: &GraphicsSnapshot) -> Adapted {
-        self.adapter.adapt_settling(
+        self.adapter.adapt(
             snapshot,
             &self.textures,
-            &mut self.state,
-            &mut self.runtime,
+            (&mut self.state, &mut self.runtime),
+            (false, &std::collections::BTreeMap::new()),
             Settling::Poll,
-            &std::collections::BTreeMap::new(),
         )
     }
 
@@ -377,14 +390,16 @@ fn the_least_recently_named_texture_goes_first() {
 #[test]
 fn the_render_textures_of_a_frame_take_the_room_of_what_no_snapshot_names() {
     render_textures_take_the_room_of_what_no_snapshot_names(|host, snapshot| {
-        host.frame(snapshot, &Textures::default()).unwrap().1
+        host.frame(snapshot, &Textures::default(), Settling::Wait, &[])
+            .unwrap()
+            .1
     });
 }
 
 #[test]
 fn the_render_textures_of_a_viewer_frame_take_the_room_of_what_no_snapshot_names() {
     render_textures_take_the_room_of_what_no_snapshot_names(|host, snapshot| {
-        host.frame_with(snapshot, &Textures::default(), Settling::Poll)
+        host.frame(snapshot, &Textures::default(), Settling::Poll, &[])
             .unwrap()
             .1
     });
@@ -539,6 +554,28 @@ fn the_render_texture_named_longest_ago_is_given_back_first_when_the_frame_needs
 }
 
 #[test]
+fn a_texture_the_ui_reads_is_given_back_last() {
+    let held = held_after_two_frames();
+    let mut room = Room::new(held + 16384 - 256);
+    let mut targets = Targets::new();
+    let (a, b, c) = (targets.a, targets.b, targets.c);
+    // `b` was named longest ago, as in the test above, but the UI reads it before `c` needs room.
+    let frames = [
+        targets.naming(&[a, b]),
+        targets.naming(&[a]),
+        targets.naming(&[c]),
+    ];
+    room.frame(&frames[0]).0.unwrap();
+    room.frame(&frames[1]).0.unwrap();
+    room.adapter.note_ui_read(Targets::id(b));
+
+    let (built, reclaimed) = room.frame(&frames[2]);
+    built.unwrap();
+    assert_eq!(reclaimed.targets, 1);
+    assert_eq!(room.held(), [Targets::id(b), Targets::id(c)]);
+}
+
+#[test]
 fn a_render_texture_the_snapshot_names_is_not_given_back_though_it_was_named_longest_ago() {
     let held = held_after_two_frames();
     let mut room = Room::new(held + 16384 - 256);
@@ -648,9 +685,13 @@ fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
             })
             .unwrap();
         let drawing = snapshot(&mut world);
-        let adapted = room
-            .adapter
-            .adapt(&drawing, &Meshes, &mut room.state, &mut room.runtime);
+        let adapted = room.adapter.adapt(
+            &drawing,
+            &Meshes,
+            (&mut room.state, &mut room.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
         assert!(
             adapted.report.failures.is_empty(),
             "{:?}",
@@ -659,16 +700,16 @@ fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
         assert_eq!(adapted.report.built_by_kind["DrawMesh"], 1);
         assert_eq!(room.adapter.mesh_metadata_counts(), (1, 1, 1));
         let budget = room.runtime.budget().0;
-        let protected = room
-            .adapter
-            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        let protected =
+            room.adapter
+                .make_room_for(&mut room.state, &mut room.runtime, budget, Settling::Wait);
         assert_eq!(protected.meshes, 0);
         drop(adapted);
 
         room.adapt(&snapshot(&mut world));
-        let reclaimed = room
-            .adapter
-            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        let reclaimed =
+            room.adapter
+                .make_room_for(&mut room.state, &mut room.runtime, budget, Settling::Wait);
         assert_eq!(reclaimed.meshes, 1);
         assert!(reclaimed.bytes > 0);
         assert_eq!(room.adapter.mesh_metadata_counts(), (0, 0, 0));

@@ -167,6 +167,11 @@ impl World {
         self.lifecycle.remove_script(component);
         self.physics.targets.remove(&component);
         self.note_component_removed(component);
+        let held = self
+            .components
+            .get(component.0)
+            .and_then(|stored| stored.desc.draw_input());
+        self.note_drawable_edit(held, None);
         if let Some(owner) = self.components.get(component.0).map(|c| c.object)
             && let Some(object) = self.objects.get_mut(owner.0)
         {

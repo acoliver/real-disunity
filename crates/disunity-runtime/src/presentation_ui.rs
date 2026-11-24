@@ -7,7 +7,15 @@ use crate::{
     DisunityHost, HostError, native,
     presentation::{Coverage, decode_quad, read_coverage},
 };
-use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
+use std::collections::BTreeMap;
+use worldrunner_world_simulation::{
+    graphics::{MaterialId, RenderTextureId},
+    presentation::extraction::SpriteQuad,
+    ui::{
+        UiTexture,
+        presentation::{UiDraw, UiDrawKind, UiMaterial, UiPresentation},
+    },
+};
 
 type Count = unsafe extern "C" fn(u64, *mut u32, *mut u32) -> native::DisunityResult;
 type Draw = unsafe extern "C" fn(
@@ -15,6 +23,15 @@ type Draw = unsafe extern "C" fn(
     u32,
     *mut native::DisunityUiDraw,
     *mut native::DisunityQuad,
+) -> native::DisunityResult;
+
+type MaterialRead =
+    unsafe extern "C" fn(u64, u64, *mut native::DisunityMaterialInfo) -> native::DisunityResult;
+type ShaderRead = unsafe extern "C" fn(
+    u64,
+    u64,
+    *mut native::DisunityShaderInfo,
+    *mut u8,
 ) -> native::DisunityResult;
 
 impl DisunityHost {
@@ -36,7 +53,57 @@ impl DisunityHost {
         }
         plan.coverage =
             read_coverage(world, textures, coverage).map_err(|failed| self.native_error(failed))?;
+        plan.shaders = self.ui_shader_names(world, &plan.draws)?;
         Ok(plan)
+    }
+
+    /// The shader name of each material the draws name, read through the material and shader
+    /// calls, because the draw record carries material identities only.
+    fn ui_shader_names(
+        &self,
+        world: u64,
+        draws: &[UiDraw],
+    ) -> Result<BTreeMap<UiMaterial, String>, HostError> {
+        let material: MaterialRead = self.ui_symbol(b"disunity_material_read\0")?;
+        let shader: ShaderRead = self.ui_symbol(b"disunity_shader_read\0")?;
+        let mut names = BTreeMap::new();
+        for used in draws.iter().filter_map(|draw| draw.material) {
+            if names.contains_key(&used) {
+                continue;
+            }
+            let mut info = native::DisunityMaterialInfo::default();
+            self.check(unsafe { material(world, used.id.to_bits(), &mut info) })?;
+            names.insert(used, self.shader_name(world, shader, info.shader)?);
+        }
+        Ok(names)
+    }
+
+    fn shader_name(&self, world: u64, read: ShaderRead, shader: u64) -> Result<String, HostError> {
+        let mut info = native::DisunityShaderInfo::default();
+        self.check(unsafe { read(world, shader, &mut info, std::ptr::null_mut()) })?;
+        let mut text = vec![0_u8; info.text_capacity as usize];
+        self.check(unsafe { read(world, shader, &mut info, text.as_mut_ptr()) })?;
+        text.truncate(info.name_length as usize);
+        String::from_utf8(text).map_err(|_| HostError::Managed("a shader name is not UTF-8".into()))
+    }
+
+    /// A render texture's description, with the sampler the world holds for it. Fails with the
+    /// world's reason when the world holds no render texture with this id, as after the managed
+    /// side destroyed it.
+    ///
+    /// # Errors
+    /// No world is loaded, the engine image has no such call, or the world holds no such texture.
+    pub fn render_texture(&self, id: u64) -> Result<native::DisunityRenderTexture, HostError> {
+        type Read = unsafe extern "C" fn(
+            u64,
+            u64,
+            *mut native::DisunityRenderTexture,
+        ) -> native::DisunityResult;
+        let world = self.world.ok_or(HostError::NoWorld)?;
+        let read: Read = self.ui_symbol(b"disunity_render_texture_read\0")?;
+        let mut texture = native::DisunityRenderTexture::default();
+        self.check(unsafe { read(world, id, &mut texture) })?;
+        Ok(texture)
     }
 
     fn ui_symbol<T: Copy>(&self, name: &'static [u8]) -> Result<T, HostError> {
@@ -72,16 +139,50 @@ fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<Ui
         corners: quad.corners,
         uv_rect: quad.uv_rect,
         color: quad.color,
-        texture: quad.texture,
+        texture: decode_texture(kind, meta.texture_kind, &quad)?,
+        material: decode_material(&meta)?,
         sorting_layer: quad.sorting_layer,
         sorting_order: quad.sorting_order,
         hierarchy_order: usize::try_from(meta.hierarchy_order)
             .map_err(|_| HostError::Managed("UI hierarchy order overflow".into()))?,
         clip_rect: [meta.clip_x, meta.clip_y, meta.clip_width, meta.clip_height],
     };
-    draw.validate_distance()
+    draw.validate()
         .map_err(|e| HostError::Managed(e.to_string()))?;
     Ok(draw)
+}
+
+fn decode_material(meta: &native::DisunityUiDraw) -> Result<Option<UiMaterial>, HostError> {
+    match (meta.material, meta.material_generation) {
+        (0, 0) => Ok(None),
+        (0, _) => Err(HostError::Managed(
+            "UI material generation without a material".into(),
+        )),
+        (id, generation) => Ok(Some(UiMaterial {
+            id: MaterialId::from_bits(id),
+            generation,
+        })),
+    }
+}
+
+/// A target names a world render texture; any other texture is a stored image on a graphic and a
+/// coverage index on text.
+fn decode_texture(
+    kind: UiDrawKind,
+    texture_kind: u32,
+    quad: &SpriteQuad,
+) -> Result<Option<UiTexture>, HostError> {
+    let Some(id) = quad.texture else {
+        return Ok(None);
+    };
+    match (texture_kind, kind) {
+        (0, UiDrawKind::Graphic) => Ok(Some(UiTexture::Image(id))),
+        (0, UiDrawKind::Text) => Ok(Some(UiTexture::Coverage(id))),
+        (1, _) => Ok(Some(UiTexture::Target(RenderTextureId::from_bits(id)))),
+        _ => Err(HostError::Managed(format!(
+            "unknown UI texture kind {texture_kind}"
+        ))),
+    }
 }
 
 fn decode_corner_colors(meta: &native::DisunityUiDraw) -> Result<Option<[[f32; 4]; 4]>, HostError> {

@@ -4,10 +4,14 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-use worldrunner::scene::plan::simulation::{SpriteTextures, extract_world};
+use worldrunner::scene::plan::simulation::SpriteTextures;
 use worldrunner::simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
-    presentation::{Sprite, SpriteRenderer},
+    presentation::{
+        Sprite, SpriteRenderer,
+        extraction::{WorldRenderPlan, append_ui, extract_world},
+    },
+    ui::contribution::extract_ui,
 };
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 
@@ -28,30 +32,18 @@ fn rust_and_csharp_worlds_produce_equivalent_sprite_contributions() {
     let mut host = DisunityHost::boot(&config).unwrap();
     host.run_slice(&fixture).unwrap();
     let managed = host.export_presentation([80, 40], 8).unwrap();
-    let managed = worldrunner::scene::plan::simulation::from_presentation(managed, &textures());
     let native = native_world();
     assert_eq!(native, managed);
     assert!(managed.camera.is_some());
     assert!(managed.quads.iter().any(|q| q.overlay));
     assert!(managed.quads.len() >= 5);
-    let prepared =
-        worldrunner::scene::gpu::simulation::WorldSceneContribution::new(managed).unwrap();
+    let textures = textures();
+    let prepared = worldrunner::scene::gpu::simulation::WorldSceneContribution::new(
+        managed,
+        &textures.textures,
+    )
+    .unwrap();
     assert!(prepared.quads.len() >= 5);
-    #[cfg(feature = "scene-viewer")]
-    {
-        let live = worldrunner::scene::viewer::LiveFrame::from_world(
-            worldrunner::scene::gpu::simulation::WorldSceneContribution::new(native).unwrap(),
-        );
-        assert_eq!(
-            prepared.clear.map(f64::to_bits),
-            live.clear.map(f64::to_bits)
-        );
-        assert_eq!(prepared.quads.len(), live.quads.len());
-        for (headless, live) in prepared.quads.iter().zip(live.quads) {
-            assert_eq!(headless.corners, live.corners);
-            assert_eq!(headless.texture, live.texture);
-        }
-    }
 
     host.unload_slice().unwrap();
     assert!(host.export_sprites().is_err());
@@ -101,14 +93,14 @@ fn setup() -> (ManagedHostConfig, PathBuf) {
     (config, target)
 }
 
-fn native_world() -> worldrunner::scene::plan::simulation::WorldRenderPlan {
+fn native_world() -> WorldRenderPlan {
     let mut world = World::new(WorldSettings::default()).unwrap();
     add_sprites(&mut world);
     add_camera(&mut world);
     let fonts = add_ui(&mut world);
-    let mut plan = extract_world(&world, &textures(), [80, 40]).unwrap();
-    let ui = worldrunner::scene::plan::ui::extract_ui(&world, &fonts, [80, 40]).unwrap();
-    worldrunner::scene::plan::simulation::append_ui(&mut plan, ui).unwrap();
+    let mut plan = extract_world(&world, [80, 40]).unwrap();
+    let ui = extract_ui(&world, &fonts, [80, 40]).unwrap();
+    append_ui(&mut plan, ui).unwrap();
     plan
 }
 fn add_sprites(world: &mut World) {
@@ -166,7 +158,7 @@ fn add_camera(world: &mut World) {
 fn add_ui(world: &mut World) -> worldrunner::simulation::ui::FontBook {
     use worldrunner::simulation::{
         ParentSpace,
-        ui::{Canvas, FontBook, RectTransform, TextRun},
+        ui::{Canvas, CanvasMode, FontBook, RectTransform, TextRun},
     };
     let canvas = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -176,7 +168,13 @@ fn add_ui(world: &mut World) -> worldrunner::simulation::ui::FontBook {
         )
         .unwrap();
     world
-        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            canvas,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let label = world.create_object(ObjectDesc::default()).unwrap();
     world

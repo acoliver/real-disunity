@@ -6,6 +6,7 @@ use worldrunner_disunity_runtime::{
 };
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
+use super::super::adapter::Settling;
 use super::super::assets::{AssetError, Assets};
 use super::super::frame::{Adapted, RendererSkip};
 use super::gpu::{MESH, Rig, SIDE, camera_render};
@@ -60,8 +61,13 @@ fn adapt(stored: MeshChannels) -> Adapted {
     let target = render_texture(&mut world, [SIDE, SIDE]);
     camera_render(&mut world, target);
     let snapshot = GraphicsSnapshot::take(&mut world).unwrap();
-    rig.adapter
-        .adapt(&snapshot, &Stored(stored), &mut rig.state, &mut rig.runtime)
+    rig.adapter.adapt(
+        &snapshot,
+        &Stored(stored),
+        (&mut rig.state, &mut rig.runtime),
+        (false, &std::collections::BTreeMap::new()),
+        Settling::Wait,
+    )
 }
 
 fn mesh_failures(adapted: &Adapted) -> Vec<(&str, usize)> {

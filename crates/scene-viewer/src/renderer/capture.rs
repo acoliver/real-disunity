@@ -1,4 +1,4 @@
-use super::{Renderer, game_screen::ViewMisses, live::Capture};
+use super::{Renderer, game_screen::ViewMisses, readback::Capture};
 mod accumulation;
 pub(super) mod advanced;
 mod products;
@@ -218,13 +218,9 @@ impl Encoding<'_> {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         output: &wgpu::TextureView,
-        capture: Option<&mut Capture>,
         retained: Option<&mut Products>,
         fitted: bool,
     ) -> Result<(), ViewerError> {
-        if let Some(capture) = capture {
-            capture.encode(encoder, self.presentation.targets.color.texture())?;
-        }
         if let Some(retained) = retained {
             if !fitted {
                 retained.replay(

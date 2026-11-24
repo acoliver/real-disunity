@@ -1,8 +1,9 @@
 //! Visible-ID differentials through the stock sorted executor, with exact sample readback.
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
-    SceneContourStyle, SceneContours, SceneOpaquePath, TexelFormat, TextureFilter, TextureSampler,
+    SceneContourStyle, SceneContours, TexelFormat, TextureFilter, TextureSampler,
 };
 use worldrunner_render_post::{AttachmentView, ResourceRef, ToneMap};
 
@@ -19,7 +20,7 @@ enum Shape {
     Hidden,
 }
 
-fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
+fn source(id: u8, shape: Shape, prepass: bool) -> RenderScene {
     let hole = matches!(shape, Shape::Cutout);
     let occluder = matches!(shape, Shape::Occluded | Shape::Hidden);
     let mut styles = vec![None; 256];
@@ -29,12 +30,6 @@ fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
     let effects = SceneEffects::new(parts)
         .unwrap()
         .with_contours(SceneContours::new([1920, 1080], styles.clone()).unwrap())
-        .unwrap()
-        .with_opaque_path(if gbuffer {
-            SceneOpaquePath::GBUFFER_OBSERVATION
-        } else {
-            SceneOpaquePath::Forward
-        })
         .unwrap();
     let mut vertices = quad().lods()[0].vertices().to_vec();
     for v in &mut vertices {
@@ -74,13 +69,10 @@ fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
     .unwrap()
 }
 
-fn source_with_path(id: u8, path: SceneOpaquePath) -> RenderScene {
-    let source = source(
-        0,
-        Shape::Quad,
-        path == SceneOpaquePath::GBUFFER_RENDER,
-        false,
-    );
+/// The quad scene with contour ID `id` and styles for IDs 1, 2 and 255, with the depth prepass
+/// when `prepass`.
+fn source_with_ids(id: u8, prepass: bool) -> RenderScene {
+    let source = source(0, Shape::Quad, prepass);
     let mut styles = vec![None; 256];
     for selected in [1, 2, 255] {
         styles[selected] = Some(SceneContourStyle::default());
@@ -90,8 +82,6 @@ fn source_with_path(id: u8, path: SceneOpaquePath) -> RenderScene {
         .unwrap()
         .clone()
         .with_contours(SceneContours::new([1920, 1080], styles).unwrap())
-        .unwrap()
-        .with_opaque_path(path)
         .unwrap();
     source
         .with_objects_and_effects(
@@ -176,7 +166,7 @@ impl Rig {
         let pipelines = if source.effects().unwrap().ssao().is_some() {
             ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, samples).unwrap()
         } else {
-            ScenePipelines::with_samples(device, TextureFormat::Rgba16Float, samples).unwrap()
+            ScenePipelines::new(device, TextureFormat::Rgba16Float, samples).unwrap()
         };
         let renderer = FrameRenderer::hdr(
             context,
@@ -187,7 +177,7 @@ impl Rig {
             source.effects(),
         )
         .unwrap();
-        let gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), source, &pipelines).unwrap();
         let view = SceneView::new(
             pose(),
             camera(),
@@ -224,15 +214,16 @@ impl Rig {
             self.renderer.targets().depth().texture(),
         )
         .unwrap();
-        encode_scene(
-            &mut self.renderer,
-            device,
-            encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
-            self.frame,
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                device,
+                encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&color, &depth),
+                self.frame,
+            )
+            .unwrap();
         let mask = self
             .renderer
             .encode_contour_capture(device, encoder)
@@ -295,86 +286,52 @@ fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
 }
 
 #[test]
-fn gpu_contour_quad_cutout_and_occlusion_exact_masks_on_both_paths() {
+fn gpu_contour_quad_cutout_and_occlusion_exact_masks_with_and_without_the_prepass() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for prepass in [false, true] {
-        for gbuffer in [false, true] {
-            for shape in [Shape::Quad, Shape::Cutout, Shape::Occluded, Shape::Hidden] {
-                let hole = matches!(shape, Shape::Cutout);
-                let occluder = matches!(shape, Shape::Occluded);
-                let source = source(255, shape, prepass, gbuffer);
-                let mut rig = Rig::new(&context, &source, 1);
-                let image = rig.draw(&context);
-                let mask = image.mask.unwrap();
-                assert_eq!(
-                    rig.renderer.contour_statistics(),
-                    crate::ContourStatistics {
-                        passes: 1,
-                        targets: 1,
-                        samples: 1
-                    }
-                );
-                assert_eq!(mask.len(), (SIZE[0] * SIZE[1]) as usize);
-                if hole {
-                    assert_eq!(mask[(12 * SIZE[0] + 16) as usize], 0, "hole centre");
-                    assert!(
-                        mask.contains(&255),
-                        "the cutout must retain visible coverage"
-                    );
+        for shape in [Shape::Quad, Shape::Cutout, Shape::Occluded, Shape::Hidden] {
+            let hole = matches!(shape, Shape::Cutout);
+            let occluder = matches!(shape, Shape::Occluded);
+            let source = source(255, shape, prepass);
+            let mut rig = Rig::new(&context, &source, 1);
+            let image = rig.draw(&context);
+            let mask = image.mask.unwrap();
+            assert_eq!(
+                rig.renderer.contour_statistics(),
+                crate::ContourStatistics {
+                    passes: 1,
+                    targets: 1,
+                    samples: 1
                 }
-                for y in 0..SIZE[1] {
-                    for x in 0..SIZE[0] {
-                        let covered = (8..24).contains(&x) && (6..18).contains(&y);
-                        let hidden = matches!(shape, Shape::Hidden)
-                            || (occluder && (16..24).contains(&x) && (9..15).contains(&y));
-                        let index = (y * SIZE[0] + x) as usize;
-                        let pixel = &image.color[index * 4..index * 4 + 4];
-                        let visible = pixel[0] > pixel[1] && pixel[0] > pixel[2];
-                        if !hole {
-                            assert_eq!(visible, covered && !hidden, "colour x={x} y={y}");
-                        }
-                        assert_eq!(
-                            mask[index],
-                            if visible { 255 } else { 0 },
-                            "x={x} y={y} hole={hole} hidden={occluder} prepass={prepass} gbuffer={gbuffer}"
-                        );
+            );
+            assert_eq!(mask.len(), (SIZE[0] * SIZE[1]) as usize);
+            if hole {
+                assert_eq!(mask[(12 * SIZE[0] + 16) as usize], 0, "hole centre");
+                assert!(
+                    mask.contains(&255),
+                    "the cutout must retain visible coverage"
+                );
+            }
+            for y in 0..SIZE[1] {
+                for x in 0..SIZE[0] {
+                    let covered = (8..24).contains(&x) && (6..18).contains(&y);
+                    let hidden = matches!(shape, Shape::Hidden)
+                        || (occluder && (16..24).contains(&x) && (9..15).contains(&y));
+                    let index = (y * SIZE[0] + x) as usize;
+                    let pixel = &image.color[index * 4..index * 4 + 4];
+                    let visible = pixel[0] > pixel[1] && pixel[0] > pixel[2];
+                    if !hole {
+                        assert_eq!(visible, covered && !hidden, "colour x={x} y={y}");
                     }
+                    assert_eq!(
+                        mask[index],
+                        if visible { 255 } else { 0 },
+                        "x={x} y={y} hole={hole} hidden={occluder} prepass={prepass}"
+                    );
                 }
             }
         }
-    }
-}
-
-#[test]
-fn gpu_contour_gbuffer_render_matches_forward_ids() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    for shape in [Shape::Quad, Shape::Cutout, Shape::Occluded, Shape::Hidden] {
-        let forward = source(255, shape, true, false);
-        let effects = forward
-            .effects()
-            .unwrap()
-            .clone()
-            .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
-            .unwrap();
-        let deferred = forward
-            .with_objects_and_effects(forward.geometry().objects().to_vec(), Some(effects))
-            .unwrap();
-        let expected = Rig::new(&context, &forward, 1).draw(&context).mask.unwrap();
-        let mut rig = Rig::new(&context, &deferred, 1);
-        let actual = rig.draw(&context).mask.unwrap();
-        assert_eq!(actual, expected);
-        assert!(actual.contains(&0));
-        assert_eq!(actual.contains(&255), !matches!(shape, Shape::Hidden));
-        assert_eq!(
-            rig.renderer.contour_statistics(),
-            crate::ContourStatistics {
-                passes: 1,
-                targets: 1,
-                samples: 1
-            }
-        );
     }
 }
 
@@ -383,33 +340,31 @@ fn gpu_contour_unused_and_active_to_empty_are_byte_identical_and_absent() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for prepass in [false, true] {
-        for gbuffer in [false, true] {
-            let disabled = source(0, Shape::Quad, prepass, gbuffer);
-            let mut rig = Rig::new(&context, &disabled, 1);
-            let baseline = rig.draw(&context);
-            assert!(baseline.mask.is_none());
-            assert_eq!(
-                rig.renderer.contour_statistics(),
-                crate::ContourStatistics::default()
-            );
-            let handle = rig.gpu.instance_handles().next().unwrap();
-            let object = rig.gpu.instance(handle).unwrap().0;
-            rig.gpu
-                .set_instance_object(handle, object.with_contour_id(255))
-                .unwrap();
-            let active = rig.draw(&context);
-            assert_eq!(baseline.color, active.color);
-            assert!(active.mask.unwrap().contains(&255));
-            rig.gpu.set_instance_object(handle, object).unwrap();
-            let empty = rig.draw(&context);
-            assert_eq!(baseline.color, empty.color);
-            assert!(empty.mask.is_none());
-            assert!(rig.renderer.contour_target().is_none());
-            assert_eq!(
-                rig.renderer.contour_statistics(),
-                crate::ContourStatistics::default()
-            );
-        }
+        let disabled = source(0, Shape::Quad, prepass);
+        let mut rig = Rig::new(&context, &disabled, 1);
+        let baseline = rig.draw(&context);
+        assert!(baseline.mask.is_none());
+        assert_eq!(
+            rig.renderer.contour_statistics(),
+            crate::ContourStatistics::default()
+        );
+        let handle = rig.gpu.instance_handles().next().unwrap();
+        let object = rig.gpu.instance(handle).unwrap().0;
+        rig.gpu
+            .set_instance_object(handle, object.with_contour_id(255))
+            .unwrap();
+        let active = rig.draw(&context);
+        assert_eq!(baseline.color, active.color);
+        assert!(active.mask.unwrap().contains(&255));
+        rig.gpu.set_instance_object(handle, object).unwrap();
+        let empty = rig.draw(&context);
+        assert_eq!(baseline.color, empty.color);
+        assert!(empty.mask.is_none());
+        assert!(rig.renderer.contour_target().is_none());
+        assert_eq!(
+            rig.renderer.contour_statistics(),
+            crate::ContourStatistics::default()
+        );
     }
 }
 
@@ -417,7 +372,7 @@ fn gpu_contour_unused_and_active_to_empty_are_byte_identical_and_absent() {
 fn gpu_contour_msaa_half_edge_retains_exact_per_sample_ids() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let source = source(255, Shape::Quad, false, false);
+    let source = source(255, Shape::Quad, false);
     let mut rig = Rig::new(&context, &source, 4);
     // Shift half a pixel so the vertical edge crosses two of the four sample positions.
     rig.frame.view_projection.w_axis.x = 1.0 / f32::from(u16::try_from(SIZE[0]).unwrap());
@@ -440,7 +395,7 @@ fn gpu_contour_msaa_half_edge_retains_exact_per_sample_ids() {
 fn gpu_contour_abandonment_and_slots_keep_submitted_targets() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let mut rig = Rig::new(&context, &source(255, Shape::Quad, false, false), 1);
+    let mut rig = Rig::new(&context, &source(255, Shape::Quad, false), 1);
     rig.draw(&context);
     let submitted = rig.renderer.contour_target().unwrap();
     let handle = rig.gpu.instance_handles().next().unwrap();
@@ -476,12 +431,13 @@ fn gpu_contour_skin_and_wind_match_visible_color_coverage() {
     let mut skin_masks = Vec::new();
     for fixture in [skinning::posed(0), skinning::posed(400), velocity::windy()] {
         for prepass in [false, true] {
-            let effects = source(0, Shape::Quad, prepass, false).effects().cloned();
+            let effects = source(0, Shape::Quad, prepass).effects().cloned();
             let scene = fixture
                 .with_objects_and_effects(fixture.geometry().objects().to_vec(), effects)
                 .unwrap();
             let mut rig = Rig::new(&context, &scene, 1);
-            rig.renderer.set_frame_time(0.25).unwrap();
+            rig.renderer
+                .set_frame_time(std::time::Duration::from_secs_f32(0.25));
             let baseline = rig.draw(&context);
             let handles: Vec<_> = rig.gpu.instance_handles().collect();
             for handle in handles {

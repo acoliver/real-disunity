@@ -84,11 +84,18 @@ fn drawn_with_lods(world: &mut World, x: f32, lods: usize) -> ObjectHandle {
 
 fn edits(world: &mut World, ids: &mut ObjectIdMap) -> Vec<SceneObjectEdit> {
     let changes = world.drain_changes();
-    edits_from_world_changes(&changes, world, &Layered, ids).unwrap()
+    edits_from_world_changes(
+        &changes,
+        world,
+        &Layered,
+        worldrunner_render_plan::simulation::mesh_instances::MeshExtractOptions::default(),
+        ids,
+    )
+    .unwrap()
 }
 
 fn host_for(world: &mut World) -> (RetainedHost, ObjectIdMap) {
-    let extracted = extract_mesh_instances(world, &Layered).unwrap();
+    let extracted = extract_mesh_instances(world, &Layered, MeshExtractOptions::default()).unwrap();
     let base = crate::renderer::retained_tests::source();
     let scene = RenderScene::new(SceneParts {
         resources: base.resources().clone(),
@@ -114,7 +121,7 @@ fn apply(host: &mut RetainedHost, edits: Vec<SceneObjectEdit>) {
 }
 
 fn assert_matches_full_extraction(host: &RetainedHost, world: &World, ids: &ObjectIdMap) {
-    let full = extract_mesh_instances(world, &Layered).unwrap();
+    let full = extract_mesh_instances(world, &Layered, MeshExtractOptions::default()).unwrap();
     assert_eq!(host.objects().count(), full.len());
     assert_eq!(ids.id_count(), full.len());
     let mut taken: BTreeMap<ObjectHandle, usize> = BTreeMap::new();
@@ -304,8 +311,7 @@ fn a_millimeter_world_produces_millimeter_positions_in_edits() {
     world.set_local_transform(object, at(2500.0)).unwrap();
     let changes = world.drain_changes();
     let options = MeshExtractOptions::with_millimeters_per_unit(1.0).unwrap();
-    let batch =
-        edits_from_world_changes_with(&changes, &world, &Layered, options, &mut ids).unwrap();
+    let batch = edits_from_world_changes(&changes, &world, &Layered, options, &mut ids).unwrap();
     assert_eq!(batch.len(), 2);
     assert!(batch.iter().all(|edit| matches!(
         edit,

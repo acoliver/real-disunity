@@ -6,10 +6,13 @@
 //! `vertex_count` vertices of `dimension` 32-bit floats, then every index as a 32-bit integer.
 //! Position and normal have dimension 3, tangent and color 4, and a texture coordinate 2 to 4;
 //! integer and normalized formats are converted to floats, so the managed side reads one format.
-//! Vertex data stored in a `.resS` file is read from it. Skin weights and indices are not
-//! planned. A mesh the planner cannot decode (mesh compression, a vertex format it does not
-//! convert, data that lies outside the object) is left out and listed; a reference to it plans
-//! as null.
+//! Vertex data stored in a `.resS` file is read from it. A skinned mesh also plans the blend weights
+//! and blend indices as channels of dimension 4, padded with 0 where the serialized channel has
+//! fewer components, and its bind poses, row-major 16 floats each, in the plan entry. A mesh that
+//! has blend indices and no blend weights binds each vertex to its first bone, so its weights are
+//! 1, 0, 0, 0. A mesh the planner cannot decode (mesh compression, a vertex format it does
+//! not convert, bone counts that vary per vertex, data that lies outside the object) is left out
+//! and listed; a reference to it plans as null.
 
 use std::{
     io::{Read, Seek, SeekFrom},
@@ -68,14 +71,15 @@ pub struct PlanMesh {
     pub index_format: i32,
     pub bounds: PlanBounds,
     pub resource: String,
+    /// One matrix per bone of a skinned mesh, as 16 row-major floats.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bind_poses: Vec<[f32; 16]>,
 }
 
 /// A decoded mesh waiting for its asset number: the plan entry and the resource bytes.
 pub(crate) struct DecodedMesh {
     pub(crate) plan: PlanMesh,
     pub(crate) bytes: Vec<u8>,
-    /// What the plan leaves out of this mesh, listed once.
-    pub(crate) notes: Vec<String>,
 }
 
 const CHANNEL_NAMES: [&str; 14] = [
@@ -94,7 +98,8 @@ const CHANNEL_NAMES: [&str; 14] = [
     "blend weights",
     "blend indices",
 ];
-const FIRST_SKIN: usize = 12;
+const BLEND_WEIGHTS: usize = 12;
+const BLEND_INDICES: usize = 13;
 /// Vertex streams start at multiples of this many bytes.
 const STREAM_ALIGNMENT: usize = 16;
 const MAX_STREAMS: usize = 4;
@@ -114,6 +119,8 @@ enum Component {
     SInt8,
     UInt16,
     SInt16,
+    UInt32,
+    SInt32,
 }
 
 impl Component {
@@ -129,6 +136,8 @@ impl Component {
             7 => Self::SInt8,
             8 => Self::UInt16,
             9 => Self::SInt16,
+            10 => Self::UInt32,
+            11 => Self::SInt32,
             _ => return None,
         })
     }
@@ -137,15 +146,15 @@ impl Component {
         match self {
             Self::UNorm8 | Self::SNorm8 | Self::UInt8 | Self::SInt8 => 1,
             Self::Float16 | Self::UNorm16 | Self::SNorm16 | Self::UInt16 | Self::SInt16 => 2,
-            Self::Float32 => 4,
+            Self::Float32 | Self::UInt32 | Self::SInt32 => 4,
         }
     }
 
     /// The value of the component at the start of `bytes` as a float.
-    fn read(self, bytes: &[u8]) -> f32 {
+    fn read(self, bytes: &[u8]) -> Result<f32, &'static str> {
         let two = || u16::from_le_bytes([bytes[0], bytes[1]]);
         let four = || [bytes[0], bytes[1], bytes[2], bytes[3]];
-        match self {
+        Ok(match self {
             Self::Float32 => f32::from_le_bytes(four()),
             Self::Float16 => half_to_float(two()),
             Self::UNorm8 => f32::from(bytes[0]) / 255.0,
@@ -156,8 +165,18 @@ impl Component {
             Self::SInt8 => f32::from(bytes[0].cast_signed()),
             Self::UInt16 => f32::from(two()),
             Self::SInt16 => f32::from(two().cast_signed()),
-        }
+            Self::UInt32 => return blend_index(i64::from(u32::from_le_bytes(four()))),
+            Self::SInt32 => return blend_index(i64::from(i32::from_le_bytes(four()))),
+        })
     }
+}
+
+/// A 32-bit integer channel value as a float. Only blend indices are stored in these formats, and a
+/// mesh has fewer than 65536 bones, so a value outside 0 to 65535 is refused instead of changed.
+fn blend_index(value: i64) -> Result<f32, &'static str> {
+    u16::try_from(value)
+        .map(f32::from)
+        .map_err(|_| "a blend index outside 0 to 65535")
 }
 
 /// An IEEE 754 half precision float as a single precision one.
@@ -188,17 +207,6 @@ fn flaw(mesh: &Mesh, why: impl std::fmt::Display) -> String {
     format!("resource mesh {}: {why}", mesh.name)
 }
 
-/// The size of one component in a serialized format, including the 32-bit integer formats that
-/// only skin channels use.
-fn format_size(format: u8) -> Option<usize> {
-    match format {
-        0 | 10 | 11 => Some(4),
-        1 | 4 | 5 | 8 | 9 => Some(2),
-        2 | 3 | 6 | 7 => Some(1),
-        _ => None,
-    }
-}
-
 /// The present channels by attribute number.
 type Present = Vec<(usize, ChannelInfo)>;
 
@@ -211,14 +219,21 @@ fn present_channels(mesh: &Mesh) -> Result<(Present, [usize; MAX_STREAMS]), Stri
         if dimension == 0 {
             continue;
         }
-        let name = CHANNEL_NAMES.get(attribute).copied().unwrap_or("unknown");
-        let size = format_size(channel.format).ok_or_else(|| {
-            let format = channel.format;
-            flaw(
+        let Some(&name) = CHANNEL_NAMES.get(attribute) else {
+            return Err(flaw(
                 mesh,
-                format!("vertex channel {name} has format {format}, which is not decoded"),
-            )
-        })?;
+                format!("vertex channel {attribute} is not one the plan knows"),
+            ));
+        };
+        let size = Component::from_format(channel.format)
+            .map(Component::size)
+            .ok_or_else(|| {
+                let format = channel.format;
+                flaw(
+                    mesh,
+                    format!("vertex channel {name} has format {format}, which is not decoded"),
+                )
+            })?;
         let stream = usize::from(channel.stream);
         let stride = strides.get_mut(stream).ok_or_else(|| {
             flaw(
@@ -234,8 +249,8 @@ fn present_channels(mesh: &Mesh) -> Result<(Present, [usize; MAX_STREAMS]), Stri
 
 /// The vertex data layout. Streams are laid out one after another, each starting on a 16-byte
 /// boundary and holding `vertex_count` records of the stream's stride, which is the end of its
-/// furthest channel. The flag says that the mesh has skin channels, which are not planned.
-fn sources(mesh: &Mesh) -> Result<(Vec<Source>, bool), String> {
+/// furthest channel.
+fn sources(mesh: &Mesh) -> Result<Vec<Source>, String> {
     let vertices = mesh.vertex_data.vertex_count as usize;
     let (present, strides) = present_channels(mesh)?;
     let mut starts = [0usize; MAX_STREAMS];
@@ -244,14 +259,8 @@ fn sources(mesh: &Mesh) -> Result<(Vec<Source>, bool), String> {
         *start = end.next_multiple_of(STREAM_ALIGNMENT);
         end = *start + stride * vertices;
     }
-    let skinned = present
-        .iter()
-        .any(|&(attribute, _)| attribute >= FIRST_SKIN);
     let mut found = Vec::new();
-    for (attribute, channel) in present
-        .into_iter()
-        .filter(|&(attribute, _)| attribute < FIRST_SKIN)
-    {
+    for (attribute, channel) in present {
         let name = CHANNEL_NAMES[attribute];
         let component = Component::from_format(channel.format).ok_or_else(|| {
             let format = channel.format;
@@ -269,14 +278,14 @@ fn sources(mesh: &Mesh) -> Result<(Vec<Source>, bool), String> {
             stride: strides[stream],
         });
     }
-    Ok((found, skinned))
+    Ok(found)
 }
 
 /// The number of floats per vertex the plan stores for an attribute.
 fn planned_dimension(attribute: usize, serialized: usize) -> u8 {
     let dimension = match attribute {
         0 | 1 => 3,
-        2 | 3 => 4,
+        2 | 3 | BLEND_WEIGHTS | BLEND_INDICES => 4,
         _ => serialized.clamp(2, 4),
     };
     u8::try_from(dimension).expect("at most four components")
@@ -284,7 +293,12 @@ fn planned_dimension(attribute: usize, serialized: usize) -> u8 {
 
 /// Appends the values of `source` for every vertex to `out`, padded or cut to the planned
 /// dimension: missing components are 0, or 1 for a color's alpha.
-fn append_attribute(source: &Source, data: &[u8], vertices: usize, out: &mut Vec<u8>) {
+fn append_attribute(
+    source: &Source,
+    data: &[u8],
+    vertices: usize,
+    out: &mut Vec<u8>,
+) -> Result<(), &'static str> {
     let planned = usize::from(planned_dimension(source.attribute, source.dimension));
     let size = source.component.size();
     for vertex in 0..vertices {
@@ -293,13 +307,14 @@ fn append_attribute(source: &Source, data: &[u8], vertices: usize, out: &mut Vec
             let missing = if source.attribute == 3 { 1.0 } else { 0.0 };
             let value = if slot < source.dimension {
                 let from = at + slot * size;
-                source.component.read(&data[from..from + size])
+                source.component.read(&data[from..from + size])?
             } else {
                 missing
             };
             out.extend(value.to_le_bytes());
         }
     }
+    Ok(())
 }
 
 /// The bytes of the vertex data: inline, or read from the `.resS` file the mesh names.
@@ -398,9 +413,31 @@ pub(crate) fn decode_mesh(
     Ok(build(&mesh, &data, &object_bytes))
 }
 
+/// Appends the blend weights of vertices that only a blend index binds: the first bone has all
+/// the weight.
+fn append_rigid_weights(vertices: usize, out: &mut Vec<u8>) {
+    for _ in 0..vertices {
+        for weight in [1.0_f32, 0.0, 0.0, 0.0] {
+            out.extend(weight.to_le_bytes());
+        }
+    }
+}
+
+/// Whether the mesh binds its vertices to bones by blend indices alone, with no blend weights.
+fn rigid_skin(layout: &[Source]) -> bool {
+    let has = |attribute| layout.iter().any(|source| source.attribute == attribute);
+    has(BLEND_INDICES) && !has(BLEND_WEIGHTS)
+}
+
 fn build(mesh: &Mesh, data: &[u8], object: &[u8]) -> Result<DecodedMesh, String> {
     let vertices = mesh.vertex_data.vertex_count as usize;
-    let (layout, skinned) = sources(mesh)?;
+    if !mesh.skin.variable_bone_count_weights.is_empty() {
+        return Err(flaw(
+            mesh,
+            "bone counts that vary per vertex are not decoded yet",
+        ));
+    }
+    let layout = sources(mesh)?;
     let short = |s: &Source| {
         s.start + s.stride * (vertices - 1) + s.dimension * s.component.size() > data.len()
     };
@@ -412,15 +449,23 @@ fn build(mesh: &Mesh, data: &[u8], object: &[u8]) -> Result<DecodedMesh, String>
     }
     let mut bytes = Vec::new();
     for source in &layout {
-        append_attribute(source, data, vertices, &mut bytes);
+        append_attribute(source, data, vertices, &mut bytes)
+            .map_err(|reason| flaw(mesh, reason))?;
     }
-    let channels = layout
+    let mut channels: Vec<PlanMeshChannel> = layout
         .iter()
         .map(|source| PlanMeshChannel {
             name: CHANNEL_NAMES[source.attribute].to_owned(),
             dimension: planned_dimension(source.attribute, source.dimension),
         })
         .collect();
+    if rigid_skin(&layout) {
+        channels.push(PlanMeshChannel {
+            name: CHANNEL_NAMES[BLEND_WEIGHTS].to_owned(),
+            dimension: planned_dimension(BLEND_WEIGHTS, 0),
+        });
+        append_rigid_weights(vertices, &mut bytes);
+    }
     let (list, sub_meshes) = indices(mesh, object)?;
     bytes.extend(list.iter().flat_map(|index| index.to_le_bytes()));
     let aabb = mesh.local_aabb;
@@ -437,13 +482,9 @@ fn build(mesh: &Mesh, data: &[u8], object: &[u8]) -> Result<DecodedMesh, String>
                 extent: aabb.extent,
             },
             resource: String::new(),
+            bind_poses: mesh.skin.bind_poses.clone(),
         },
         bytes,
-        notes: if skinned {
-            vec![flaw(mesh, "skin weights and indices are not planned")]
-        } else {
-            Vec::new()
-        },
     })
 }
 

@@ -102,7 +102,7 @@ fn frame_after_completion(run: &mut WindowlessRetained<'_>) -> bool {
 fn retained_camera_policy_changes_receiver_and_skips_shadow_casters() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = shadow_host().windowless(&mut driver).unwrap();
+    let mut run = shadow_host().windowless(&mut driver, None).unwrap();
 
     assert!(frame_after_completion(&mut run));
     assert!(has_shadow_draws(&run));
@@ -150,7 +150,7 @@ fn retained_camera_policy_changes_receiver_and_skips_shadow_casters() {
 fn disabled_policy_survives_resource_resident_rebuild() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = shadow_host().windowless(&mut driver).unwrap();
+    let mut run = shadow_host().windowless(&mut driver, None).unwrap();
     set_policy(&mut run, crate::CameraShadowPolicy::Disabled);
     assert!(frame_after_completion(&mut run));
     let disabled = capture_recipe(&mut run, &events).0;
@@ -230,7 +230,7 @@ fn capture_recipe(
 fn accumulated_capture_applies_camera_policy_without_an_ordinary_frame() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = shadow_host().windowless(&mut driver).unwrap();
+    let mut run = shadow_host().windowless(&mut driver, None).unwrap();
     let enabled = capture_recipe(&mut run, &events).0;
 
     set_policy(&mut run, crate::CameraShadowPolicy::Disabled);
@@ -260,7 +260,7 @@ fn rejected_plain_shadow_enable_preserves_the_rendered_view() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::tests::scene(false))
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let before = capture(&mut run, &events).1;
     let options = run.host().options();

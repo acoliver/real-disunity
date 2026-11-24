@@ -367,7 +367,7 @@ let program = runtime.graphics_program_in(vertex, fragment, &[frame])?;
 
 ### Counting what the runtime builds
 
-`ProgramRuntime::stats()` returns a `RuntimeStats` with the number of shader modules, pipelines, bind groups and draws the runtime has built since it was made. Each count only rises, so a cost test takes a snapshot, runs a frame and compares:
+`ProgramRuntime::stats()` returns a `RuntimeStats` with the number of shader modules, pipelines, bind groups and draws the runtime has built since it was made, and of the render pipeline content keys it has computed (a program keeps the key of each request made for it, so a repeated request computes none). Each count only rises, so a cost test takes a snapshot, runs a frame and compares:
 
 ```rust,no_run
 # use worldrunner_render_program::runtime::{ImportedDraw, ProgramRuntime, TargetSignature};

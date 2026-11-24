@@ -316,8 +316,7 @@ impl Registry {
     /// else it leaves out, and rejected.
     fn admit_mesh(&mut self, key: &ObjectKey) -> Result<bool, PlayerError> {
         match decode_mesh(&mut self.files, key)? {
-            Ok(mut decoded) => {
-                self.notes.append(&mut decoded.notes);
+            Ok(decoded) => {
                 self.meshes.insert(key.clone(), decoded);
                 Ok(true)
             }
@@ -338,6 +337,19 @@ impl Registry {
     pub(crate) fn reference(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
         self.asset_index(owner, pptr)
             .map(|index| json!({ "$asset": index }))
+    }
+
+    /// The properties the shader `pptr` of a material in `owner` declares as vectors, which the
+    /// registry holds once the material's plan has admitted the shader; none for no shader or
+    /// one that did not decode.
+    pub(crate) fn declared_vectors(&mut self, owner: &Path, pptr: PPtr) -> BTreeSet<String> {
+        let Ok(file) = self.files.referenced_file(owner, pptr) else {
+            return BTreeSet::new();
+        };
+        match self.shaders.get(&(file, pptr.path_id)) {
+            Some(Ok(decl)) => decl.vectors.clone(),
+            _ => BTreeSet::new(),
+        }
     }
 
     /// The asset index of the object a reference from `owner` names. A texture, sprite or
@@ -483,6 +495,8 @@ impl ResourcePlanner {
                 pass_count: decl.pass_count,
                 pass_names: decl.pass_names,
                 subshader_count: decl.subshader_count,
+                tags: decl.tags,
+                fallback: decl.fallback,
                 file: decl.file,
                 path_id: decl.path_id,
             },
@@ -521,11 +535,12 @@ impl ResourcePlanner {
         match decoded {
             Ok(material) => {
                 let registry = &mut self.registry;
-                let planned = plan_material(
+                let mut planned = plan_material(
                     &material,
                     |pptr| registry.asset_index(file, pptr),
                     &mut self.differences,
                 );
+                planned.separate_vectors(&registry.declared_vectors(file, material.shader));
                 ResourceAsset::Material { material: planned }
             }
             Err(error) => {

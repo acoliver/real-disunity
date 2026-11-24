@@ -172,3 +172,88 @@ fn a_live_material_slot_or_mesh_handoff_prevents_whole_placement_culling() {
         );
     }
 }
+
+/// A mesh of two levels, the first drawing `slots` materials, with no handoff.
+fn mesh_drawing(slots: &[u32]) -> SceneMesh {
+    let near = super::tests::level(0);
+    let near = if slots.is_empty() {
+        near
+    } else {
+        near.with_material_slots(
+            slots
+                .iter()
+                .map(|&material| {
+                    SceneLodMaterialSlot::new(MaterialHandle::from_raw(material), 0..3).unwrap()
+                })
+                .collect(),
+        )
+        .unwrap()
+    };
+    SceneMesh::with_distances(vec![near, super::tests::level(1)], vec![1000, 20_000]).unwrap()
+}
+
+#[test]
+fn a_placement_is_not_faded_out_unless_a_band_of_a_material_it_draws_or_its_own_reaches_it() {
+    let base = scene();
+    let band = SceneFadeBand::new(2000, 6000).unwrap().with_terminal_fade();
+    let atlas = SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false)
+        .unwrap()
+        .with_fade(band);
+    let live = base.resources().materials()[0];
+    let faded = live.with_impostor(atlas);
+    let mut reached = [false; 2];
+    for (materials, slots, own_band, expected) in [
+        ([live, live], &[][..], false, false),
+        ([live, live], &[1][..], false, false),
+        ([live, live], &[][..], true, true),
+        ([live, live], &[1][..], true, true),
+        ([live, faded], &[1][..], false, true),
+        ([live, faded], &[0][..], false, false),
+        ([faded, live], &[][..], false, true),
+        ([faded, live], &[1][..], false, true),
+    ] {
+        let mesh = mesh_drawing(slots);
+        let object = SceneObject::new(
+            transform([0, 0, 500]),
+            MeshHandle::from_raw(0),
+            MaterialHandle::from_raw(0),
+        );
+        let object = if own_band {
+            object.with_fade(band)
+        } else {
+            object
+        };
+        let source = RenderScene::new(SceneParts {
+            resources: SceneResources::new(
+                base.resources().textures().to_vec(),
+                materials.to_vec(),
+            )
+            .unwrap(),
+            geometry: SceneGeometry::new(vec![mesh.clone()], vec![object]).unwrap(),
+            terrain: None,
+            effects: None,
+        })
+        .unwrap();
+        let instances = Instances::new(&source);
+        let selection = MeshSelection::new(&mesh);
+        let reach = selection
+            .slot_fade_reach(&instances.fades)
+            .with(instances.fades[0]);
+        let applies = reach.applies(object.fade().map(crate::geometry::fade_band_meters));
+        assert_eq!(applies, expected, "{slots:?} {own_band}");
+        reached[usize::from(applies)] = true;
+        if !applies {
+            for lod in 0..2 {
+                for distance in [0.5_f32, 3.0, 4.0, 5.0, 7.0, 30.0] {
+                    assert!(!selection.fade_empty_alone(
+                        &instances.fades,
+                        object,
+                        lod,
+                        Vec3::new(0.0, -distance, 0.5)
+                    ));
+                }
+            }
+        }
+    }
+    assert_eq!(reached, [true; 2]);
+}

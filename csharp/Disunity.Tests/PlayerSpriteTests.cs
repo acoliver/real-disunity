@@ -190,15 +190,33 @@ internal static class PlayerSpriteTests
             Expect.That(sprite.pixelsPerUnit == 100 && sprite.rect == rect && sprite.pivot == new Vector2(1, 2) && sprite.textureRect == rect && sprite.textureRectOffset == Vector2.zero,
                 "Sprite.Create takes 100 pixels per unit and a pivot as a fraction of the rect, which pivot returns in pixels");
             Expect.That(ReferenceEquals(sprite.texture, texture) && sprite.border == Vector4.zero && !sprite.packed, "a created sprite keeps its texture and has no border");
-            var full = Sprite.Create(texture, rect, Vector2.zero, 16, 2, SpriteMeshType.Tight, new Vector4(1, 1, 1, 1));
+            var full = Sprite.Create(texture, rect, Vector2.zero, 16, 0, SpriteMeshType.FullRect, new Vector4(1, 1, 1, 1));
             Expect.That(full.pixelsPerUnit == 16 && full.border == new Vector4(1, 1, 1, 1), "the longest overload sets pixels per unit and the border");
-            Expect.That(Sprite.Create(texture, rect, Vector2.zero, 32).pixelsPerUnit == 32 && Sprite.Create(texture, rect, Vector2.zero, 32, 1).pixelsPerUnit == 32
-                && Sprite.Create(texture, rect, Vector2.zero, 8, 1, SpriteMeshType.FullRect).pixelsPerUnit == 8, "the shorter overloads set pixels per unit");
+            Expect.That(Sprite.Create(texture, rect, Vector2.zero, 32).pixelsPerUnit == 32 && Sprite.Create(texture, rect, Vector2.zero, 32, 0).pixelsPerUnit == 32
+                && Sprite.Create(texture, rect, Vector2.zero, 8, 0, SpriteMeshType.FullRect).pixelsPerUnit == 8, "the shorter overloads set pixels per unit");
+            SpriteCreateRefusesWhatItCannotDraw(texture, rect);
             var holder = new GameObject().AddComponent<SpriteRenderer>();
             holder.sprite = sprite;
             Expect.That(holder.sprite is { } read && ReferenceEquals(read.texture, texture) && read.rect == rect, "a sprite read back from a renderer still has its texture");
         }
         finally { DisunityHost.UnloadWorld(); }
-        Console.WriteLine("PASS: Sprite.Create members and overloads");
+        Console.WriteLine("PASS: Sprite.Create members and overloads, and Sprite.Create refuses a tight mesh, extrusion and a fallback physics shape by name");
+    }
+
+    /// <summary>The engine draws a sprite as its rectangle, so a tight mesh, extruded edges and a generated physics shape are
+    /// refused by name; the overloads that leave them out are the full rectangle with no extrusion and no shape.</summary>
+    private static void SpriteCreateRefusesWhatItCannotDraw(Texture2D texture, Rect rect)
+    {
+        var tight = Expect.Catch<NotSupportedException>(() => Sprite.Create(texture, rect, Vector2.zero, 16, 0, SpriteMeshType.Tight), "a Tight mesh");
+        Expect.That(tight.Message.Contains("Sprite.Create") && tight.Message.Contains("SpriteMeshType.Tight") && tight.Message.Contains("not supported yet"), $"the message names the member and the mesh type: {tight.Message}");
+        Expect.Throws<NotSupportedException>(() => Sprite.Create(texture, rect, Vector2.zero, 16, 0, SpriteMeshType.Tight, Vector4.zero, false), "a Tight mesh with every argument");
+        var extruded = Expect.Catch<NotSupportedException>(() => Sprite.Create(texture, rect, Vector2.zero, 16, 1), "an extrusion of one");
+        Expect.That(extruded.Message.Contains("Sprite.Create") && extruded.Message.Contains("extrude"), $"the message names the member and the extrusion: {extruded.Message}");
+        Expect.Throws<NotSupportedException>(() => Sprite.Create(texture, rect, Vector2.zero, 16, 3, SpriteMeshType.FullRect, Vector4.zero, false), "an extrusion with a full rect");
+        var physics = Expect.Catch<NotSupportedException>(() => Sprite.Create(texture, rect, Vector2.zero, 16, 0, SpriteMeshType.FullRect, Vector4.zero, true), "a fallback physics shape");
+        Expect.That(physics.Message.Contains("Sprite.Create") && physics.Message.Contains("generateFallbackPhysicsShape"), $"the message names the member and the physics shape: {physics.Message}");
+        Expect.That(Sprite.Create(texture, rect, Vector2.zero, 16, 0, SpriteMeshType.FullRect, Vector4.zero, false) is not null, "a full rect with no extrusion and no shape is made");
+        Expect.That(Sprite.Create(texture, rect, Vector2.zero) is not null && Sprite.Create(texture, rect, Vector2.zero, 16) is not null && Sprite.Create(texture, rect, Vector2.zero, 16, 0) is not null,
+            "the overloads without a mesh type are made as the full rectangle");
     }
 }

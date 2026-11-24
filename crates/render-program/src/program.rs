@@ -6,7 +6,7 @@ use crate::binding::{BindingSource, ResourceLayout};
 use crate::error::{ProgramError, StorageImageError};
 use crate::layout::ProgramLayout;
 use crate::module::{StageKind, StageProgram};
-use crate::pipeline_key::Key;
+use crate::pipeline_key::{Key, RequestKeys};
 use crate::runtime::ProgramRuntime;
 
 /// A program's bind group layouts and pipeline layout.
@@ -36,6 +36,8 @@ impl GpuLayout {
 pub struct ComputeProgram {
     pub(crate) stage: StageProgram,
     pub(crate) gpu: Arc<GpuLayout>,
+    /// What its pipeline is built from: the stage and the layout.
+    pub(crate) identity: blake3::Hash,
 }
 
 /// A bind group set that the owner of a pass binds once and every draw of the pass shares.
@@ -64,9 +66,25 @@ pub struct GraphicsProgram {
     pub(crate) vertex: StageProgram,
     pub(crate) fragment: Option<StageProgram>,
     pub(crate) gpu: Arc<GpuLayout>,
+    /// What a pipeline is built from that the program alone decides: its stages, layout and lent
+    /// sets. A vertex-only program is a different pipeline from any with a fragment stage.
+    pub(crate) identity: blake3::Hash,
+    /// The keys of the pipelines requested for this program.
+    pub(crate) pipeline_keys: Arc<RequestKeys>,
 }
 
 impl ComputeProgram {
+    fn new(stage: StageProgram, gpu: GpuLayout) -> Self {
+        let mut key = Key::new("compute");
+        key.hash(stage.content_key());
+        key.debug(&gpu.layout);
+        Self {
+            stage,
+            gpu: Arc::new(gpu),
+            identity: key.finish(),
+        }
+    }
+
     #[must_use]
     pub fn layout(&self) -> &ProgramLayout {
         &self.gpu.layout
@@ -74,6 +92,24 @@ impl ComputeProgram {
 }
 
 impl GraphicsProgram {
+    fn new(vertex: StageProgram, fragment: Option<StageProgram>, gpu: GpuLayout) -> Self {
+        let mut key = Key::new("program");
+        key.hash(vertex.content_key());
+        key.debug(&fragment.as_ref().map(StageProgram::content_key));
+        key.debug(&gpu.layout);
+        for lent in &gpu.external {
+            key.debug(&lent.set);
+            key.identity(&lent.layout);
+        }
+        Self {
+            vertex,
+            fragment,
+            gpu: Arc::new(gpu),
+            identity: key.finish(),
+            pipeline_keys: Arc::default(),
+        }
+    }
+
     #[must_use]
     pub fn vertex(&self) -> &StageProgram {
         &self.vertex
@@ -134,10 +170,7 @@ impl ProgramRuntime {
     pub fn compute_program(&self, stage: &StageProgram) -> Result<ComputeProgram, ProgramError> {
         expect(stage, StageKind::Compute)?;
         let gpu = self.gpu_layout(ProgramLayout::build(&[stage])?, &[])?;
-        Ok(ComputeProgram {
-            stage: stage.clone(),
-            gpu: Arc::new(gpu),
-        })
+        Ok(ComputeProgram::new(stage.clone(), gpu))
     }
 
     /// Builds the layouts of a vertex stage alone, for passes with a depth attachment and no
@@ -176,11 +209,7 @@ impl ProgramRuntime {
         check_distinct(external)?;
         let layout = ProgramLayout::build_in(&[vertex], external)?;
         let gpu = self.gpu_layout(layout, external)?;
-        Ok(GraphicsProgram {
-            vertex: vertex.clone(),
-            fragment: None,
-            gpu: Arc::new(gpu),
-        })
+        Ok(GraphicsProgram::new(vertex.clone(), None, gpu))
     }
 
     /// Builds the merged layouts of a vertex and a fragment stage.
@@ -221,11 +250,11 @@ impl ProgramRuntime {
         check_distinct(external)?;
         let layout = ProgramLayout::build_in(&[vertex, fragment], external)?;
         let gpu = self.gpu_layout(layout, external)?;
-        Ok(GraphicsProgram {
-            vertex: vertex.clone(),
-            fragment: Some(fragment.clone()),
-            gpu: Arc::new(gpu),
-        })
+        Ok(GraphicsProgram::new(
+            vertex.clone(),
+            Some(fragment.clone()),
+            gpu,
+        ))
     }
 
     fn gpu_layout(

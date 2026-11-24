@@ -1,13 +1,11 @@
 //! A replacement builds its targets privately and publishes them only when the whole generation
 //! is built: a refused one leaves the live renderer's targets as they were, and renderers built
 //! from cloned inventories never rebind each other.
-use super::fixture::{FORMAT, Rig, SIZE};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE};
 use super::layers::{ARRAY, HISTORY};
 use super::persistence::{assert_filled, fill_all, rig};
-use worldrunner_render_scene::{
-    executor::{FrameConfig, FrameError},
-    wgpu,
-};
+use worldrunner_render_post::{FrameConfig, FrameError};
+use worldrunner_render_scene::wgpu;
 
 const LARGE: [u32; 2] = [128, 96];
 
@@ -47,7 +45,7 @@ fn a_replacement_the_factory_refuses_leaves_the_live_renderers_targets_exactly_a
     let standing = Standing::of(&rig);
 
     let mut larger = rig.renderer.configuration().clone();
-    larger.frame = FrameConfig::new(LARGE, FORMAT, 1);
+    larger.frame = FrameConfig::new(LARGE, SCENE_FORMAT, 1);
     knobs.lock().unwrap().refuse_build = true;
     assert!(
         rig.renderer
@@ -107,7 +105,7 @@ fn renderers_built_from_cloned_inventories_never_share_or_rebind_each_others_tar
     );
 
     let mut larger = first.renderer.configuration().clone();
-    larger.frame = FrameConfig::new(LARGE, FORMAT, 1);
+    larger.frame = FrameConfig::new(LARGE, SCENE_FORMAT, 1);
     let second = first.build_renderer(larger);
 
     let after = first.renderer.game_targets();

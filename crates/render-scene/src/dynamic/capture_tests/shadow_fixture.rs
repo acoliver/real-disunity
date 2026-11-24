@@ -127,7 +127,7 @@ fn bind<const N: usize>(context: &GpuContext, uniforms: [Vec<u8>; N]) -> [BindGr
     });
     let layout = crate::shadows::water_layout(device);
     uniforms.map(|bytes| {
-        let buffer = crate::upload::upload_buffer(
+        let buffer = worldrunner_render_gpu::resource::upload_buffer(
             device,
             context.queue(),
             "capture shadow uniform",

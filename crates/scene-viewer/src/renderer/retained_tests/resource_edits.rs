@@ -16,8 +16,7 @@ struct Fixture {
 impl Fixture {
     fn new(shadows: Option<DirectionalShadowSettings>) -> Self {
         let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
-        let resident =
-            Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
+        let resident = Resident::new(&context, &source(), shadows, crate::tests::CLAMP).unwrap();
         let target = OffscreenTarget::new(
             context.device(),
             Viewport {
@@ -29,10 +28,7 @@ impl Fixture {
         Self {
             host: RetainedHost::new(source(), crate::tests::options()).unwrap(),
             resident,
-            streaming: super::super::readiness::Streaming::new(
-                shadows,
-                crate::FrameProfile::Legacy,
-            ),
+            streaming: super::super::readiness::Streaming::new(shadows, crate::tests::CLAMP),
             target,
             context,
         }
@@ -56,8 +52,7 @@ impl Fixture {
     fn rebuilt_frame(&mut self, shadows: Option<DirectionalShadowSettings>) -> RgbaImage {
         let objects = self.host.objects().map(|(_, object)| object).collect();
         let scene = scene_with_objects(self.host.scene(), objects);
-        let mut fresh =
-            Resident::new(&self.context, &scene, shadows, crate::FrameProfile::Legacy).unwrap();
+        let mut fresh = Resident::new(&self.context, &scene, shadows, crate::tests::CLAMP).unwrap();
         frame(&mut fresh, &self.context, &mut self.target)
     }
 }
@@ -195,7 +190,7 @@ fn an_append_counts_only_its_own_bytes_as_uploaded() {
         &fixture.context,
         &combined(&source(), &append()),
         None,
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap()
     .scene_mut()
@@ -255,11 +250,11 @@ pub(super) fn budgeted_presentation(
         recipes: false,
     };
     let make = |budget| {
-        crate::presentation::Presentation::with_settings(
+        crate::presentation::Presentation::new(
             context,
             COLOR,
             [size, size],
-            crate::FrameProfile::Legacy,
+            crate::tests::CLAMP,
             None,
             &policy(budget),
         )
@@ -341,7 +336,7 @@ fn an_append_inside_the_budget_is_admitted() {
 
 fn windowless_host() -> (RetainedHost, Renderer) {
     let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     (host, renderer)
 }
 
@@ -523,7 +518,7 @@ fn an_append_prepared_for_other_tables_is_refused_and_changes_nothing() {
         &fixture.context,
         &combined(&source(), &append()),
         None,
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let base = fixture.resident.scene_mut().resource_base();
@@ -531,7 +526,7 @@ fn an_append_prepared_for_other_tables_is_refused_and_changes_nothing() {
         .host
         .apply(RetainedUpdate::AppendResources(append()))
         .unwrap();
-    let mut presentation = crate::presentation::Presentation::new(
+    let mut presentation = crate::presentation::fixtures::presentation(
         &fixture.context,
         COLOR,
         Viewport {

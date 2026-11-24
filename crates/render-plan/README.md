@@ -1,8 +1,10 @@
 # Render planning
 
 `worldrunner-render-plan` is the CPU-only scene and document boundary for Real
-Disunity. It also extracts native `world-simulation` sprites, tiles, cameras and
-UI into scene contributions (the `simulation` and `ui` features).
+Disunity. With the `simulation` feature it also extracts native `world-simulation`
+mesh instances into retained scene objects and holds the scene textures that
+sprites draw with. Sprite, tile, camera and UI extraction lives in
+`world-simulation`; `worldrunner-render-scene` draws its plan.
 
 - `RenderScene` owns validated geometry, materials, textures, optional terrain,
   and an optional environmental profile. No profile means unlit albedo plus
@@ -266,18 +268,6 @@ Effects construction validates the same quantities before adopting the policy.
 These integer scene types carry no GPU dependency. `render-scene` translates them
 into the existing three-pass post resolve without automatic projection jitter.
 There is no serialized SMAA field. CMAA2 is not exposed by `SceneAntiAlias`.
-
-`SceneEffects::with_opaque_path` defaults to `SceneOpaquePath::Forward`.
-It admits one experiment, `SceneOpaquePath::GBUFFER_OBSERVATION`, which is
-`experiment(Observe, Terrain, Compact, MaterialOwnedDepth)`: the renderer allocates
-the compact deferred G-buffer, clears it every frame before Opaque and exposes it
-to captures, while the visible frame stays forward. Every other
-`SceneOpaquePath::Experiment` tuple returns
-`SceneValidationError::UnsupportedOpaquePath` until its rendering path is implemented.
-The target layout and the shared WGSL interface are described in the
-[render-scene README](../render-scene/README.md#deferred-g-buffer).
-The CPU admission census is a separate explicit query on
-`RendererConfiguration::opaque_admission_report`; selecting the path does not run it.
 
 ## Shared specular environment
 

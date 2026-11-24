@@ -1,6 +1,6 @@
+use worldrunner_render_post::{FrameConfig, Readback, ResourceRef};
 use worldrunner_render_scene::{
     device::GpuContext,
-    executor::{FrameConfig, Readback, ResourceRef},
     frame::metadata::{FrameProduct, MetadataMeaning, MetadataSampling},
     wgpu,
 };

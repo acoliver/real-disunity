@@ -78,8 +78,8 @@ public static partial class Graphics
     public static void ClearRandomWriteTargets() => throw Unsupported(nameof(ClearRandomWriteTargets));
 
     /// <summary>Sends the buffer's commands to the world, in the order they were recorded. The buffer keeps them, so executing it
-    /// again sends them again. A null buffer throws <see cref="ArgumentNullException"/> and a released one
-    /// <see cref="ObjectDisposedException"/>.</summary>
+    /// again sends them again. Like the <c>Shader.SetGlobal*</c> calls the buffer's globals make, it runs on the main thread. A null
+    /// buffer throws <see cref="ArgumentNullException"/> and a released one <see cref="ObjectDisposedException"/>.</summary>
     public static void ExecuteCommandBuffer(CommandBuffer buffer)
     {
         ArgumentNullException.ThrowIfNull(buffer);

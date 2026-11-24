@@ -1,15 +1,20 @@
 //! Deterministic sampling-cost regression plus informational ordinary-scene GPU times.
 use super::*;
+use crate::device::DeviceRequest;
+use crate::offscreen::OffscreenTarget;
 use worldrunner_render_post::{PassId, TimingMode, TimingSupport};
 
 #[test]
 fn ordinary_material_gpu_sampling_cost() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let base = context();
-    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+    let context = pollster::block_on(GpuContext::from_adapter(
         base.adapter().clone(),
-        wgpu::Features::empty(),
-        TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     let casters: Vec<_> = (0..1_024)
@@ -23,9 +28,9 @@ fn ordinary_material_gpu_sampling_cost() {
 }
 
 fn report_sampling_time(context: &GpuContext, source: &RenderScene) {
-    let mut renderer = ShadowedScene::new(context, source, settings()).unwrap();
-    let support = renderer
-        .scheduler
+    let mut renderer = shadowed(context, source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let support = scheduler
         .configure_timing(context.device(), context.queue(), TimingMode::Optional)
         .unwrap();
     if support != TimingSupport::Supported {
@@ -36,7 +41,14 @@ fn report_sampling_time(context: &GpuContext, source: &RenderScene) {
     let target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut opaque_ns = Vec::new();
     for frame in 0..40 {
-        let timing = timing_probe::timed_frame(&mut renderer, context, &view, &target, frame);
+        let timing = timing_probe::timed_frame(
+            &mut renderer,
+            &mut scheduler,
+            context,
+            &view,
+            &target,
+            frame,
+        );
         if frame >= 8 {
             opaque_ns.extend(timing.passes.iter().filter_map(|pass| {
                 (pass.pass_id == PassId::Geometry(PassEntry::new(PassSlot::Opaque)))

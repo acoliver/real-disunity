@@ -149,7 +149,7 @@ fn preflight(root: &Path) -> Result<(), String> {
     crate::preflight::run(root, || {
         crate::policy::check(root)?;
         crate::source_size::check(root)?;
-        run_command(root, "cargo", &["fmt", "--all", "--check"])
+        crate::formatting::check(root)
     })
 }
 
@@ -301,7 +301,7 @@ mod tests {
             target(&process(
                 &root,
                 "cargo",
-                &["fmt", "--all", "--check"],
+                &["fmt", "--check", "--package", "xtask"],
                 &executable
             )),
             expected

@@ -1,21 +1,14 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Instant};
 
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::ActiveEventLoop,
     window::{Window, WindowId},
 };
-use worldrunner_render_plan::RenderScene;
 use worldrunner_render_scene::Viewport;
 
-use crate::{
-    LiveDriver, LiveOptions, PresentationCadence, ViewerError, ViewerOptions,
-    renderer::{Renderer, SceneSource},
-};
+use crate::{PresentationCadence, ViewerError, renderer::Renderer};
 
 mod accessibility;
 mod cadence;
@@ -28,7 +21,6 @@ impl From<accesskit_winit::Event> for UserEvent {
         Self::Accessibility(event)
     }
 }
-mod static_scene;
 mod surface;
 
 pub(super) trait Content {
@@ -51,12 +43,7 @@ pub(super) trait Content {
     fn window_on_top(&self) -> bool {
         false
     }
-    fn interval(&self) -> Duration {
-        Duration::from_millis(16)
-    }
-    fn cadence(&self) -> PresentationCadence {
-        PresentationCadence::Fixed(self.interval())
-    }
+    fn cadence(&self) -> PresentationCadence;
     fn window_ready(&mut self, _window: Arc<Window>) {}
     fn set_work_waker(&mut self, _waker: Arc<dyn Fn() + Send + Sync>) {}
     fn next_wakeup(&self) -> Option<Instant> {
@@ -66,12 +53,9 @@ pub(super) trait Content {
         Ok(())
     }
     fn device_event(&mut self, _event: &DeviceEvent) {}
-    fn source(&mut self) -> SceneSource<'_>;
+    fn host(&mut self) -> &mut crate::RetainedHost;
     fn event(&mut self, event: &WindowEvent, viewport: Option<Viewport>);
     fn surface_size(&mut self, _size: [u32; 2]) {}
-    fn close_immediately(&self) -> bool {
-        true
-    }
     fn exit_requested(&self) -> bool {
         false
     }
@@ -90,41 +74,13 @@ pub(super) trait Content {
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError>;
 }
 
-pub(super) fn run(
-    scene: RenderScene,
-    options: ViewerOptions,
-    update: crate::SceneUpdate,
-) -> Result<(), ViewerError> {
-    run_content(Box::new(static_scene::StaticScene::new(
-        scene, options, update,
-    )?))
-}
-
-pub(super) fn run_live(
-    driver: &mut dyn LiveDriver,
-    options: LiveOptions,
-) -> Result<(), ViewerError> {
-    run_content(Box::new(crate::live::Session::new(driver, options)))
-}
+/// Runs the retained session on the event loop `start` made and, if it made one, its device.
 pub(super) fn run_retained(
-    host: crate::RetainedHost,
-    driver: &mut dyn crate::RetainedDriver,
-) -> Result<(), ViewerError> {
-    run_content(Box::new(crate::retained::Session::new(host, driver)))
-}
-
-/// As [`run_retained`], on the event loop `start` made and, if it made one, its device.
-pub(super) fn run_retained_on(
     host: crate::RetainedHost,
     driver: &mut dyn crate::RetainedDriver,
     start: crate::ViewerStart,
 ) -> Result<(), ViewerError> {
-    let (event_loop, shared) = start.into_parts();
-    run_on(
-        Box::new(crate::retained::Session::new(host, driver)),
-        Ok(event_loop),
-        shared,
-    )
+    run_content(Box::new(crate::retained::Session::new(host, driver)), start)
 }
 
 pub(crate) fn window_attributes(content: &dyn Content) -> winit::window::WindowAttributes {
@@ -141,30 +97,20 @@ pub(crate) fn window_attributes(content: &dyn Content) -> winit::window::WindowA
     }
 }
 
-fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
-    run_on(
-        content,
-        EventLoop::<UserEvent>::with_user_event().build(),
-        None,
-    )
-}
-
-fn run_on(
+fn run_content(
     content: Box<dyn Content + '_>,
-    event_loop: Result<EventLoop<UserEvent>, winit::error::EventLoopError>,
-    shared: Option<crate::renderer::Shared>,
+    start: crate::ViewerStart,
 ) -> Result<(), ViewerError> {
     let mut app = App::new(content);
+    let (event_loop, shared) = start.into_parts();
     app.shared = shared;
-    let result = event_loop.and_then(|event_loop| {
-        let proxy = event_loop.create_proxy();
-        app.proxy = Some(proxy.clone());
-        app.content.set_work_waker(Arc::new(move || {
-            // A closed loop means the host is shutting down.
-            let _ = proxy.send_event(UserEvent::WorkReady);
-        }));
-        event_loop.run_app(&mut app)
-    });
+    let proxy = event_loop.create_proxy();
+    app.proxy = Some(proxy.clone());
+    app.content.set_work_waker(Arc::new(move || {
+        // A closed loop means the host is shutting down.
+        let _ = proxy.send_event(UserEvent::WorkReady);
+    }));
+    let result = event_loop.run_app(&mut app).map_err(ViewerError::from);
     let shutdown = app.content.shutdown();
     let drain = app.renderer.as_ref().map(Renderer::drain).transpose();
     cleanup(&mut app.renderer);
@@ -190,7 +136,7 @@ struct App<'a> {
     shared: Option<crate::renderer::Shared>,
     occluded: bool,
     suspended: bool,
-    next_frame: Instant,
+    deadline: cadence::Deadline,
 }
 
 impl<'a> App<'a> {
@@ -203,7 +149,7 @@ impl<'a> App<'a> {
             shared: None,
             occluded: false,
             suspended: false,
-            next_frame: Instant::now(),
+            deadline: cadence::Deadline::new(Instant::now()),
         }
     }
 
@@ -230,7 +176,7 @@ impl<'a> App<'a> {
         {
             event_loop.exit();
         }
-        self.next_frame = cadence::next_frame(Instant::now(), self.content.cadence());
+        self.deadline.finish(Instant::now());
         Ok(())
     }
 }
@@ -311,19 +257,7 @@ impl ApplicationHandler<UserEvent> for App<'_> {
         match event {
             WindowEvent::Destroyed => event_loop.exit(),
             WindowEvent::CloseRequested => {
-                if self.content.close_immediately()
-                    || self.occluded
-                    || self.suspended
-                    || renderer.viewport.is_none()
-                {
-                    event_loop.exit();
-                } else {
-                    renderer
-                        .window
-                        .as_ref()
-                        .expect("windowed renderer")
-                        .request_redraw();
-                }
+                event_loop.exit();
             }
             WindowEvent::Resized(size) => {
                 if let Err(error) =
@@ -378,14 +312,14 @@ impl ApplicationHandler<UserEvent> for App<'_> {
             event_loop.exit();
             return;
         }
-        let now = Instant::now();
         let active = !self.occluded && !self.suspended && renderer.viewport.is_some();
         let (redraw, flow) = cadence::schedule(
             self.content.cadence(),
-            now,
-            self.next_frame,
+            Instant::now(),
+            &mut self.deadline,
             active,
             pending,
+            renderer.frame_slot_free(),
         );
         if redraw {
             renderer
@@ -393,7 +327,6 @@ impl ApplicationHandler<UserEvent> for App<'_> {
                 .as_ref()
                 .expect("windowed renderer")
                 .request_redraw();
-            self.next_frame = cadence::next_frame(now, self.content.cadence());
         }
         event_loop.set_control_flow(cadence::with_wakeup(flow, self.content.next_wakeup()));
     }

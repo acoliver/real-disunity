@@ -102,7 +102,7 @@ impl Renderer {
 }
 
 impl Renderer {
-    /// Publishes every generation that is ready, in order. A live driver sends several updates
+    /// Publishes every generation that is ready, in order. A driver sends several updates
     /// a frame (resources, objects, UI, camera), so publishing one a frame would let the queue
     /// grow until it refuses updates. Publishing stops at the first generation that is not ready
     /// (a scene still preparing, a page or geometry wait) and at one a capture holds, so a
@@ -194,9 +194,11 @@ impl Streaming {
         presentation: &mut Presentation,
         front: &mut crate::retained::readiness::Preparation,
     ) -> Result<(), ViewerError> {
-        super::retained::preflight_preparation(context, presentation, front)?;
+        super::retained::preflight_preparation(presentation, front)?;
         if let crate::RetainedUpdate::Ui(overlay) = &front.update {
-            super::retained::apply_ui(context, resident, presentation, overlay)?;
+            self.ui.stage(context, (resident, presentation), overlay)?;
+        } else if let crate::RetainedUpdate::World(frame) = &front.update {
+            super::retained::apply_world(context, resident, frame)?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
             super::retained::apply_decal(resident.scene_mut(), update)?;
         } else if let Some(edit) = front.edit.take() {
@@ -218,7 +220,7 @@ impl Streaming {
         presentation: &mut Presentation,
         front: &crate::retained::readiness::Preparation,
     ) -> Result<bool, ViewerError> {
-        super::retained::preflight_preparation(context, presentation, front)?;
+        super::retained::preflight_preparation(presentation, front)?;
         let scene = if self.preparing.is_some() {
             None
         } else if let Some(receive) = &front.scene {
@@ -311,6 +313,7 @@ pub(super) struct Streaming {
     pub carried: CarriedUploads,
     pub temporal_history_reset: crate::TemporalHistoryReset,
     pub tiers: TextureTiers,
+    pub ui: super::ui_targets::UiStaging,
     preparing: Option<(
         Resident,
         worldrunner_render_plan::RenderScene,
@@ -341,6 +344,7 @@ impl Streaming {
             carried: CarriedUploads::default(),
             temporal_history_reset: crate::TemporalHistoryReset::None,
             tiers: TextureTiers::default(),
+            ui: super::ui_targets::UiStaging::default(),
             preparing: None,
         }
     }
@@ -385,6 +389,3 @@ mod tests;
 
 #[cfg(test)]
 mod preparation_tests;
-
-#[cfg(test)]
-mod opaque_admission_tests;

@@ -18,6 +18,7 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
+use worldrunner_render_program::unity::synthetic::placed::placed_blit;
 use worldrunner_render_program::unity::synthetic::shaders::{
     BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant, volume_blit,
 };
@@ -32,7 +33,7 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{MeshRenderer, World};
 
-use super::super::adapter::{OffscreenAdapter, build};
+use super::super::adapter::{OffscreenAdapter, Settling, build};
 use super::super::assets::{AssetError, Assets};
 use super::super::defaults::{ShaderFill, declared, declared_fill};
 use super::super::frame::{Adapted, Settings};
@@ -64,6 +65,10 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            // A blit pass that places its quad by `unity_ObjectToWorld` and `unity_MatrixVP`.
+            "placed_blit" => placed_blit("_MainTex"),
+            // The same pass sampling a texture the material sets, as a blit's own pass does.
+            "placed_primary" => placed_blit("_PrimaryTex"),
             // A 2D slot that is not the blit source, so a property can set it.
             "flatslot" => blit_passes("_FlatTex"),
             "gradient" => gradient_passes(),
@@ -72,6 +77,7 @@ impl ShaderSupply for Synthetic {
             "cubeslot" => cube_blit("_BlitCubeTexture"),
             // A pass that reads the 3D slot `_3DNoiseTexture` that nothing sets.
             "volumeslot" => volume_blit("_3DNoiseTexture"),
+            "global_sampler" => super::ordered_globals_gpu::sampling_passes(),
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "caster" => super::shadow_gpu::caster_passes(),
             "receiver" => super::shadow_gpu::receiver_passes(),
@@ -86,14 +92,16 @@ impl ShaderSupply for Synthetic {
             "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
             "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
             // The colour shader of `_PerFrame` with `_MainLightColor` declared a colour property
-            // of the default `declared_light::DECLARED`.
-            "declared_light" => {
+            // (`declared_light`) or a vector property (`declared_vector`), of the default
+            // `declared_light::DECLARED`.
+            "declared_light" | "declared_vector" => {
+                let kind = i32::from(source.file != "declared_light");
                 let mut synthetic = super::lights_gpu::per_frame_passes("fs_color");
                 synthetic.shader.parsed.properties = vec![ShaderProperty {
                     name: "_MainLightColor".to_owned(),
                     description: String::new(),
                     attributes: Vec::new(),
-                    kind: 0,
+                    kind,
                     flags: 0,
                     default_value: super::declared_light::DECLARED,
                     default_texture: String::new(),
@@ -137,7 +145,7 @@ impl ShaderSupply for Synthetic {
             _ => return Err(ShaderLoadError::NoVulkanPlatform),
         };
         let texture_defaults = declared(&synthetic.shader);
-        let fill = if source.file == "declared_light" {
+        let fill = if source.file.starts_with("declared_") {
             declared_fill(&synthetic.shader)
         } else {
             ShaderFill::default()
@@ -344,9 +352,13 @@ impl Rig {
         reads: &[RenderTextureId],
     ) -> (Adapted, OffscreenOperations, Vec<PendingImage>) {
         let snapshot = GraphicsSnapshot::take(world).unwrap();
-        let mut adapted = self
-            .adapter
-            .adapt(&snapshot, assets, &mut self.state, &mut self.runtime);
+        let mut adapted = self.adapter.adapt(
+            &snapshot,
+            assets,
+            (&mut self.state, &mut self.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
         let mut operations = build(
             &mut self.state,
             &mut self.runtime,
@@ -581,8 +593,8 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_not_drawn_and_is_counte
     let mut rig = Rig::new();
     let mut world = world();
     let target = render_texture(&mut world, [SIDE, SIDE]);
-    camera_render(&mut world, target);
-    // The blit shader has no `Alpha` pass, so the camera has nothing to draw of it.
+    // The blit shader has no `Alpha` pass, so the camera has nothing to draw of it. The renderer
+    // exists when the camera render is recorded, which is what a render draws.
     let blit = shader(&mut world, "blit");
     let material = world.create_material(blit).unwrap();
     let ignored = MeshRenderer {
@@ -591,6 +603,7 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_not_drawn_and_is_counte
         ..MeshRenderer::default()
     };
     renderer_with(&mut world, (0, true), MESH, ignored);
+    camera_render(&mut world, target);
     let (adapted, operations, reads) = rig.frame(&mut world, &[target]);
     assert_eq!(adapted.report.failures["draw:NoPassForCamera"], 1);
     assert_eq!(adapted.report.built, 1, "the camera render itself");
@@ -727,9 +740,13 @@ fn a_stored_texture_the_engine_does_not_hold_is_counted_each_frame_and_one_it_do
     let snapshot = snapshot(&mut world);
     // The second frame finds the held texture unchanged, which is not a texture missing.
     for _ in 0..2 {
-        let adapted = rig
-            .adapter
-            .adapt(&snapshot, &HeldTexture, &mut rig.state, &mut rig.runtime);
+        let adapted = rig.adapter.adapt(
+            &snapshot,
+            &HeldTexture,
+            (&mut rig.state, &mut rig.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
         assert_eq!(adapted.report.failures.get("texture:NotStored"), Some(&1));
     }
 }

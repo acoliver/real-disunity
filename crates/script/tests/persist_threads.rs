@@ -1,7 +1,8 @@
 //! Scheduler threads saved where they stopped and continued on restore (#147).
 
 use worldrunner_script::{
-    GameScripts, LuaSnapshot, SaveOptions, SavedWake, SchedulerNames, SchedulerPolicy, ScriptConfig,
+    GameScripts, LuaSnapshot, SaveOptions, SavedWake, SchedulerNames, SchedulerPolicy,
+    ScriptConfig, ThreadSchedule,
 };
 
 const NAMES: [&str; 6] = [
@@ -141,6 +142,50 @@ fn snapshots_that_do_not_fit_the_state_are_refused() {
         .unwrap_err()
         .to_string();
     assert!(renamed.contains("Patrol"), "{renamed}");
+}
+
+#[test]
+fn a_snapshot_without_its_graph_or_with_unmatched_schedules_is_refused_by_name() {
+    let mut saved = game();
+    saved
+        .run("game", "a.lua", b"Spawn('a', 30) Spawn('b', 50)")
+        .unwrap();
+    let snapshot = saved
+        .save(&["Units"], &["Patrol"], &SaveOptions::default())
+        .unwrap();
+    assert_eq!((snapshot.threads.len(), snapshot.schedules.len()), (2, 2));
+
+    // A snapshot from before the graph has no `graph` field and is not read at all.
+    let mut encoded = serde_json::to_value(&snapshot).unwrap();
+    encoded
+        .as_object_mut()
+        .unwrap()
+        .remove("graph")
+        .expect("a graph field");
+    let missing = serde_json::from_value::<LuaSnapshot>(encoded)
+        .unwrap_err()
+        .to_string();
+    assert!(missing.contains("missing field `graph`"), "{missing}");
+
+    // Each thread needs its schedule: neither a thread without one nor a schedule without a
+    // thread is dropped silently.
+    let mut short = snapshot.clone();
+    short.schedules.pop();
+    let mut long = snapshot.clone();
+    long.schedules.push(ThreadSchedule::default());
+    for (unmatched, expected) in [
+        (short, "the snapshot has 2 threads and 1 schedules"),
+        (long, "the snapshot has 2 threads and 3 schedules"),
+    ] {
+        let mut restored = game();
+        let error = restored
+            .restore(&unmatched, &["Patrol"])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
+        assert_eq!(restored.thread_count(), 0, "nothing was scheduled");
+        assert_eq!(json(&mut restored, "return #Units"), serde_json::json!(0));
+    }
 }
 
 #[test]

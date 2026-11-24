@@ -171,15 +171,15 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         use worldrunner_world_simulation::{
             presentation::{
                 camera_data::presented_render_shadows,
-                extraction::{SpriteTextures, append_ui_from, extract_world},
+                extraction::{append_ui_from, extract_world},
                 light_views::extract_lights,
                 mesh_objects::extract_mesh_objects,
             },
             ui::{append_graphics, contribution::extract_ui, extract_graphics},
         };
 
-        let mut plan = extract_world(&s.native, &SpriteTextures::default(), [width, height])
-            .map_err(crate::errors::AbiError::from)?;
+        let mut plan =
+            extract_world(&s.native, [width, height]).map_err(crate::errors::AbiError::from)?;
         let ui = extract_ui(&s.native, &s.fonts, [width, height])
             .map_err(crate::errors::AbiError::from)?;
         let ui_presentation =

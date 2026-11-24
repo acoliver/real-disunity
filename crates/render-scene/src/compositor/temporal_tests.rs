@@ -378,7 +378,7 @@ fn a_frame_without_jitter_data_publishes_nothing() {
 }
 
 #[test]
-fn the_public_descriptor_selects_jitter_and_defaults_to_off() {
+fn the_public_descriptor_without_taa_renders_unjittered() {
     use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostResolve, ToneMap};
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
@@ -395,10 +395,6 @@ fn the_public_descriptor_selects_jitter_and_defaults_to_off() {
     };
     let plain = AntiAliasing::new(MsaaSamples::X1, PostResolve::None);
     assert_eq!(build(plain).projection_jitter(), None);
-    assert_eq!(
-        build(plain.with_jitter(jitter())).projection_jitter(),
-        Some(jitter())
-    );
 }
 
 #[test]
@@ -458,9 +454,6 @@ fn taa_builds_at_construction_with_jitter_enabled_automatically() {
     };
     let automatic = build(taa_descriptor(), None);
     assert_eq!(automatic.projection_jitter(), Some(jitter()));
-    let explicit = ProjectionJitter::new(16).unwrap();
-    let chosen = build(taa_descriptor().with_jitter(explicit), None);
-    assert_eq!(chosen.projection_jitter(), Some(explicit));
     let authored =
         crate::post_taa_tests::effects(worldrunner_render_plan::SceneAntiAlias::taa(900_000), None);
     let plain = AntiAliasing::new(MsaaSamples::X1, PostResolve::None);
@@ -497,7 +490,10 @@ fn clearing_jitter_is_allowed_without_taa() {
     let context = context();
     let mut renderer = renderer(&context);
     assert_eq!(renderer.set_projection_jitter(None), Ok(()));
-    for resolve in [PostResolve::None, PostResolve::fxaa(0.5)] {
+    for resolve in [
+        PostResolve::None,
+        PostResolve::fxaa(0.5, worldrunner_render_post::FxaaQuality::default()),
+    ] {
         renderer.post_requested.resolve = resolve;
         assert_eq!(renderer.set_projection_jitter(Some(jitter())), Ok(()));
         assert_eq!(renderer.set_projection_jitter(None), Ok(()), "{resolve:?}");
@@ -687,11 +683,13 @@ fn a_ratio_aware_sequence_shifts_the_projection_by_the_offset_over_the_internal_
 /// of a 64x48 output, built through the public configuration path.
 fn reduced_temporal_renderer(context: &GpuContext) -> ConfiguredFrameRenderer {
     use worldrunner_render_post as post;
-    let mut settings =
-        RendererConfiguration::legacy([64, 48], crate::offscreen::OffscreenTarget::COLOR_FORMAT);
+    let mut settings = RendererConfiguration::new(
+        [64, 48],
+        crate::offscreen::OffscreenTarget::COLOR_FORMAT,
+        post::ToneMap::Reinhard,
+    );
     settings.frame = post::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1)
         .with_render_extent([43, 32]);
-    settings.hdr = Some((1.0, post::ToneMap::Reinhard));
     settings.post = post::HdrPostSettings {
         resolve: post::PostResolve::taa(0.9),
         upscale: Some(worldrunner_render_plan::post::UpscaleSettings {

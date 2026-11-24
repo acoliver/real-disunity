@@ -13,7 +13,6 @@
 use super::Resident;
 use crate::game_screen::{GAME_SCREEN, GameScreen, Ledger};
 use crate::{RetainedHost, ViewerError, presentation::Targets};
-use worldrunner_render_post::{AttachmentView, ResourceRef};
 use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_scene::{
     SceneView,
@@ -129,8 +128,7 @@ impl Frames {
         let (context, view, targets) = scene;
         let (operations, writes) = self.screen_writer(work.operations);
         let composite = if let Some(show) = self.ledger.plan(writes) {
-            let color =
-                AttachmentView::new(ResourceRef::new("scene color"), targets.color.texture())?;
+            let color = targets.scene_attachments()?.0.clone();
             if self
                 .pass
                 .as_ref()
@@ -207,13 +205,12 @@ impl super::Renderer {
     pub(super) fn fit_stock_scene(
         &mut self,
         view: &SceneView,
-        live_capture: bool,
         retained: Option<&super::capture::Products>,
     ) -> Result<bool, ViewerError> {
         if self.game_screen.covers_stock_scene() {
             return Ok(false);
         }
-        let capturing = live_capture || retained.is_some();
+        let capturing = retained.is_some();
         if capturing && let Resident::Shadowed(scene) = &mut self.resident {
             scene.request_shadow_capture();
         }

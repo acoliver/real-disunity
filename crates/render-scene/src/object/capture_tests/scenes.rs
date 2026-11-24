@@ -153,6 +153,11 @@ fn impostor(relief: bool) -> SceneImpostor {
 }
 
 pub(in crate::object) fn material(spec: Spec) -> SceneMaterial {
+    shaded(spec, 800_000, 100_000)
+}
+
+/// [`material`] with its own roughness and metalness, in millionths.
+fn shaded(spec: Spec, roughness_micro: u32, metalness_micro: u32) -> SceneMaterial {
     let surface = !spec.impostor();
     let mut material = SceneMaterial::new(SceneMaterialParts {
         albedo: TextureHandle::from_raw(0),
@@ -160,8 +165,8 @@ pub(in crate::object) fn material(spec: Spec) -> SceneMaterial {
         roughness_metallic: surface.then(|| TextureHandle::from_raw(2)),
         ambient_occlusion: (surface && spec.double_sided).then(|| TextureHandle::from_raw(4)),
         self_illumination: (surface && spec.masked()).then(|| TextureHandle::from_raw(5)),
-        roughness_micro: 800_000,
-        metalness_micro: 100_000,
+        roughness_micro,
+        metalness_micro,
         alpha_mode: if spec.masked() {
             SceneAlphaMode::Mask {
                 cutoff_micro: 500_000,
@@ -212,7 +217,11 @@ fn vertex(position: [i64; 3], texcoord: [i64; 2]) -> SceneVertex {
 
 /// A two-metre card standing on the ground plane and facing local `-Y`, as the camera sees it.
 fn card(billboard: Option<BillboardPolicy>) -> SceneMesh {
-    let half = 1_000;
+    card_of(1_000, billboard)
+}
+
+/// A card `half` millimetres from its middle to either side and twice that high.
+fn card_of(half: i64, billboard: Option<BillboardPolicy>) -> SceneMesh {
     SceneMesh::new(vec![
         SceneMeshLod::new(
             0,
@@ -306,6 +315,60 @@ pub(in crate::object) fn scene(specs: &[Spec]) -> RenderScene {
             .expect("the fixture resources validate"),
         geometry: SceneGeometry::new(
             vec![card(None), card(Some(BillboardPolicy::YawLocked))],
+            objects,
+        )
+        .expect("the fixture geometry validates"),
+        terrain: None,
+        effects: Some(effects()),
+    })
+    .expect("the fixture scene validates")
+}
+
+/// One card of each pair of `meshes` meshes and `materials` materials, all with one pipeline key,
+/// so a pass draws `meshes * materials` batches that differ only in mesh and material. The meshes
+/// are cards of different widths; the materials differ in roughness and metalness. Each mesh's
+/// cards are a row, rows overlap on screen at different depths, and no two cards share a depth.
+pub(in crate::object) fn grid(meshes: usize, materials: usize) -> RenderScene {
+    let spec = Spec::default();
+    let step = |index: usize| i64::try_from(index).expect("a few cards");
+    let objects = (0..meshes)
+        .flat_map(|mesh| (0..materials).map(move |material| (mesh, material)))
+        .map(|(mesh, material)| {
+            SceneObject::new(
+                SceneTransform {
+                    position_millimeters: [
+                        (step(material) * 2 - step(materials) + 1) * 450 + step(mesh) * 230,
+                        step(mesh) * 260 + step(material) * 40,
+                        0,
+                    ],
+                    rotation: SceneRotation {
+                        x: 0,
+                        y: 0,
+                        z: 0,
+                        w: ROTATION_MICRO_SCALE,
+                    },
+                    scale_millionths: SCALE,
+                },
+                MeshHandle::from_raw(u32::try_from(mesh).expect("few meshes")),
+                MaterialHandle::from_raw(u32::try_from(material).expect("few materials")),
+            )
+        })
+        .collect();
+    RenderScene::new(SceneParts {
+        resources: SceneResources::new(
+            textures(),
+            (0..materials)
+                .map(|material| {
+                    let at = u32::try_from(material).expect("few materials");
+                    shaded(spec, 150_000 + 140_000 * (at % 6), 60_000 * (at % 4))
+                })
+                .collect(),
+        )
+        .expect("the fixture resources validate"),
+        geometry: SceneGeometry::new(
+            (0..meshes)
+                .map(|mesh| card_of(900 + 150 * step(mesh), None))
+                .collect(),
             objects,
         )
         .expect("the fixture geometry validates"),

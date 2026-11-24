@@ -19,6 +19,15 @@ fn check_viewport(rect: &[f32; 4]) -> Result<(), WorldError> {
     }
 }
 
+/// A draw's pass is -1 (every pass) or a pass index.
+fn check_pass(pass: i32) -> Result<(), WorldError> {
+    if pass < -1 {
+        Err(GraphicsError::InvalidOffscreen.into())
+    } else {
+        Ok(())
+    }
+}
+
 impl World {
     /// Checks a context record; other work is the offscreen list's own to check.
     pub(super) fn check_context(&self, work: &OffscreenWork) -> Result<(), WorldError> {
@@ -98,6 +107,20 @@ impl World {
                     .flat_map(|block| &block.textures)
                     .try_for_each(|(_, slot)| self.check_texture(&slot.texture))
             }
+            OffscreenWork::DrawMeshBatch {
+                mesh,
+                material,
+                pass,
+                batch,
+                ..
+            } => {
+                if *mesh == 0 {
+                    return Err(GraphicsError::InvalidOffscreen.into());
+                }
+                check_pass(*pass)?;
+                self.material(*material)?;
+                self.check_batch(batch)
+            }
             OffscreenWork::DrawProcedural {
                 matrix,
                 material,
@@ -143,9 +166,7 @@ impl World {
         material: MaterialId,
         pass: i32,
     ) -> Result<(), WorldError> {
-        if pass < -1 {
-            return Err(GraphicsError::InvalidOffscreen.into());
-        }
+        check_pass(pass)?;
         if !matrix.iter().all(|value| value.is_finite()) {
             return Err(GraphicsError::NotFinite.into());
         }

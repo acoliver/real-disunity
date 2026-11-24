@@ -5,6 +5,10 @@ use super::fixture::{Rig, SIZE};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -15,11 +19,7 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, GameBuild,
         GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, PostWaterDepth,
-        SnapshotImage, SnapshotReads, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        SnapshotImage, SnapshotReads, StockReplacement, TargetDeclaration, TargetExtent,
     },
     wgpu,
 };
@@ -127,6 +127,9 @@ pub struct Plan {
     pub probe_linear: bool,
     /// A magenta fill into the frame, and where it is drawn.
     pub fill: Fill,
+    /// The stock surfaces the game draws. The factory declares it once, when it is installed, so
+    /// a later `replan` does not change it.
+    pub replaces: StockReplacement,
 }
 
 /// What the game saw, in the order it saw it.
@@ -196,6 +199,10 @@ impl GameFeatureFactory for SnapGame {
 
     fn snapshot_reads(&self) -> SnapshotReads {
         self.declared
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.plan.replaces
     }
 
     fn targets(&self) -> Vec<TargetDeclaration> {

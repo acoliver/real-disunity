@@ -12,7 +12,7 @@ use worldrunner_render_program::unity::synthetic::{
 use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
 use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, TextureRef, dimension};
 
-use super::super::adapter::build;
+use super::super::adapter::{Settling, build};
 use super::super::ids;
 use super::flush::host;
 use super::gpu::{Quad, Rig, SIDE, shader, shaped_target, target};
@@ -76,9 +76,13 @@ fn made(
     world: &mut worldrunner_world_simulation::World,
 ) -> super::super::frame::Adapted {
     let snapshot = snapshot(world);
-    let mut adapted = rig
-        .adapter
-        .adapt(&snapshot, &Quad, &mut rig.state, &mut rig.runtime);
+    let mut adapted = rig.adapter.adapt(
+        &snapshot,
+        &Quad,
+        (&mut rig.state, &mut rig.runtime),
+        (false, &std::collections::BTreeMap::new()),
+        Settling::Wait,
+    );
     build(&mut rig.state, &mut rig.runtime, &rig.arena, &mut adapted).unwrap();
     adapted
 }
@@ -144,9 +148,13 @@ fn a_dimension_code_the_world_does_not_define_is_refused_by_name_and_the_rest_is
         .unwrap();
     let mut snapshot = snapshot(&mut world);
     snapshot.render_textures.get_mut(&odd).unwrap().dimension = 9;
-    let mut adapted = rig
-        .adapter
-        .adapt(&snapshot, &Quad, &mut rig.state, &mut rig.runtime);
+    let mut adapted = rig.adapter.adapt(
+        &snapshot,
+        &Quad,
+        (&mut rig.state, &mut rig.runtime),
+        (false, &std::collections::BTreeMap::new()),
+        Settling::Wait,
+    );
 
     build(&mut rig.state, &mut rig.runtime, &rig.arena, &mut adapted).unwrap();
 

@@ -1,7 +1,8 @@
 //! A game pass placed at `GamePlace::AfterTransparent` samples the post-water depth: the frame's
 //! depth after every pass before the transparent ones, which includes the depth a game pass wrote
 //! at `AfterOpaqueSnapshots`. The frames are real: a configured renderer over the synthetic quad
-//! scene on lavapipe, under the stock and the suppressed water draws.
+//! scene on lavapipe, with the water drawn by the stock passes and by the game.
+use super::declaring::declaring;
 use super::fixture::{Rig, SIZE, quad_scene};
 use super::post_water_game::{
     EARLY_READER, Lent, PROBE, Plan, PostWaterGame, READER, Reading, Shared, WRITER, WRITTEN_DEPTH,
@@ -9,11 +10,9 @@ use super::post_water_game::{
 use super::shadowed::{capture, effects, shadowed};
 use super::snapshot_game::{read_texels, texel};
 use worldrunner_render_plan::{RenderScene, SceneWaterBody, SceneWaterSettings, SceneWaterSurface};
-use worldrunner_render_scene::{
-    compositor::{
-        FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics, WaterDraws,
-    },
-    executor::{FrameConfig, FrameError},
+use worldrunner_render_post::{FrameConfig, FrameError};
+use worldrunner_render_scene::compositor::{
+    FrameSnapshotError, PostWaterDepth, SnapshotReads, SnapshotStatistics, StockReplacement,
 };
 
 /// Pixels the writer's left half and the quad's footprint split four ways.
@@ -70,7 +69,7 @@ fn assert_close(actual: f32, expected: f32, what: &str) {
     );
 }
 
-/// A water body below the quad, which the stock passes draw or not as the draws choose.
+/// A water body below the quad, which the stock passes or the game draw.
 fn water() -> SceneWaterBody {
     SceneWaterBody {
         material: SceneWaterSettings::STOCK,
@@ -87,7 +86,7 @@ fn water() -> SceneWaterBody {
     }
 }
 
-/// The quad scene with the water body, which the renderer draws as `water_draws` chooses.
+/// The quad scene with the water body, which the stock passes or the game draw.
 fn water_scene() -> RenderScene {
     let source = quad_scene();
     let effects = effects().with_water_bodies(vec![water()]).unwrap();
@@ -96,15 +95,19 @@ fn water_scene() -> RenderScene {
         .unwrap()
 }
 
-/// An HDR rig with the quad scene and the game, with the water body when `draws` is given.
-fn build(declared: SnapshotReads, plan: Plan, draws: Option<WaterDraws>) -> (Rig, Shared) {
+/// An HDR rig with the quad scene and the game, with the water body when `replaces` is given,
+/// drawn by the game if `replaces` says it replaces the stock water.
+fn build(declared: SnapshotReads, plan: Plan, replaces: Option<StockReplacement>) -> (Rig, Shared) {
+    let plan = Plan {
+        replaces: replaces.unwrap_or_default(),
+        ..plan
+    };
     let (inventory, seen) = PostWaterGame::inventory(declared, plan);
-    let scene = draws.map_or_else(quad_scene, |_| water_scene());
+    let scene = replaces.map_or_else(quad_scene, |_| water_scene());
     let rig = Rig::hdr(&scene, SIZE, |settings| {
         settings.game_passes = inventory;
-        if let Some(draws) = draws {
+        if replaces.is_some() {
             settings.water = vec![water()];
-            settings.water_draws = draws;
         }
     });
     (rig, seen)
@@ -197,9 +200,9 @@ fn the_post_water_depth_holds_the_depth_a_pass_after_the_opaque_snapshots_wrote(
 }
 
 #[test]
-fn suppressed_water_with_no_stock_reader_still_produces_the_post_water_depth_a_game_declares() {
+fn water_the_game_draws_with_no_stock_reader_still_produces_the_post_water_depth_it_declares() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    for draws in [WaterDraws::Suppressed, WaterDraws::Stock] {
+    for draws in [StockReplacement::WATER, StockReplacement::NONE] {
         let (mut rig, seen) = build(
             Reading::All.reads(),
             writing_and_reading(Reading::All),
@@ -229,7 +232,7 @@ fn suppressed_water_with_no_stock_reader_still_produces_the_post_water_depth_a_g
         );
 
         // Bare ground under the water body, outside the writer's half: the stock water pass
-        // writes the surface's depth, 0.1 m above the ground, and a suppressed one writes none.
+        // writes the surface's depth, 0.1 m above the ground, and one the game draws writes none.
         let [post_device, post_linear, opaque_device, opaque_linear] = probed(&rig, RIGHT_WATER);
         assert_eq!(
             opaque_device.to_bits(),
@@ -237,10 +240,7 @@ fn suppressed_water_with_no_stock_reader_still_produces_the_post_water_depth_a_g
             "{draws:?} opaque device"
         );
         assert_close(opaque_linear, 10.0, &format!("{draws:?} opaque linear"));
-        let surface = match draws {
-            WaterDraws::Stock => 5.1,
-            WaterDraws::Suppressed => 10.0,
-        };
+        let surface = if draws.water { 10.0 } else { 5.1 };
         assert_close(
             post_linear,
             surface,
@@ -254,12 +254,12 @@ fn suppressed_water_with_no_stock_reader_still_produces_the_post_water_depth_a_g
 }
 
 #[test]
-fn suppressed_water_allocates_no_post_water_depth_for_a_game_that_does_not_declare_it() {
+fn water_the_game_draws_allocates_no_post_water_depth_for_a_game_that_does_not_declare_it() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let (mut rig, seen) = build(
         Reading::Opaque.reads(),
         reading(Reading::Opaque),
-        Some(WaterDraws::Suppressed),
+        Some(StockReplacement::WATER),
     );
     rig.render().unwrap();
     assert_eq!(
@@ -281,9 +281,9 @@ fn suppressed_water_allocates_no_post_water_depth_for_a_game_that_does_not_decla
         }
     );
 
-    // The resident water holds the snapshot banks whatever the draws, and nothing adds a device
+    // The resident water holds the snapshot banks whoever draws it, and nothing adds a device
     // depth to them but a game that reads one.
-    let rig = rig_without_game(WaterDraws::Suppressed);
+    let rig = rig_declaring_water();
     assert_eq!(
         rig.renderer.snapshot_statistics(),
         SnapshotStatistics {
@@ -294,10 +294,11 @@ fn suppressed_water_allocates_no_post_water_depth_for_a_game_that_does_not_decla
     );
 }
 
-fn rig_without_game(draws: WaterDraws) -> Rig {
+/// A rig whose only game draws the water and reads nothing.
+fn rig_declaring_water() -> Rig {
     Rig::hdr(&water_scene(), SIZE, |settings| {
         settings.water = vec![water()];
-        settings.water_draws = draws;
+        settings.game_passes = declaring(StockReplacement::WATER);
     })
 }
 
@@ -307,7 +308,7 @@ fn the_device_companion_is_allocated_only_for_a_game_that_reads_it() {
     let (mut rig, seen) = build(
         Reading::Linear.reads(),
         reading(Reading::Linear),
-        Some(WaterDraws::Suppressed),
+        Some(StockReplacement::WATER),
     );
     assert_eq!(
         rig.renderer.snapshot_statistics(),

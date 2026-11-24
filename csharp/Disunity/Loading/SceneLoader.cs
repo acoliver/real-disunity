@@ -287,6 +287,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             Debug.LogWarning($"The script {name} on {owner.name} cannot load and is left off: {cause.Message}");
             return new UnbuiltComponent(name, Script: true);
         }
+        if (value.TryGetProperty("execution_order", out var order)) ScriptExecutionOrders.Plan(type, order.GetInt32());
         DisunityHost.AttachComponent<Component>(owner, script);
         if (!value.Bool("enabled")) script.enabled = false;
         scripts.Add((script, value.GetProperty("fields"), $"{owner.name}.{type.Name}"));

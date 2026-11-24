@@ -116,6 +116,23 @@ impl FrameRenderer {
             )
     }
 
+    /// Settles whether the frame's colour draws write the object-motion residual, from the
+    /// pipelines they draw with, and makes the scene keep previous-frame transforms while
+    /// velocity is drawn. Returns the decision.
+    ///
+    /// The stock prefix and the stock scene both take this decision, the prefix before it
+    /// plans. Selecting a depth mode keeps whether pipelines write velocity, so the base
+    /// `pipelines` and the ones a frame selects agree.
+    pub(crate) fn adopt_scene_velocity(
+        &self,
+        gpu: &mut crate::draw::SceneGpu,
+        pipelines: &crate::renderer::ScenePipelines,
+    ) -> bool {
+        let writes_velocity = self.draws_velocity(pipelines);
+        gpu.track_previous_transforms(writes_velocity);
+        writes_velocity
+    }
+
     /// The velocity attachment the object pass writes, when its pipelines (`writes`) write one.
     ///
     /// Velocity pipelines need a renderer with TAA resident, which owns the attachment beside

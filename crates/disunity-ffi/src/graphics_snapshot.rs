@@ -8,6 +8,12 @@
 //! drains: asking twice returns the same size, and work recorded after the first query waits for
 //! the next snapshot. A snapshot nobody copied is dropped when the world advances, as the
 //! world's own pending work is.
+//!
+//! This is the one reader of the frame's offscreen work: the records, the material copies they
+//! name, the global state they replay from and the values each dispatch ran with.
+//!
+//! The snapshot also copies the materials, shaders and buffers of the UI draws the session's last
+//! presentation holds, which a host draws with in a frame of their own.
 use crate::{DisunityResult, callbacks::mutate, errors::AbiError};
 use worldrunner_world_simulation::graphics::{GraphicsSnapshot, snapshot_wire};
 
@@ -31,7 +37,14 @@ pub unsafe extern "C" fn disunity_graphics_snapshot(
     }
     mutate(world, |s| {
         if s.graphics_snapshot.is_none() {
-            let snapshot = GraphicsSnapshot::take(&mut s.native)?;
+            let mut snapshot = GraphicsSnapshot::take(&mut s.native)?;
+            let ui_materials = s
+                .ui_presentation
+                .iter()
+                .flat_map(|plan| &plan.draws)
+                .filter_map(|draw| draw.material)
+                .map(|material| material.id);
+            snapshot.include_materials(&s.native, ui_materials);
             let bytes = snapshot_wire::encode(&snapshot)
                 .map_err(|error| AbiError::Message(error.to_string()))?;
             s.graphics_snapshot = Some(bytes);
@@ -53,3 +66,7 @@ pub unsafe extern "C" fn disunity_graphics_snapshot(
         Ok(())
     })
 }
+
+#[cfg(test)]
+#[path = "graphics_snapshot_ui_tests.rs"]
+mod tests;

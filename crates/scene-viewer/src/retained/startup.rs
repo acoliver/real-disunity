@@ -63,6 +63,8 @@ impl RetainedHost {
             capture_pool,
             offscreen: None,
             game_screen: None,
+            ui_layers: None,
+            ui_targets: Vec::new(),
             readiness: initial_readiness(scene.as_ref(), &options),
             initial_scene: scene.clone(),
             scene,
@@ -113,7 +115,7 @@ impl RetainedHost {
                 context.adapter,
                 scene,
                 &mut self.options,
-                Some((&mut self.capture_pool, &mut self.captures, &self.readiness)),
+                Some((&mut self.capture_pool, &mut self.captures)),
             );
         }
         let supplier = self
@@ -181,6 +183,7 @@ fn initial_readiness(scene: Option<&RenderScene>, options: &ViewerOptions) -> re
         page_wait: false,
         geometry_wait: false,
         camera: (options.pose, options.camera, options.camera_convention),
+        world_view: None,
         shadow_policy: None,
         camera_history: super::camera::CameraHistory::default(),
         #[cfg(test)]

@@ -18,7 +18,7 @@ fn supplier_ssr_parameters_publish_without_rebuilding_after_startup() {
         })
     })
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     assert!(renderer.render_retained(&mut host).unwrap());
     let effects = host.scene().effects().unwrap().clone();
     let next = effects
@@ -42,26 +42,6 @@ fn supplier_ssr_parameters_publish_without_rebuilding_after_startup() {
 }
 
 #[test]
-fn concrete_startup_reuses_object_and_decal_storage() {
-    let scene = storage_scene();
-    let mut options = crate::tests::options();
-    let adapter = startup_adapter();
-    let size = options.size;
-    let resolved = super::startup::resolve(
-        super::SceneSource::Static {
-            scene: &scene,
-            options: &mut options,
-        },
-        &adapter,
-        size,
-        None,
-        None,
-    )
-    .unwrap();
-    assert_storage(&scene, &resolved.scene);
-}
-
-#[test]
 fn retained_and_supplier_startup_borrow_stored_scene() {
     let adapter = startup_adapter();
     for supplier in [false, true] {
@@ -76,14 +56,7 @@ fn retained_and_supplier_startup_borrow_stored_scene() {
             RetainedHost::new(storage_scene(), crate::tests::options())
         }
         .unwrap();
-        let resolved = super::startup::resolve(
-            super::SceneSource::Retained(&mut host),
-            &adapter,
-            [64, 32],
-            None,
-            None,
-        )
-        .unwrap();
+        let resolved = super::startup::resolve(&mut host, &adapter, [64, 32], None, None).unwrap();
         let objects = resolved.scene.geometry().objects().as_ptr();
         let decals = resolved.scene.decals().as_ptr();
         drop(resolved);
@@ -96,16 +69,6 @@ fn retained_and_supplier_startup_borrow_stored_scene() {
 
 fn startup_adapter() -> wgpu::Adapter {
     worldrunner_render_gpu::test_support::TestGpu::shared_adapter().unwrap()
-}
-
-fn assert_storage(expected: &super::RenderScene, actual: &super::RenderScene) {
-    assert!(!expected.geometry().objects().is_empty());
-    assert!(!expected.decals().is_empty());
-    assert_eq!(
-        expected.geometry().objects().as_ptr(),
-        actual.geometry().objects().as_ptr()
-    );
-    assert_eq!(expected.decals().as_ptr(), actual.decals().as_ptr());
 }
 
 fn storage_scene() -> super::RenderScene {
@@ -148,7 +111,7 @@ fn selected_invalid_shadows_fail_before_device_creation() {
     })
     .unwrap();
     assert!(matches!(
-        pollster::block_on(super::windowless::windowless_context_with(&mut host, None)),
+        pollster::block_on(super::windowless::windowless_context(&mut host, None)),
         Err(crate::ViewerError::Shadow(_))
     ));
 }
@@ -174,7 +137,7 @@ fn supplier_first_residency_uses_selected_content_frame_and_shadows() {
         })
     })
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     assert_eq!(
         *observed.lock().unwrap(),
         vec![renderer.context.adapter_identity()]
@@ -233,7 +196,7 @@ fn supplier_selected_scene_determines_required_features_before_preparation() {
         })
     })
     .unwrap();
-    let result = pollster::block_on(super::windowless::windowless_context_with(&mut host, None));
+    let result = pollster::block_on(super::windowless::windowless_context(&mut host, None));
     let (_, context) = result.unwrap();
     assert!(
         context

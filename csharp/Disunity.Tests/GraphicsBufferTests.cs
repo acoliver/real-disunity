@@ -1,7 +1,8 @@
 using System.Runtime.InteropServices;
+using Disunity.Hosting;
 using UnityEngine;
 
-/// <summary>GraphicsBuffer: managed-memory contents, validation, handles and release.</summary>
+/// <summary>GraphicsBuffer: contents in a world compute buffer, validation, handles and release.</summary>
 internal static class GraphicsBufferTests
 {
     [StructLayout(LayoutKind.Sequential)]
@@ -19,6 +20,19 @@ internal static class GraphicsBufferTests
 
     public static void Run()
     {
+        DisunityHost.LoadWorld();
+        try
+        {
+            RunAll();
+        }
+        finally
+        {
+            DisunityHost.UnloadWorld();
+        }
+    }
+
+    private static void RunAll()
+    {
         ConstructorValidatesItsArguments();
         ReportsCountStrideAndZeroedContents();
         HandlesAreUniqueAndNonZero();
@@ -27,10 +41,30 @@ internal static class GraphicsBufferTests
         SetDataRejectsBadRanges();
         ReleasedBuffersRejectEveryMember();
         ReleaseAndDisposeAreTheSameAndRepeatable();
-        Console.WriteLine("PASS: GraphicsBuffer validation, zeroed managed contents, unique handles, SetData offsets and strides, and release");
+        Console.WriteLine("PASS: GraphicsBuffer validation, zeroed contents, unique handles, SetData offsets and strides, and release");
         TargetsUsageAndName();
         ListNativeAndGetDataRoundTrip();
         Console.WriteLine("PASS: GraphicsBuffer targets, usage flags, name, IsValid, list and NativeArray SetData, and GetData");
+        TheContentsAreTheWorldsComputeBuffer();
+        Console.WriteLine("PASS: GraphicsBuffer contents are one world compute buffer, made on first use and destroyed on release");
+    }
+
+    private static void TheContentsAreTheWorldsComputeBuffer()
+    {
+        using var buffer = new GraphicsBuffer(Raw, 4, 4);
+        buffer.SetData(new[] { 5, 6, 7, 8 }, 1, 1, 2);
+        var link = buffer.WorldLink;
+        Expect.That(link.IsCurrent, "the buffer has a buffer in the loaded world");
+        var bytes = new byte[16];
+        WorldCompute.ReadBuffer(link, 0, bytes);
+        Expect.Sequence(new[] { 0, 6, 7, 0 }, MemoryMarshal.Cast<byte, int>(bytes).ToArray(), "the world buffer holds what SetData wrote, at the element offset");
+        Expect.That(buffer.WorldLink.Id == link.Id, "the world buffer is made once");
+        var untouched = new GraphicsBuffer(Raw, 4, 4);
+        Expect.That(GraphicsBuffer.Find(untouched.bufferHandle)!.WorldLink.Id != link.Id, "each buffer has its own world buffer");
+        Expect.That(GraphicsBuffer.Find(buffer.bufferHandle)!.WorldLink.Id == link.Id, "a handle resolves to the buffer and so to its world buffer");
+        untouched.Release();
+        buffer.Release();
+        Expect.Throws<DisunityException>(() => WorldCompute.ReadBuffer(link, 0, new byte[4]), "a released buffer's world buffer is destroyed when it was made");
     }
 
     private static void TargetsUsageAndName()
@@ -92,8 +126,8 @@ internal static class GraphicsBufferTests
     {
         using var buffer = new GraphicsBuffer(Raw, 8, 4);
         Expect.That(buffer.count == 8 && buffer.stride == 4, "count and stride");
-        Expect.Equal(32, buffer.Contents.Length, "contents are count times stride bytes");
-        Expect.That(!buffer.Contents.ContainsAnyExcept((byte)0), "contents start zeroed");
+        Expect.Sequence(new int[8], Ints(buffer), "the contents are count times stride bytes and start zeroed");
+        Expect.Throws<ArgumentOutOfRangeException>(() => buffer.GetData(new int[9]), "an array longer than the buffer");
     }
 
     private static void HandlesAreUniqueAndNonZero()
@@ -124,7 +158,12 @@ internal static class GraphicsBufferTests
         Expect.Equal(7, Ints(buffer)[11], "the last element of the buffer is writable");
     }
 
-    private static int[] Ints(GraphicsBuffer buffer) => MemoryMarshal.Cast<byte, int>(buffer.Contents).ToArray();
+    private static int[] Ints(GraphicsBuffer buffer)
+    {
+        var all = new int[buffer.count * buffer.stride / 4];
+        buffer.GetData(all);
+        return all;
+    }
 
     private static void SetDataRejectsElementsThatDoNotFitTheStride()
     {
@@ -162,7 +201,7 @@ internal static class GraphicsBufferTests
         Expect.Throws<ObjectDisposedException>(() => _ = buffer.stride, "stride after release");
         Expect.Throws<ObjectDisposedException>(() => _ = buffer.bufferHandle, "bufferHandle after release");
         Expect.Throws<ObjectDisposedException>(() => buffer.SetData(new[] { 1 }, 0, 0, 1), "SetData after release");
-        Expect.Throws<ObjectDisposedException>(() => _ = buffer.Contents.Length, "Contents after release");
+        Expect.Throws<ObjectDisposedException>(() => buffer.GetData(new int[2]), "GetData after release");
     }
 
     private static void ReleaseAndDisposeAreTheSameAndRepeatable()

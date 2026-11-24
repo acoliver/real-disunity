@@ -30,10 +30,8 @@ fn retained_shadow_direction_changes_pixels_without_rebuilding_geometry() {
     let scene = shadow_scene(&base);
     let settings = Some(shadow_settings());
     let mut host = crate::RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
-    let mut resident =
-        Resident::new(&context, &scene, settings, crate::FrameProfile::Legacy).unwrap();
-    let mut streaming =
-        super::super::readiness::Streaming::new(settings, crate::FrameProfile::Legacy);
+    let mut resident = Resident::new(&context, &scene, settings, crate::tests::CLAMP).unwrap();
+    let mut streaming = super::super::readiness::Streaming::new(settings, crate::tests::CLAMP);
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {

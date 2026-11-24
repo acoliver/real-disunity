@@ -6,14 +6,14 @@
 //! Every expected pixel is derived from the placements, colors and the inversion the passes
 //! apply, not from the output.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::super::*;
 use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
-use super::{COLOR_FORMAT, settings};
+use super::settings;
 mod cancellation;
 mod composition;
-mod gbuffer;
 use composition::check_timing;
 
 use super::DEPTH_FORMAT;
@@ -76,7 +76,7 @@ fn timed() -> Fixture {
     ))
     .expect("a device with timestamp queries");
     Fixture::with_context(context, &engine_scene(), settings, |device| {
-        ScenePipelines::new(device, COLOR_FORMAT)
+        ScenePipelines::new(device, SCENE_FORMAT, 1).unwrap()
     })
 }
 
@@ -198,6 +198,11 @@ fn frame() -> OffscreenFrame {
                 pass: alpha,
                 values: PropertyLayer::default(),
                 front_face: wgpu::FrontFace::Cw,
+                renderers: Arc::new(BTreeSet::from([
+                    RendererId(1),
+                    RendererId(2),
+                    RendererId(3),
+                ])),
             },
         )]),
         records: vec![
@@ -415,55 +420,6 @@ fn a_camera_a_blit_a_copy_and_a_scene_draw_run_in_the_frames_one_submission() {
 }
 
 #[test]
-fn the_resident_path_refuses_a_scene_that_holds_offscreen_operations_by_name() {
-    let mut fixture = timed();
-    let mut player = player(&mut fixture);
-    let authority = fixture.context.submission().clone();
-    let device = fixture.context.device().clone();
-    let (operations, _) = build(&mut player);
-    let mut recording = authority.begin(&device).unwrap();
-    fixture
-        .gpu
-        .admit_offscreen(operations.admit(&recording).unwrap());
-    fixture
-        .gpu
-        .set_frame(fixture.context.queue(), super::rig::frame());
-    let mut renderer = crate::compositor::FrameRenderer::with_output(
-        &device,
-        worldrunner_render_post::FrameConfig::new([super::TARGET; 2], COLOR_FORMAT, 1),
-        COLOR_FORMAT,
-    )
-    .unwrap();
-    let color = worldrunner_render_post::AttachmentView::new(
-        worldrunner_render_post::ResourceRef::new("scene color"),
-        renderer.targets().scene().texture(),
-    )
-    .unwrap();
-    let depth = worldrunner_render_post::AttachmentView::new(
-        worldrunner_render_post::ResourceRef::new("scene depth"),
-        renderer.targets().depth().texture(),
-    )
-    .unwrap();
-    let encoded = crate::compositor::encode_resident(
-        &mut renderer,
-        &device,
-        &mut recording,
-        (&fixture.gpu, &fixture.pipelines),
-        (&color, &depth),
-    );
-    assert!(
-        matches!(
-            encoded,
-            Err(worldrunner_render_post::FrameError::UnsupportedEffect(
-                "offscreen operations on the resident path"
-            ))
-        ),
-        "got {encoded:?}"
-    );
-    recording.finish().cancel();
-}
-
-#[test]
 fn a_cancelled_frame_submits_nothing_and_the_next_frame_does_not_see_its_offscreen_work() {
     let mut fixture = timed();
     let mut player = player(&mut fixture);
@@ -505,8 +461,9 @@ fn a_draw_prepared_for_another_target_refuses_the_frame_by_name_and_takes_its_of
     fixture
         .gpu
         .admit_offscreen(operations.admit(&recording).unwrap());
+    // The stock scene colour is Rgba16Float; this draw was prepared for an 8-bit target.
     let prepared =
-        TargetSignature::new(&[TextureFormat::Rgba16Float], Some(DEPTH_FORMAT), 1).unwrap();
+        TargetSignature::new(&[TextureFormat::Rgba8UnormSrgb], Some(DEPTH_FORMAT), 1).unwrap();
     assert_ne!(prepared, fixture.signature());
     admit_scene_draw_for(&mut fixture, &mut player, &recording, prepared);
 

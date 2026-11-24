@@ -105,13 +105,9 @@ fn normalized_weights(radius: u32, sigma: f32) -> Vec<f32> {
     weights
 }
 
-/// Ceiling-half extents beginning at half resolution, with one terminal 1x1 level.
-pub fn gaussian_extents(size: [u32; 2], count: u32) -> Result<Vec<[u32; 2]>, PostError> {
-    gaussian_extents_with_terminal(size, count, crate::BloomTerminal::Reject)
-}
-
-/// Ceiling-half extents with an explicit terminal-level policy.
-pub fn gaussian_extents_with_terminal(
+/// Ceiling-half extents beginning at half resolution, with `terminal` deciding whether more
+/// than one 1x1 level is admitted.
+pub fn gaussian_extents(
     size: [u32; 2],
     count: u32,
     terminal: crate::BloomTerminal,

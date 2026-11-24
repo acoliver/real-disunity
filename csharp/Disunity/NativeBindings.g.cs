@@ -268,11 +268,13 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_geometry_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_canvas_renderer_geometry_write(ulong world, ulong handle, DisunityUiVertex* vertices, uint vertex_count, uint* indices, uint index_count);
         /// <summary>
-        ///  Sets the renderer identity of the texture the renderer draws with; 0 draws plain colour. A
-        ///  nonzero identity must be a player texture identity.
+        ///  Sets the texture the renderer draws with. Kind 0 is a stored image: `identity` is a player
+        ///  texture identity, or 0 for plain colour. Kind 1 is a render texture: `identity` is the id of a
+        ///  render texture the world holds. Any other kind, and a render texture the world does not hold,
+        ///  is rejected and leaves the renderer unchanged.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_canvas_renderer_texture_write(ulong world, ulong handle, ulong identity);
+        internal static extern DisunityResult disunity_canvas_renderer_texture_write(ulong world, ulong handle, ulong identity, uint kind);
         /// <summary>
         ///  Reports the renderer's texture and mesh sizes and copies the vertices when `capacity` is
         ///  nonzero. A capacity below the vertex count is rejected.
@@ -313,9 +315,12 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_canvas_renderer_material_read(ulong world, ulong handle, uint pop, uint index, ulong* output);
         /// <summary>
         ///  Writes one material identity (0 for none); `pop` and `index` are as for the read.
+        ///  `world_material` is the world material of the slot (0 for none), which the presentation draws
+        ///  a graphic with. Only main slot 0 holds one: a non-zero value for any other slot is rejected.
+        ///  A world material that is destroyed later is no material when the frame is prepared.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_canvas_renderer_material_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_canvas_renderer_material_write(ulong world, ulong handle, uint pop, uint index, ulong instance);
+        internal static extern DisunityResult disunity_canvas_renderer_material_write(ulong world, ulong handle, uint pop, uint index, ulong instance, ulong world_material);
         /// <summary>
         ///  Reads the alpha the renderer's element is drawn with: the renderer's alpha times the alpha
         ///  of the enabled canvas groups above it.
@@ -379,26 +384,18 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_drawn_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_filter_drawn_read(ulong world, ulong handle, ulong* output);
         /// <summary>
-        ///  Replaces what the host draws each material slot with. `count` is at most the renderer's
-        ///  `material_count`; slots past it draw white and untextured. Colour channels must be finite and
-        ///  not negative, and a nonzero texture must be a player texture identity. A rejected call changes
-        ///  nothing.
+        ///  Names the mesh a skinned renderer draws and the root bone that places it. `drawn_mesh` is 0 for
+        ///  none or a player mesh identity. `root_bone` is the object id of the root bone, a live object of
+        ///  this world, with `root_bind_pose` the root bone's bind pose as 16 finite column-major floats.
+        ///  A renderer whose skeleton is not in the world passes 0 and a null pose and is left out of
+        ///  frames. A bone without a pose, or a pose without a bone, is refused. The renderer must be a
+        ///  skinned one. A rejected call changes nothing.
         ///
         ///  # Safety
-        ///  `slots` is readable for `count` records, or null when `count` is zero.
+        ///  `root_bind_pose` is null or readable for 16 floats.
         /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slots_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_mesh_renderer_slots_write(ulong world, ulong handle, DisunityDrawnMaterial* slots, uint count);
-        /// <summary>
-        ///  Reads the slots the host draws with into `slots` (up to `capacity` records) and writes how
-        ///  many the renderer holds to `count`.
-        ///
-        ///  # Safety
-        ///  `slots` is writable for `capacity` records, or null when `capacity` is zero; `count` is
-        ///  writable for one value.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slots_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_mesh_renderer_slots_read(ulong world, ulong handle, DisunityDrawnMaterial* slots, uint capacity, uint* count);
+        [DllImport(__DllName, EntryPoint = "disunity_skinned_renderer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_skinned_renderer_write(ulong world, ulong handle, ulong drawn_mesh, ulong root_bone, float* root_bind_pose);
         /// <summary>
         ///  # Safety
         ///  Output is writable for one SortingGroup record.

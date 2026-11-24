@@ -49,6 +49,7 @@ fn the_lines_rank_reasons_largest_first_and_equal_counts_by_name() {
             (LeftOut::MeshHandleOverflow, 1),
             (LeftOut::MeshNotArrived, 4),
         ]),
+        ..SubstitutionCensus::default()
     };
     assert_eq!(
         census.lines(),
@@ -59,6 +60,23 @@ fn the_lines_rank_reasons_largest_first_and_equal_counts_by_name() {
             "retained objects left out: mesh-not-arrived 4, mesh-handle-overflow 1",
         ]
     );
+}
+
+#[test]
+fn the_ui_draws_left_out_for_a_game_material_have_one_line_ranked_by_shader() {
+    let census = SubstitutionCensus {
+        drawn: 3,
+        ui_game_materials: BTreeMap::from([
+            ("Game/Outline".to_owned(), 2),
+            ("Game/Silhouette".to_owned(), 7),
+        ]),
+        ..SubstitutionCensus::default()
+    };
+    assert_eq!(
+        census.lines().last().unwrap(),
+        "UI draws with a game material by shader (last frame): Game/Silhouette 7, Game/Outline 2"
+    );
+    assert_eq!(census.lines().len(), 2);
 }
 
 #[test]
@@ -94,4 +112,26 @@ fn a_frame_replaces_the_last_frame_and_raises_the_worst_frame_only_where_it_was_
         ])
     );
     assert!(census.left_out.is_empty());
+}
+
+#[test]
+fn slots_after_the_first_are_counted_and_named_in_the_report_when_there_are_any() {
+    let mut frame = FrameCensus::default();
+    frame.drawn(None);
+    frame.slots_not_drawn(2);
+    frame.drawn(None);
+    frame.slots_not_drawn(1);
+    let mut census = SubstitutionCensus::default();
+    census.end_frame(frame);
+    assert_eq!(census.slots_not_drawn, 3);
+    assert_eq!(
+        census.lines().last().map(String::as_str),
+        Some("retained renderer material slots not drawn (last frame) 3")
+    );
+    census.end_frame(FrameCensus::default());
+    assert_eq!(
+        census.lines().len(),
+        1,
+        "a frame with every slot drawn says nothing"
+    );
 }

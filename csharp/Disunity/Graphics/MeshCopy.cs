@@ -20,6 +20,8 @@ public partial class Mesh
         _normals = data.Normals;
         _tangents = data.Tangents;
         _colors = data.Colors;
+        _boneWeights = data.BoneWeights;
+        _bindPoses = data.BindPoses;
         for (var channel = 0; channel < UvChannelCount; channel++)
         {
             _uvs[channel] = data.Uvs[channel];

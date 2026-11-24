@@ -34,7 +34,7 @@ fn smaa_presets_translate_exactly_with_both_edge_modes_and_no_jitter() {
                 })
             );
             let config = p::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1);
-            assert_eq!(post::jitter(&settings, config, None), Ok(None));
+            assert_eq!(post::jitter(&settings, config), Ok(None));
             assert_eq!(crate::frame::validate_stock_effects(&authored), Ok(()));
         }
     }
@@ -110,7 +110,7 @@ fn smaa_rejects_duplicate_resolves_even_with_zero_fxaa_weight() {
     }
     let authored = effects(smaa, None);
     for resolve in [
-        p::PostResolve::fxaa(0.5),
+        p::PostResolve::fxaa(0.5, p::FxaaQuality::default()),
         p::PostResolve::taa(0.9),
         p::PostResolve::Smaa(p::SmaaSettings::LOW),
     ] {
@@ -132,7 +132,7 @@ fn existing_scene_choices_keep_their_settings_and_jitter() {
             s::SceneAntiAlias::Fxaa {
                 subpixel_micro: 750_000,
             },
-            p::PostResolve::fxaa(0.75),
+            p::PostResolve::fxaa(0.75, p::FxaaQuality::default()),
             None,
         ),
         (
@@ -157,8 +157,7 @@ fn existing_scene_choices_keep_their_settings_and_jitter() {
         assert_eq!(
             post::jitter(
                 &settings,
-                p::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1),
-                None
+                p::FrameConfig::new([64, 48], wgpu::TextureFormat::Rgba16Float, 1)
             ),
             Ok(jitter)
         );

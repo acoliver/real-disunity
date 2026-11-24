@@ -20,26 +20,37 @@
 //!
 //! The view buffers, the mirror and the run lists count as instance bytes in the scene's memory
 //! census, like the batch buffers they gather from.
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use glam::Mat4;
 use wgpu::Buffer;
-use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
+use worldrunner_render_gpu::census::MemoryCensus;
+use worldrunner_render_gpu::census::ResourceClass;
+use worldrunner_render_gpu::census::Tracked;
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::PrepareContext;
 
-use super::selection_reuse::{self, Key as SelectionKey};
+use super::FrameUniform;
+use super::ObjectDraws;
+use super::ObjectRecording;
+use super::SceneGpu;
+use super::selection_reuse::Key as SelectionKey;
+use super::selection_reuse::{self};
 use super::visibility::SelectedRange;
-use super::{FrameUniform, ObjectDraws, ObjectRecording, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
-use crate::instances::{Ascending, BatchKey, Stamp};
+use crate::instances::Ascending;
+use crate::instances::BatchKey;
+use crate::instances::Stamp;
 use crate::skinning::SKIN_INSTANCE_BYTES;
 
 mod gather;
 mod mirror;
 mod plan;
 pub(super) use gather::Shared;
+#[cfg(test)]
 use plan::Plan;
+use plan::Workspace;
 
 const STRIDE: u64 = INSTANCE_BYTES as u64;
 const SKIN_STRIDE: u64 = SKIN_INSTANCE_BYTES as u64;
@@ -149,6 +160,8 @@ pub(super) struct Compaction {
     pub committed: Rc<RefCell<Resident>>,
     drawing: RefCell<Option<Prepared>>,
     scratch: RefCell<gather::Scratch>,
+    /// The plan and run lists of the view's last gather, built again by each one.
+    workspace: RefCell<Workspace>,
     #[cfg(test)]
     pub observed: Observed,
 }
@@ -258,34 +271,32 @@ impl SceneGpu {
             return;
         }
         let selection = self.select_objects(shadow_matrix, frame);
-        let Some(plan) = Plan::new(&selection.ranges) else {
+        let mut work = compaction.workspace.borrow_mut();
+        if !work.arrange(&selection.ranges) || !self.gather_sources(work.keys(), key.previous) {
             return;
-        };
-        let Some(keys) = self.gather_sources(&plan, key.previous) else {
-            return;
-        };
+        }
         // A rigid scene that gains a skinned batch changes the key, so the mirror and the view
         // buffers gain their skin halves before a skinned record is gathered.
         let needs = Needs {
-            records: plan.total,
+            records: work.plan().total,
             previous: key.previous,
             skin: key.skin,
         };
-        let buffers = if plan.total == 0 {
+        let buffers = if needs.records == 0 {
             latest.buffers.clone()
         } else if let Some(buffers) =
             Self::gather_buffers((context.device(), &self.instances.census), &latest, needs)
         {
             self.stage_gather(
                 context,
-                (compaction, &plan, &keys),
+                (compaction, &mut work),
                 (&buffers, needs, key.content),
             );
             #[cfg(test)]
             compaction
                 .observed
                 .staged
-                .set(compaction.observed.staged.get() + plan.copies.len());
+                .set(compaction.observed.staged.get() + work.plan().copies.len());
             Some(buffers)
         } else {
             return;
@@ -293,7 +304,7 @@ impl SceneGpu {
         let resident = Resident {
             key: Some(key),
             buffers,
-            groups: plan.groups.into(),
+            groups: work.plan().groups.as_slice().into(),
         };
         *compaction.drawing.borrow_mut() = Some(Prepared {
             owner,
@@ -305,28 +316,25 @@ impl SceneGpu {
         });
     }
 
-    /// The batches the plan gathers from, once each in key order, or `None` when a selected
-    /// batch has no flushed buffer (or no previous buffer when `previous`, or a skinned batch
-    /// no flushed skin stream).
-    fn gather_sources(&self, plan: &Plan, previous: bool) -> Option<Vec<BatchKey>> {
-        let mut keys: Vec<BatchKey> = Vec::new();
-        for copy in &plan.copies {
-            if keys.last() != Some(&copy.key) {
-                keys.push(copy.key);
-            }
+    /// Whether every batch of `keys`, which are the selected batches in key order, has a flushed
+    /// buffer (and a previous buffer when `previous`, and a skinned batch a flushed skin
+    /// stream). A scene whose batches are all flushed answers without asking any of them; a
+    /// selection is built from the scene's batches, which are never removed, so each key names
+    /// one.
+    fn gather_sources(&self, keys: &[BatchKey], previous: bool) -> bool {
+        if self.instances.all_flushed(previous) {
+            return true;
         }
         let mut batches = Ascending::new(&self.instances.batches, keys.len());
-        for key in &keys {
-            let batch = batches.get(key)?;
-            batch.buffer.as_ref()?;
-            if previous {
-                batch.previous.as_ref()?;
-            }
-            if let Some(stream) = &batch.skin {
-                stream.buffer.as_ref()?;
-            }
-        }
-        Some(keys)
+        keys.iter().all(|key| {
+            #[cfg(test)]
+            self.gather
+                .source_checks
+                .set(self.gather.source_checks.get() + 1);
+            batches
+                .get(key)
+                .is_some_and(|batch| batch.is_flushed(previous))
+        })
     }
 
     /// Reuses the latest buffers while they hold what `needs` asks, otherwise allocates new
@@ -346,7 +354,7 @@ impl SceneGpu {
     fn stage_gather(
         &self,
         context: &mut PrepareContext<'_>,
-        (compaction, plan, keys): (&Compaction, &Plan, &[BatchKey]),
+        (compaction, work): (&Compaction, &mut Workspace),
         (buffers, needs, generation): (&Buffers, Needs, u64),
     ) {
         let halves = mirror::Halves {
@@ -356,8 +364,9 @@ impl SceneGpu {
         let mirror =
             self.gather
                 .mirror
-                .prepare(context, &self.instances, keys, (halves, generation));
-        let runs = plan.runs(|key| mirror.layout.base(key));
+                .prepare(context, &self.instances, work.keys(), (halves, generation));
+        let mut bases = mirror.layout.bases(work.keys().len());
+        let runs = work.runs(|key| bases.base(key));
         let bindings = gather::Bindings {
             mirror: mirror.buffers.as_ref().expect("allocated gather mirror"),
             current: &buffers.current,
@@ -371,7 +380,7 @@ impl SceneGpu {
         self.gather.dispatch(
             context,
             (&compaction.scratch, &self.instances.census),
-            &runs,
+            runs,
             &bindings,
         );
     }
@@ -482,6 +491,19 @@ impl SceneGpu {
     pub(crate) fn committed_compaction_key(&self, view: usize) -> Option<String> {
         let key = self.views[view].compaction.committed.borrow().key;
         key.map(|key| format!("{key:?}"))
+    }
+
+    /// Where the lists a view's gathers reuse live and how much each holds.
+    pub(crate) fn scratch_buffers(&self, view: usize) -> Vec<(usize, usize)> {
+        let compaction = &self.views[view].compaction;
+        let mut buffers = compaction.workspace.borrow().buffers().to_vec();
+        buffers.push(compaction.scratch.borrow().bytes_buffer());
+        buffers
+    }
+
+    /// How many batches `gather_sources` checked one by one.
+    pub(crate) fn source_checks(&self) -> usize {
+        self.gather.source_checks.get()
     }
 
     /// How many times the gather mirror checked batch ranges one by one.

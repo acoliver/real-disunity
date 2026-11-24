@@ -134,15 +134,15 @@ Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. Each recorded
 frame retains the census entry for the shadow-map generation it uses: cancellation
 releases that hold, while submitted work keeps the generation counted until GPU
-completion, even after the scene replaces it. The HDR profile also supports SSAO,
-water, SSR, adaptive exposure, bloom and FXAA through validated scene settings. The
-legacy profile rejects post requests before upload. Textured-sky rendering, vignette,
+completion, even after the scene replaces it. The frame also supports SSAO, water,
+SSR, adaptive exposure, bloom and FXAA through validated scene settings. Textured-sky
+rendering, vignette,
 nonneutral contrast and saturation remain unsupported. Zero-weight unsupported
 requests still fail.
 
-`ShadowedScene::encode_term_capture` and `encode_term_capture_with` replay initialized
-scene/frame state with its matching selected slot. Both return `Result<(), ShadowError>`
-and require the encoder of the active prepared transaction. Transaction or map-lease
+`ShadowedScene::encode_term_capture` replays initialized scene/frame state against the
+host's `ConfiguredFrameRenderer` with its matching selected slot. It returns
+`Result<(), ShadowError>` and requires the encoder of the active prepared transaction. Transaction or map-lease
 errors propagate as `ShadowError::Submission` before replay. A capture-only transaction
 retains the shadow-map generation independently of the ordinary frame that initialized it.
 
@@ -162,9 +162,9 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
 
 ## Device features
 
-`GpuContext` builds every scene device, production and test, from one request
-(`device.rs` `requirements`). It requires the caller's features (block compression
-from `GpuContext::request`, timestamps under `TimingMode::Required`) and refuses an
+`GpuContext` builds every scene device, production and test, from one
+`DeviceRequest` (`device.rs` `requirements`). It requires the request's features
+(`REQUIRED_FEATURES` for block compression, timestamps under `TimingMode::Required`) and refuses an
 adapter without them by name. It enables these optional features wherever the
 adapter offers them, and leaves them off elsewhere:
 
@@ -183,19 +183,25 @@ adapter offers them, and leaves them off elsewhere:
 It asks for the adapter's limits, capped at what the engine binds, for the array
 layers of a texture, the colour bytes per sample (64), the sampled textures per
 shader stage (32) and the storage images per shader stage (16: a single-pass
-downsampler binds its source and six levels, past wgpu's default of four). An
-adapter that offers fewer keeps its own value, and a program that binds more storage
-images than the device allows is refused by name when it is prepared
-(render-program's `StorageImageLimit { stage, count, limit }`).
+downsampler binds its source and six levels, past wgpu's default of four). The
+storage-image count comes from render-gpu's `storage_images_per_stage`, which the
+player's headless device asks too. A program that binds more storage images than the
+device allows is refused by name when it is prepared (render-program's
+`StorageImageLimit { stage, count, limit }`).
 
-`GpuContext::from_adapter_shared` adds a caller's `DeviceRequirements` to this
-request. Tests: `src/device/tests.rs` (the request negotiated against adapters with
-and without `FLOAT32_FILTERABLE`, the limits the device gets, and an `R32Float` view
-bound to a filterable binding with a linear sampler on the engine device) and
-`src/device/storage_images_tests.rs` (the storage-image limit asked of adapters
-offering 32, 16, 8 and 4, a kernel of seven storage images over seven mips of one
-texture prepared on a no-op device made with the request, and refused by name where
-the adapter offers four).
+`DeviceRequest::shared` adds a caller's `DeviceRequirements` to this
+request, each limit at the more demanding of the two values, and a request without
+them adds wgpu's defaults. So an adapter offering 4 to 16 storage images per
+stage is granted its own count and one offering more is granted 16, while one offering
+fewer than wgpu's default of 4 gets no device (`DeviceError::DeviceRefused`, naming
+`max_storage_textures_per_shader_stage`). Tests: `src/device/tests.rs` (the request
+negotiated against adapters with and without `FLOAT32_FILTERABLE`, the limits the
+device gets, and an `R32Float` view bound to a filterable binding with a linear
+sampler on the engine device) and `src/device/storage_images_tests.rs` (the
+storage-image limit asked of adapters offering 32, 16, 8 and 4, the count granted
+through the negotiation for 4 to 2^20 and the refusal for 0 to 3, a kernel of seven
+storage images over seven mips of one texture prepared on a no-op device made with
+the request, and refused by name where the adapter offers four).
 
 ## Texture upload tiers
 
@@ -218,7 +224,7 @@ including all cube faces and block-compressed mip levels. Allocations absent fro
 
 ## Player program draws
 
-`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `compositor::encode_scene` and `FrameEncoding::encode_scene` take them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
+`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `FrameEncoding::encode_scene` takes them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
 
 Encoding checks the draws before it declares anything:
 
@@ -238,11 +244,13 @@ The tests are in `src/draw/tests/program_frame*`. `player_program_and_scene_gpu_
 before allocating contribution resources, regardless of the quad's `overlay` flag.
 Corner colours require the retained UI overlay path.
 
+The overlay also draws render textures a host owns. `UiOverlay::from_presentation` gives each `UiTexture::Target` a slot (`UiOverlay::targets` lists them) and numbers it after the overlay's own textures; it turns `v` over for such a draw, because a render texture's first row is its bottom and a draw's texture rectangle starts at the top. `SceneGpu::set_ui_overlay` takes the host's `UiTarget`s for those ids (the device texture and sampler; `UiTarget::new` refuses by name what a quad cannot sample: not 2D, multisampled, not bound for sampling, depth or stencil, not filterable as float). A slot with no offered texture draws one transparent texel. The view of a target is level 0 of one layer. Offering another texture for an id means staging the overlay again. `src/compositor/overlay_target_gpu_tests.rs` checks the orientation against a stored image, the sRGB and linear formats against the same texel stored as an image, an unbound slot and a rebound texture.
+
 Dynamic quads, native sprites and tilemaps, and UI glyphs routed into the world draw with the scene shader's `vs_unlit` and `fs_unlit`. That material is a `render-program` graphics program over the unchanged scene WGSL, and `ScenePipelines` no longer builds a pipeline for it. The runtime builds the pipeline for the pass it is given, with straight alpha over location zero, `LessEqual` depth without a depth write, no culling and an empty write mask on every other colour attachment, so the velocity and reflection targets of a pass keep what other materials wrote. Plain, SSAO, velocity and SSR pipeline sets, `Rgba8UnormSrgb` and `Rgba16Float`, and any sample count the pipelines were built for take the same material.
 
 The runtime borrows what the scene already owns, by semantic: the slot's 320-byte frame uniform at group 0 binding 0 (the frame slot of the transaction that committed the frame, not a copy), and for each group of adjacent compatible quads its vertex, instance, tint and material buffers, its albedo texture and its sampler. Each group is one instanced draw over `0..instance_count`. The stable `(overlay, sorting_layer, sorting_order, hierarchy_order)` order and adjacent-only batching are unchanged. A group is adjacent quads with the same clip rectangle, texture, corners, rectangle and UV rectangle, so quads with different clip rectangles are separate draws. The scene counts none of these buffers against an allocation set and neither does the runtime: that accounting does not exist for dynamic geometry, and this change adds none.
 
-Staging quads prepares a draw for each frame slot, which can fail and allocate, beside the buffers' upload. `encode_scene` and `ShadowedScene` prepare the quads for a pass the staging pipelines did not describe, if there are any, and retain the staged draws on the frame before the pass opens. `encode_resident` takes a shared scene, so it retains and refuses a pass the quads were not prepared for. Recording is state setting at the position in the pass where the quads draw: objects, terrain, sky and celestial meshes, then quads. The staged quads own what they lent through a `Keepalive`, so replacing or clearing them while a frame that recorded them is unfinished leaves the buffers alive until that frame is cancelled or completed on the GPU.
+Staging quads prepares a draw for each frame slot, which can fail and allocate, beside the buffers' upload. `encode_scene` and `ShadowedScene` prepare the quads for a pass the staging pipelines did not describe, if there are any, and retain the staged draws on the frame before the pass opens. Recording is state setting at the position in the pass where the quads draw: objects, terrain, sky and celestial meshes, then quads. The staged quads own what they lent through a `Keepalive`, so replacing or clearing them while a frame that recorded them is unfinished leaves the buffers alive until that frame is cancelled or completed on the GPU.
 
 The scene's pass does not clip: `DynamicQuad::clip_rect` splits draws there and is applied only by the retained-UI overlay. The overlay keeps its own fixed pipeline (`vs_ui_overlay`, `fs_ui_overlay`) over the same staged quad buffers, with a material bind group per draw and a scissor per draw taken from the clip rectangle (clamped to the output, flipped to the top-left origin, skipped when nothing is left). Its draw returns the calls and instances it recorded for the UI pass statistics. `scissor_rect` in `src/dynamic/gpu.rs` holds the scissor's arithmetic. `src/dynamic/capture_tests/clipping.rs` draws partial, disjoint, full, oversized, outside and mixed clip rectangles in every target set through the scene's pass and requires each attachment to equal the same quads drawn without clip rectangles in the same run. It draws the same cases through the overlay's own pipeline and requires the overlay to draw exactly when something is left inside the scissors, to leave the output as the unclipped quads make it when the clip is the whole target, and, for one quad over the whole target, to keep the pixels inside the lower-left rectangle and nothing outside it.
 
@@ -257,7 +265,7 @@ Terrain draws through `render-program` in every forward context: plain, velocity
 - **Sets the pass owner binds.** The frame group (set 0), the shadow map (set 2) and the screen group (set 3) are lent as `ExternalSet`s over the layouts the scene already uses. The pass binds them once, as it did, and the runtime builds no bind group for them. The terrain's own set 1 is a `PreparedSet` built from the buffers and textures the scene retains, once per terrain and pipeline context, with one per page table for the cached surfaces. A set stays with its context's runtime and material layout.
 - **Receiver payload.** Paired single-sample shadow contexts declare the lossless displacement arrays at set 2 bindings 3 and 4 in the lent shadow group. Terrain loads its fragment's payload in every forward depth mode, including page and layered surfaces. The material's prepared set stays at set 1; the pass binds the payload with its shadow map.
 - **Depth reuse.** A context's `DepthMode` (independent, shared, prepass or reuse, from the forward depth reuse of single-sample frames with a complete prepass) gives the terrain program its depth format and its `RenderState`: the same `DepthMode::state` the object pipelines use, so reuse terrain tests depth `Equal` without writing it and reads the stencil mark with reference `STENCIL_REFERENCE`, which the pass sets once. Every writing depth mode uses `LessEqual`, and reuse leaves the stencil mark intact so the last surface at equal depth wins in API order. The runtime draws stencil from that state (`render-program` README, "Stencil").
-- **Cost.** A frame records one `PreparedPipeline` and a `GeometryDraw` per resident chunk: `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map). A chunk's record of the shared instance buffer is its geometry's instance range rather than a bound slice. Pipelines, sets and chunk geometry are prepared the first time a pass needs them and found in maps afterwards. `encode_scene`, `ShadowedScene` and `encode_resident` prepare the terrain's pipeline for the pass, the prepass and the forward pass alike, after the frame's pages are prepared and before any pass opens, where a refusal is still an error (`SceneGpu::prepare_terrain`); a term replay does the same before it opens its pass. A raw `SceneGpu::draw` prepares what it finds missing as it records. A streamed chunk's geometry is made when the chunk is uploaded and dropped when it retires, before new uploads are admitted, so the geometry never holds a buffer the streaming budget has stopped counting. A prepared set belongs to the runtime and the program layout of the context that built it, so a scene's terrain keeps one per context that has drawn it: independently built pipelines, and the forward pipelines a renderer replacement builds again, each make their own. Sets and pipelines are kept per context and dropped with the context they were made for, so the pipelines a term replay builds for one frame leave nothing in the caches of a long-lived scene, and frames over the same chunks add nothing to `RuntimeStats`. The runtime is shared by a `ScenePipelines` and every sibling specialized from it, so a terrain pipeline compiles once per context for any number of scenes. `src/terrain/cost_tests.rs` holds these claims.
+- **Cost.** A frame records one `PreparedPipeline` and a `GeometryDraw` per resident chunk: `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map). A chunk's record of the shared instance buffer is its geometry's instance range rather than a bound slice. Pipelines, sets and chunk geometry are prepared the first time a pass needs them and found in maps afterwards. `encode_scene` and `ShadowedScene` prepare the terrain's pipeline for the pass, the prepass and the forward pass alike, after the frame's pages are prepared and before any pass opens, where a refusal is still an error (`SceneGpu::prepare_terrain`); a term replay does the same before it opens its pass. A raw `SceneGpu::draw` prepares what it finds missing as it records. A streamed chunk's geometry is made when the chunk is uploaded and dropped when it retires, before new uploads are admitted, so the geometry never holds a buffer the streaming budget has stopped counting. A prepared set belongs to the runtime and the program layout of the context that built it, so a scene's terrain keeps one per context that has drawn it: independently built pipelines, and the forward pipelines a renderer replacement builds again, each make their own. Sets and pipelines are kept per context and dropped with the context they were made for, so the pipelines a term replay builds for one frame leave nothing in the caches of a long-lived scene, and frames over the same chunks add nothing to `RuntimeStats`. The runtime is shared by a `ScenePipelines` and every sibling specialized from it, so a terrain pipeline compiles once per context for any number of scenes. `src/terrain/cost_tests.rs` holds these claims. Material pages bake through kernels built once: the scene's pages build their page writer when they are made, and a layered source compiles its composition module once per device and keeps a pipeline per binding layout, so baking a page compiles no shader module (`src/terrain/pages/layered_gpu/kernel_tests.rs`).
 - **Shadow caster.** `shadows::terrain_caster::TerrainCaster` is a vertex-only program (`vs_terrain_depth` over the shadow depth source) on `TargetSignature::depth_only(Depth32Float, 1)`, with the caster's state (back faces culled, the configured depth test with writes, and its depth bias, slope included). Each cascade's light frame buffer is the program's set 0, lent as an import and prepared once per buffer, so a scene prepares four sets for each frame slot it draws. `ShadowedScene` prepares them with its other per-frame preparation, and recording is `2 + 4C` commands for C chunks, over the same chunk geometry as the forward draw. `SceneGpu::terrain_caster_selection` keeps the cascade's frustum and slice hull test in one place for the draw and the captures. A `vertex_only_program_in` that lends the engine's frame group would remove the four sets; the runtime has no such constructor yet.
 - **No fixed pipelines.** `ScenePipelines` holds no terrain pipeline, bind group layout or bind group: every context's terrain, caster and prepass records through the program runtime, and a context whose screen group the program does not lend fails to build its terrain program rather than drawing another way. The captures in `terrain/capture_tests` draw plain, pages, layered and layered pages across the twelve forward target sets and the six single-sample ones again with shared depth and with depth reuse, where the depth and stencil planes are checked too; the gather receivers, shadow receivers, specialization, and streaming residency; the metadata prepass in both outputs with independent, shared and winner-marking depth; and the six capture terms in the plain, shadowed, ambient and reflection replays; the shadow caster's depth texels in four cascades over the whole terrain with and without a depth bias, and over streamed chunks with the cascades' volumes and a slice hull. Each capture asserts that the runtime recorded the terrain once and prepared a pipeline and set for it.
 
@@ -299,8 +307,9 @@ Lit objects, foliage and impostors draw through `render-program` in the forward 
 - **Programs.** `object::program::Context` holds one program per `PipelineKey`, made on first use. The key's five axes are the features `MASKED`, `DOUBLE_SIDED`, `COVERAGE_MULTISAMPLE`, `IMPOSTOR` and `RELIEF` (`PipelineKey::features`); they pick the fragment entry point (`fs_opaque`, `fs_masked`, `fs_relief_opaque` or `fs_relief_masked`) and the `SCENE_ALPHA_TO_COVERAGE` and `SCENE_IMPOSTOR` overrides, and the key's cull mode and `RasterState::alpha_to_coverage` (multisampled passes only). One parse of the context's source serves the vertex stage and every fragment entry point. The depth and stencil state is `DepthMode::render_state`, the translation terrain shares, so forward depth reuse (equal depth and stencil at one sample) is unchanged.
 - **Sets the pass owner binds.** The frame group (set 0, with the previous-frame block in the velocity contexts), the shadow map (set 2) and the screen group (set 3) are lent as `ExternalSet`s over the layouts the scene already uses.
 - **Material sets.** Set 1 is the material's own. Where the fixed material bind group is built (`upload`, `append_prepared`, `replace_texture_prepared`) the scene also keeps an `ImportTable` for the material: the 576-byte `object.material` block, the five surface maps, the sampler, the contact heights, and the impostor depth, impostor borders and wind field (the placeholder where a material has none). A `PreparedSet` is made from each table for the objects' runtime of a `ScenePipelines` family (a runtime of its own, beside the terrain's) when the scene is uploaded, or when another family first draws it. The derived layout of set 1 is the eleven bindings of the fixed layout in every key and context, so one set serves all 32 keys.
-- **Recording.** `draw/lod_material.rs` walks a view's selected ranges and names the buffers and draws to a `DrawSink`. The test-only `FixedSink` sets each buffer as it is named on pipelines a test built; the runtime sink (`draw/object_runtime.rs`) records each draw once with `PreparedPipeline::draw_borrowed` over references to the buffers it holds, so a draw allocates nothing, with the previous-instance buffer as the third vertex buffer in the velocity contexts. Change tracking is unchanged: a change of pipeline or material binds the prepared pipeline of the pair of key and material, and a pass adapter leaves out the commands a run repeats (the render pipeline when the new pair shares it, and a vertex or index buffer the walk has not named again), so a pass records no state a run repeats. `render-program` has no way to bind a prepared set apart from the pipeline it was prepared with, so there is one prepared pipeline for each pair of key and material that a scene draws; a pair is cheap, and pairs of one key share one render pipeline.
-- **Cost.** `src/object/cost_tests.rs` holds the claims. A frame of eight cards with eight keys records 49 commands (57 under velocity), six materials of one key record one pipeline and seven groups, and a level with two material slots records two draws, two pipelines and three groups (`draw/tests/lod_material.rs`). `SceneGpu::prepare_objects` prepares the pairs a frame draws before any pass opens (`encode_scene`, `ShadowedScene` and `encode_resident`, for the forward pass only), where a refusal is still an error; a raw `draw` prepares what it finds missing as it records. After the first frame `RuntimeStats` does not move, and a second scene drawn with the same pipelines compiles no pipeline and no module.
+- **Recording.** `draw/lod_material.rs` walks a view's selected ranges and names the buffers and draws to a `DrawSink`. The test-only `FixedSink` sets each buffer as it is named on pipelines a test built; the runtime sink (`draw/object_runtime.rs`) holds the walk's draws and, when the walk ends, records them grouped by pipeline, material and buffers, each once with `PreparedPipeline::draw_borrowed` over references to the buffers it holds, so a draw allocates nothing, with the previous-instance buffer as the third vertex buffer in the velocity contexts. Change tracking is unchanged: a change of pipeline or material binds the prepared pipeline of the pair of key and material, and a pass adapter leaves out the commands a run repeats (the render pipeline when the new pair shares it, and a vertex or index buffer the walk has not named again), so a pass records no state a run repeats. `render-program` has no way to bind a prepared set apart from the pipeline it was prepared with, so there is one prepared pipeline for each pair of key and material that a scene draws; a pair is cheap, and pairs of one key share one render pipeline.
+- **Mesh storage.** `draw/mesh_arena.rs` packs the levels of an upload into shared buffers: one pool of chunks for each vertex format (rigid and skinned) and one for indices, which are all `u32`. A level, and the card complement that repacks the level before it, is a `Span` of a chunk, and a draw reads it through `first_index` and `base_vertex` over the chunk's whole buffer, so consecutive draws of levels in one chunk set their vertex and index buffers once (the pass adapter compares buffers by identity, and the grouped order sorts by chunk, then by the level's first vertex, which is the upload order). A chunk fills up to 64 MiB or the device's buffer limit, and the last chunk of an upload is exactly as large as what it holds, so the memory census (`ResourceClass::Mesh`) counts the same bytes as the budget admission. Each append and replacement packs its own chunks. A chunk is reference counted by the spans that read it and is released with its last level; a replaced level leaves its bytes in a shared chunk unused and never overwrites them, so a pass recorded before the replacement still reads what it recorded. The game seam's imported geometry and the terrain keep buffers of their own.
+- **Cost.** `src/object/cost_tests.rs` holds the claims. A frame of eight cards with eight keys records 35 commands (43 under velocity), six materials of one key record one pipeline and seven groups, and a level with two material slots records two draws, two pipelines and three groups (`draw/tests/lod_material.rs`). `SceneGpu::prepare_objects` prepares the pairs a frame draws before any pass opens (`encode_scene` and `ShadowedScene`, for the forward pass only), where a refusal is still an error; a raw `draw` prepares what it finds missing as it records. After the first frame `RuntimeStats` does not move, and a second scene drawn with the same pipelines compiles no pipeline and no module.
 - **Tests.** `src/object/capture_tests.rs` draws the object scenes in the twelve forward target sets, the gather receivers and the shadow receivers, and requires the objects to change the attachments they write and the draws the scene selected to use all 32 keys (`SceneGpu::pipeline_keys_drawn` reads the keys off the selection through the walk a pass records). The prepass and term replays require three keys. Those captures draw at 0 ms of the animation clock, where the fixture's periodic wind displaces nothing; `capture_tests/variants.rs` draws the foliage cards again at a quarter period and requires the depth plane to differ from the 0 ms one.
 
 ## Player offscreen operations
@@ -318,8 +327,8 @@ the stock opaque pass.
 
 A draw admitted with `admit_programs` can sample a render texture that the offscreen operations write, in the stock opaque pass. The host names that read when it builds the offscreen frame (`OffscreenFrame::later_reads`), and the executor checks it as a sampled read of the version the frame leaves, so a read before any write or of a range a later operation overwrites fails at admission by name, before anything is recorded.
 
-- The resident path (`encode_resident`) refuses admitted offscreen operations by name.
-  Shadowed frame encoding accepts those operations but still refuses admitted program draws.
+- Shadowed frame encoding accepts admitted offscreen operations but still refuses admitted
+  program draws.
 - Plain and shadowed frame encoding take the offscreen operations whether or not
   the frame is accepted, so a refused encoding attempt leaves none for the next.
   An arena that retired or belongs to another submission authority fails the frame by name.
@@ -330,25 +339,6 @@ A draw admitted with `admit_programs` can sample a render texture that the offsc
 - A cancelled frame submits nothing; the render textures keep what they held and the arena can retire.
 
 The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).
-
-`offscreen/gbuffer.rs` combines the camera, blit and copy work with an unshadowed
-stock G-buffer scene, without admitted opaque program draws. It checks Render and
-Observation separately: offscreen readbacks, stock scene pixels, ordered frame
-timings, submission serials and submitted object counters. Render uses the fused
-depth/G-buffer producer before lighting and the forward remainder: the card is
-counted once under prepass objects, with no opaque object draw. Observation also
-counts the card under opaque objects. Scene pixels are read as exact linear HDR
-bytes. The existing screen-space restriction on admitted opaque program draws is
-unchanged.
-
-`offscreen/gbuffer/queued.rs` submits two mixed frames on one offscreen state and
-submission authority before mapping any readback. Distinct synthetic tints and
-clear colors pin each frame's camera, blit and array-copy bytes. The stock card
-moves one meter along X between submissions through the ordinary instance update,
-so known HDR pixels differ between frames too. Each encoder records its own
-readback copies while both frames reuse the scene and G-buffer targets. After both
-submissions, each frame's timing record checks that every offscreen operation
-executes once before the path's expected geometry passes.
 
 ## Game-screen composition
 
@@ -626,8 +616,8 @@ at the cost of more draws for fragmented visibility. Empty batches retain their
 capacity for reuse. This API does not change resource tables.
 
 `ShadowedScene::scene_mut()` exposes the same API and flushes before both passes.
-The desktop viewer's `run_with_updates` accepts a fallible per-frame callback
-with `&mut SceneGpu` in either rendering mode and flushes edits automatically.
+The desktop viewer applies the same edits to either rendering mode through
+`RetainedUpdate::{Add, Replace, Remove, Objects}` and flushes them when it publishes the generation.
 
 
 ## LOD and per-view visibility
@@ -660,7 +650,7 @@ sphere for chains containing camera-facing billboards. Camera planes use `0..=1`
 clip depth. Terrain keeps its independent draw and LOD policy.
 
 `SceneObject::with_shadow_only(true)` keeps a visible placement out of the camera
-view (every colour, depth-prefix, G-buffer, contour and compaction pass draws the
+view (every colour, depth-prefix, contour and compaction pass draws the
 camera selection) while the shadow cascades still select it when `casts_shadow`
 is true; a shadow-only placement that does not cast draws nothing. It is how a
 game that draws a family through its own passes keeps the family's stock shadow,
@@ -853,7 +843,7 @@ bias remains in world metres.
 `FrameRenderer::hdr` compiles a fixed scene-exposure profile into the retained
 post executor. Its scene target is `Rgba16Float`; choose one or four samples.
 Object, masked and terrain receiver pipelines must use the same colour attachment
-and sample count (`ScenePipelines::with_samples` or `ShadowedScene::with_target`).
+and sample count (`ScenePipelines::new` or `ShadowedScene::new` with a `ShadowedTarget`).
 Shadow depth arrays stay single-sample. `FrameTargets::depth` supplies the matching
 camera depth attachment. Resizing builds colour, depth and output bindings before
 replacing the live generation; a rejected extent leaves the old generation usable.
@@ -881,7 +871,7 @@ override wall-clock timing. `reset_exposure` resets the ordered history once at 
 The shared temporal carry and slot-local published results survive resize. Nonneutral grading remains
 rejected, including requests with zero weights. An authored TAA (`SceneAntiAlias::Taa { history_micro, clip_scale_micro }`) maps to `PostResolve::Taa` with `TaaSettings { history_weight, clip_scale }`. MSAA and FXAA may run together.
 
-`FrameProfile::Legacy` retains single-sample sRGB shading and `CopyOutput`, with
+`FrameProfile::Hdr { samples: 1, tone_map: worldrunner_scene_viewer::ToneMap::Clamp }` retains single-sample sRGB shading and `CopyOutput`, with
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
@@ -905,10 +895,11 @@ CMAA2 remains available through the post descriptor, not the scene recipe.
 
 The TAA resolve (`PostResolve::Taa`, issue 256) accumulates jittered frames; see the
 [rendering guide](../../docs/rendering.md#temporal-antialiasing). Projection jitter and
-previous-frame view data are off unless requested or implied by TAA, and byte-identical when off.
+previous-frame view data are on exactly when the resolve is TAA.
 
-Select jitter with `AntiAliasing::with_jitter` on `FrameRenderer::hdr_antialiased`, or
-`FrameRenderer::set_projection_jitter` on an existing renderer. `prepare_uniform` then adds
+A TAA resolve selects its sequence when the renderer is built
+(`PostResolve::effective_jitter`, or the extent-derived sequence under temporal upscaling);
+`FrameRenderer::set_projection_jitter` replaces it on an existing renderer. `prepare_uniform` then adds
 the sub-pixel offset of the next frame to `FrameUniform::view_projection`, the matrix the GPU
 rasterizes with, and fills `FrameUniform::temporal` with a `TemporalView`: the unjittered
 matrix, the previous submitted frame's unjittered matrix, both jitter offsets in pixels and
@@ -943,7 +934,9 @@ For retained instance draws, pair the reset with `SceneGpu::reset_velocity_histo
 previous transforms then initialize from current placements for the next completed colour
 frame. Cancelled preparations and upload-only submissions leave the reset pending.
 `ShadowedScene::reset_camera_history()`
-also discards depth-fitting evidence, contraction filters and retained cascade maps.
+also discards depth-fitting evidence, contraction filters and retained cascade maps. A
+`ShadowedScene` owns no frame renderer; the host resets the one it passes to `encode_with`
+and `render_depth_fitted_host`.
 Exposure adaptation has its separate `reset_exposure()` operation.
 
 Velocity. `ScenePipelines::with_taa_velocity` builds pipelines whose object and terrain draws also
@@ -954,7 +947,7 @@ with an empty write mask (`velocity::masked_targets`), which covers the unlit dy
 and the celestial composition. The policy table is in `src/velocity.rs`. Wind on objects is produced;
 per-instance transforms and billboards do not write velocity yet.
 
-Shadow receivers and SSR. `ShadowedScene::with_taa_velocity` applies the same rewrite to the shadow
+Shadow receivers and SSR. A `ShadowedScene` whose `ShadowedTarget` sets `velocity` applies the same rewrite to the shadow
 receiver object and terrain pipelines; the caster depth pipelines need none. With SSR on, the
 reflection forward pipelines (`ssr::forward`) write the residual at `@location(3)` after the three
 reflection targets, which costs 3 x 8 + 4 = 28 bytes per sample on an HDR target. `velocity::reflection_velocity`
@@ -965,64 +958,18 @@ SSAO-only scenes on `ScenePipelines::with_ssao` do not write velocity.
 
 Jitter alone makes the image shimmer. Enable it only with the resolve, or in tests.
 
-## Temporal reactive mask producer (water)
+## Temporal reactive mask
 
 A temporal upscale owns an `Rg8Unorm` reactive and composition mask at the internal extent; its contract,
-clear, dilation, consumption and measured bytes are in the
-[render-post README](../render-post/README.md#reactive-and-composition-mask). The water surface is the one
-producer in this crate. It ships off.
+clear, dilation and consumption are in the
+[render-post README](../render-post/README.md#reactive-and-composition-mask). No pass in this crate writes
+that mask, so the host clear is its only writer and the temporal resolve reads zero.
 
-* Switch. `FrameRenderer::set_water_reactive_mask(bool)` (defined in `water/reactive.rs`) defaults to
-  `false`, and nothing in the compositor turns it on. With the switch off, or on a frame without a mask, the
-  plan, the pass list, the pipelines and the output are those of a renderer without temporal masks
-  (`temporal_water_tests`: the plan lists `[Opaque, TransparentWater]` with one feature pass; scene colour
-  is `to_bits` equal with the producer on and off; a renderer without a mask is unchanged with the switch on).
-* The pass. With the switch on and a mask in `FrameTargets`, the water feature adds a second pass,
-  `PassSlot::TransparentWaterMask`, ordered after `TransparentWater` and before `TransparentAlpha`
-  (`validate_transparency` still counts one water pass). It redraws the water bodies with the same `vs_water`
-  vertex stage (same specialized module text, vertex constants and layouts) and a constant fragment
-  `fs_water_reactive` that writes `(0.9, 0, 0, 0)`: reactive 0.9, composition 0. The value is a policy
-  constant fixed before measuring; a value derived from the surface animation is out of scope. The only
-  colour target is the mask with `Max` blend on colour and alpha. The depth attachment is the water pass's
-  depth (`Load`/`Store`) with `LessEqual` and depth writes off, so water hidden behind nearer geometry
-  writes nothing. `AttachmentDeclaration` has no read-only flag and the stock contracts build every depth
-  attachment writable, so the pass declares the attachment as the water pass does and the pipeline turns
-  the writes off; the depth is unchanged. The mask is declared `Load` with retained contents: the host
-  clear (`FrameTargets::encode_mask_clear`) is the producer and the only clear, as the
-  [producer contract](../render-post/README.md#reactive-and-composition-mask) requires.
-* Why a separate pass. The water pass writes four `Rgba16Float` outputs: colour and the three receiver
-  outputs (normal, material, environment), 4 x 8 = 32 bytes per sample. That is the WebGPU default
-  `max_color_attachment_bytes_per_sample`, and the frame contracts check it
-  (`ContractError::ColorAttachmentBytes`). A fifth `Rg8Unorm` output makes 34 bytes and the pipeline fails
-  to build ("The total number of bytes per sample in color attachments 34 exceeds the limit 32"). Packing the
-  receiver outputs would change the SSR inputs and their tests for a 2 byte saving, and requiring a higher
-  device limit is not portable. The separate pass keeps the four outputs and every no-mask pipeline as they
-  are. It costs one extra depth-tested draw of the water vertices, and only when a mask exists. The cost has
-  not been timed.
-* Why it is off. The rule, fixed before the measurement: on the trail region over the last 8 frames,
-  `trail_mask <= reset + 0.5 * (trail_zero - reset)`, and the static opaque region at most 1.10 times its
-  zero-mask error. Scene: a wall and animated stock water, 24 frames 0.1 s apart, lavapipe, mean absolute
-  error in 8 bit sRGB divided by 255, against a 4x supersampled render of the same frame and water time
-  (`temporal_water_producer_tests`, which prints the table):
-
-  | Scale | Trail, zero mask | Trail, mask | Trail, reset | Bound | Static, zero | Static, mask | 1.10 x static zero | Trail rule |
-  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-  | 0.50 | 0.00618 | 0.00796 | 0.01126 | 0.00872 | 0.00404 | 0.00428 | 0.00444 | holds only vacuously |
-  | 0.67 | 0.00477 | 0.00788 | 0.00726 | 0.00601 | 0.00312 | 0.00317 | 0.00343 | fails (0.00788 > 0.00601) |
-  | 0.77 | 0.00441 | 0.00678 | 0.00730 | 0.00585 | 0.00313 | 0.00313 | 0.00344 | fails (0.00678 > 0.00585) |
-
-  With the stock water at these steps the accumulating run is already below the reset floor at every scale,
-  and the 0.9 mask raises the error on the water above the zero-mask run. The static region stays within
-  1.10 times. At 0.5 the bound exceeds the mask error only because the zero-mask error is below the reset
-  floor, so that row holds vacuously and shows no gain. Nothing was tuned: the animation step, region, frame
-  count and constant are the first values written. No measurement shows the producer improving the output.
-  `temporal_water_producer_tests` asserts only finite, positive values and the static bound. The Radeon
-  was not run for the water tests.
-* Follow-up. Enabling the producer is tracked in the Hubnot issue "Temporal upscaler: turn on the water
-  reactive-mask producer once it meets the PR 6 acceptance rule".
-* Contract for further producers (alpha, particles). Declare the mask `Load` with the host clear as its
-  producer, write with `Max` blend per channel, never clear it. A producer whose pass would exceed the 32
-  byte colour attachment limit needs a pass of its own, ordered after the pass whose depth it reads.
+The water surface has no producer. A producer that redraws the water bodies with a constant reactive value
+of 0.9 was measured on lavapipe (64x64 output, 0.67 render scale, 24 frames of stock water, against a 4x
+supersampled reference) and raised the mean error on the water texels from 0.00643 to 0.01206, so it was
+deleted. The water pass writes four `Rgba16Float` outputs, which is the 32 byte colour attachment limit of a
+default device, so any later water producer needs a pass of its own after the water pass.
 
 ## Cascade refresh scheduling
 
@@ -1099,7 +1046,7 @@ complement, with instance counts summed across those draws. A draw counts under
 `ObjectDraws::recording` says how the pass recorded its selection: `Compacted`
 draws each (batch, LOD) group once from the view's gathered instances, `Ranged`
 draws each selected instance range because the view's gathered instances did not
-hold this selection (the resident path never gathers), and `NotRecorded` means the
+hold this selection, and `NotRecorded` means the
 pass did not run in that frame. Compaction merges ranges but keeps every material
 slot and transition complement, so a compacted count never exceeds the ranged
 count of the same selection.
@@ -1150,242 +1097,19 @@ those views without filtering or allocating another cube. `set_water_environment
 `set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
 retained settings publication, including removal and consumer changes.
 
-## Public moving-view timing probe
+## Composing with the stock scene
 
-Run the informational unshadowed Forward versus `GBUFFER_RENDER` comparison
-serially. The external integration target links the normal renderer dependency,
-without the renderer's `cfg(test)` pass tracing or cached-plan consistency checks.
-On the shared Linux host, use its resource limiter and software Vulkan adapter:
+A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `FrameEncoding::encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. Clone the plan's passes and views, append the caller's own, save the declaration and frame uniform, then take `stock.take_offscreen_operations()`. Keep that owned work alive through encoding and pass `offscreen.as_ref().map(|work| work as &dyn FrameOperations)` as the head of `FrameRenderer::encode_frame`, with `&(uniform, None)` as its input. Borrow the stock feature mutably in a `BorrowedFeature` beside the caller's features for that call. The offscreen work is separate from `plan()` and can be taken only once; the executor records admitted camera, blit and copy work before the stock passes in the same frame. `encode_scene` follows this path with no caller additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, with no borrow of the renderer.
 
-```sh
-CARGO_INCREMENTAL=0 \
-VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan \
-  heavy --mem 6G -- nice -n 10 env -u RUSTUP_TOOLCHAIN \
-  cargo test --locked --release -p worldrunner-render-scene --test public_moving_view \
-  -- --exact public_moving_view_renderer_timing_probe \
-  --ignored --nocapture --test-threads=1
-```
+Retaining or taking admitted offscreen work does not execute it. A `None` head in `encode_frame` records the stock draws without refreshing their offscreen inputs. Forward any returned work on the preparation encoder before the stock passes, or abandon the frame. The omission characterizations in `src/draw/tests/program_frame/offscreen/composition/omission.rs` cover both leaving work in the feature and taking it without forwarding; the parent test keeps the forwarded pixel, pass-order and single-submission control.
 
-For hardware measurements, select that machine's adapter instead of lavapipe and
-use its GPU queue. Prebuild under `heavy` by inserting `--no-run` before the libtest
-`--` separator, then submit the same optimized test command through `gpujob`.
-Omit the host-specific wrappers where they are unavailable. The pinned Rust
-toolchain applies. Software-adapter timings describe the CPU rasterizer.
+A frame with screen-space metadata can also split off its depth and normal prepass. `FrameRenderer::stock_depth_prefix` takes the scene and the pipelines the suffix draws with, as `prepare_stock_scene` does, and returns a `StockDepthPrefix`; it refuses a renderer that has no metadata. It decides whether the colour draws write velocity before it plans, so a renderer under TAA lists the velocity target on its first frame as on any later one. `plan()` lists exactly the entries the prefix completes, `PassEntry::new(PassSlot::DepthNormalPrepass)` and `PassEntry::new(PassSlot::DepthPyramid(0))`, with their views. `encode` runs the prefix and appends the caller's own passes, views and features to it before the whole list is validated. A caller feature in a later entry reads the original device depth by declaring the prepass depth attachment of that plan, and reads the lit colour by declaring `scene color`; `PrepareContext::resource` gives it the views and `PrepareContext::completed_in_prefix` tells it which entries the prefix completed. `FeatureTarget::Depth` holds linear metres and is a different resource from the device depth.
 
-Record the Cargo profile with each result. Unoptimized runs check the fixture;
-CPU cost comparisons use `--release`. Optional timestamp instrumentation remains
-inside the measured encode/submit interval. Results describe this synthetic
-fixture with serialized submissions. Game-frame costs require a game measurement.
+`FrameRenderer::capture_texture_keys` and `capture_effect_keys` give the write keys a capture needs when the prefix is submitted alone and the suffix prepared afterwards. When the game has a depth-prefix feature, the prefix also runs the game's passes after the prepass, so a host that submits a `StockDepthPrefix` in its own capture lists the keys `capture_effect_keys` returns for the game's targets in the prefix's write contract as well as the suffix's (see "Game passes after the depth prepass" below). A role stays a label: a read of an earlier resource must be declared and is checked like any other.
 
-The unit-test probe also records private pass observations and checks fresh-plan
-consistency, including on a cached plan in release libtest. Run it with the same
-wrappers, replacing `--test public_moving_view` with `--lib` and the exact test name
-with `shadows::tests::render_path::moving_timing::public_moving_view_timing_probe`.
-Its host timings include those additional checks. The external target validates
-public draw statistics and fixed expected timing identities; it cannot observe
-the private pass trace.
+Caller attachment bindings include the current view's retained-content permission. Changing that permission on the same texture resolves the bindings again. A `Load` without an earlier producer requires `AttachmentView::with_retained_contents()` on the current frame's view; a previously cached retained view cannot authorize it. Refusal occurs before feature preparation or submission. The two permission transitions are covered in `src/compositor/frozen_tests/retained_permission.rs`.
 
-The synthetic fixture contains terrain, a mesh, a masked impostor and sky at
-257×241. For view index `i` in `0..150`, the eye is
-`[-400 + 800*i/149, -4000, 6500]` integer millimetres and the target is `[0,0,0]`.
-The first 30 views warm up; the remaining 120 are sampled. Each path keeps a
-separate scene upload, frame renderer and output resident. A shared immutable
-source, single-sample `Rgba16Float` SSAO pipelines and per-view uniform serve both
-calls to public `compositor::encode_scene`, with alternating path order. No shadows,
-SDSM, image readback or speed threshold is involved.
-
-CPU encode/submit ends when submission returns. Serialized completion ends after
-waiting for that submission. Both include optional query instrumentation.
-Timestamp resolution, draw checks and printing follow both intervals. Completion
-is wall time, including host work and the wait, without overlapped presentation.
-Optional timestamp support is reported separately from coverage, and unsupported
-devices still produce CPU results. Warm-up records are drained. Every sampled
-frame retains its view/path/frame association and submitted draw counters. Render
-requires one mesh, impostor and terrain draw through its prepass, with empty opaque
-object draws.
-
-GPU per-pass and pass-sum summaries require all 120 frame records, their matching
-view/path IDs, the full expected pass identities and multiplicities, available
-pairs, and zero dropped/unavailable counters. The external fixture contract fixes
-the expected prepass, ten depth-pyramid levels, SSAO and blur, opaque pass, tone
-stage and Render's lighting pass independently of received timing records.
-Missing records or invalid passes on a supported device fail explicitly. Genuine
-zero intervals remain valid. Full `PassId` values are printed. Pass sums exclude
-gaps and untimed work, so they are not whole-frame GPU envelopes. Nonignored CPU
-checks and short GPU runs cover the measurement contracts; the full probe is
-informational.
-
-## Deferred G-buffer
-
-`SceneOpaquePath::GBUFFER_OBSERVATION` (render-plan) selects the compact deferred
-G-buffer in observation: the renderer allocates four single-sample targets at the
-scene extent and clears them to zero every frame in the `PassSlot::OpaqueGbuffer`
-slot, which runs after Celestial and before Opaque. Nothing reads them except the
-lighting pass below and captures, so the visible frame and every existing pass are
-the forward ones.
-`Forward`, the default, allocates nothing. `RendererConfiguration::opaque_path`
-carries the choice (scene-viewer copies it from the scene effects), and
-`FrameRenderer::hdr_antialiased` reads it from `effects`. A multisampled frame is
-refused before allocation with the opaque admission's sample error
-(`opaque admission supports one sample, received N`), and any other experiment
-tuple with `PostError::UnsupportedProfile`.
-
-| Location | Target | Format | Contents |
-|---|---|---|---|
-| 0 | G0 | `Rgb10a2Unorm` | rg: view-space shading normal, spheremap; b, a reserved, 0 |
-| 1 | G1 | `Rgba8UnormSrgb` | rgb: linear base colour (stored as sRGB); a: 8-bit lighting-record index |
-| 2 | G2 | `Rgba8Unorm` | roughness, metal or scattering amount, sqrt(emission), material AO |
-| 3 | G3 | `R16Uint` | bits 9..15 and 2..8: 7+7 bit octahedral geometric normal (x high); bits 0..1: engine flags (bit 0 scattering model, bit 1 reserved) |
-
-To write the targets, a producer registers or borrows a feature whose
-`FeaturePass` names `PassSlot::OpaqueGbuffer`, with `color_format` `Rgb10a2Unorm`
-and `additional_color_formats` `[Rgba8UnormSrgb, Rgba8Unorm, R16Uint]`
-(`gbuffer::GBUFFER_FORMATS`), concatenates `gbuffer::GBUFFER_WGSL` into its
-source, and returns `scene_gbuffer_encode(surface, view_from_scene)` from its
-fragment entry point. The module declares no bindings: each producer passes its
-own camera rotation. The lighting side calls
-`scene_gbuffer_decode(g0, g1, g2, g3, scene_from_view)` on loaded texels.
-`SceneGbufferSurface` holds `shading_normal` (scene space, after decals, unit),
-`geometric_normal` (scene space, unit), `base_colour` (linear), `roughness`,
-`metal` (metal, or with flag bit 0 the per-pixel scattering amount, the surface
-then having no metal), `emission` (0..1), `ao` (material AO; screen AO stays a
-lighting input), `flags` (bits 0..1 stored) and `lighting_record` (0..255).
-`SceneGbufferTargets` has `@location(0..3)` members `g0`, `g1`, `g2` and `g3`.
-Producers pass the rotation of `FrameUniform::view` as `view_from_scene`; the
-lighting pass decodes with its transpose.
-
-Depth: the slot does not own depth; the depth prepass clears and writes it. A
-producer that declares a `depth_format` in the slot gets the scene depth attached
-read-only when it is complete before Opaque (the depth prepass ran and Opaque
-loads it); it tests against it, `Equal` for exact forward winners, and writes
-nothing. Without a completed depth the request fails with
-`FrameError::AttachmentContract` naming the `OpaqueGbuffer` entry. The stock producers
-(`gbuffer_writes`: terrain, opaque, masked and relief meshes, impostor cards) are
-the scene's own terrain and object programs with their fragment entries replaced,
-drawn over the camera selection the prepass and Opaque draw.
-
-Encoding. View space is the camera's right-handed view space (it looks down -z),
-so camera-facing normals have z > 0. G0 stores the Lambert azimuthal equal-area
-(spheremap) projection about +z, `enc = n.xy / sqrt(8 n.z + 8) + 0.5`, computed in
-the equivalent radius form `normalize(n.xy) * sqrt((1 - n.z) / 8) + 0.5` so that
-it is defined at the singular point n.z = -1, which encodes as (1, 0.5) and
-decodes to (0, 0, -1). The decode is `f = min(|4 enc - 2|^2, 4)`,
-`n = ((4 enc - 2) sqrt(1 - f / 4), 1 - f / 2)`. Measured quantisation of the
-shading normal: at most 0.25 degrees for camera-facing normals, 0.35 for
-z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1, on
-Metal. lavapipe and RADV round some stores to the neighbouring code, so the GPU
-probe holds each stored normal to the worst decode within one code of the CPU
-mirror's code, or the band bound if that is larger. The
-geometric normal's 7+7 bit octahedral code is within 1.9 degrees. Base colour is
-within 0.0045 in linear units, roughness, metal and AO within half a code, and
-emission within 1/255 through its square-root transfer. Every target clears to
-zero and a covered pixel never stores G3 = 0: the corner code (0, 0) with no
-flags is written as (127, 127), which decodes to the same normal (0, 0, -1). So
-G3 = 0 means no producer wrote the pixel.
-
-`FeatureTarget::Gbuffer(GbufferTarget::G0..G3)` exposes each target for capture
-readback; `Readback` reads `Rgb10a2Unorm` and `R16Uint` natively. The CPU tests
-check the quantisation through a Rust mirror of the WGSL and validate the module
-with naga; the GPU tests draw a small terrain scene with and without the path,
-and a producer that writes known surfaces through `scene_gbuffer_encode`.
-
-The scene itself is a producer. When the frame observes the G-buffer and Opaque
-loads the completed prepass depth (`DepthMode::Reuse`), the prepass metadata carries
-G-buffer pipelines (four targets), and the scene feature draws the camera's selection
-into the slot through the same walk as the colour pass, in the unshadowed and the
-shadowed scene. Other observation depth modes declare no stock producer; the stock
-scene leaves the cleared targets untouched. Each fragment entry stores the material its forward
-entry would light, before any lighting: terrain stores `terrain_material`, objects
-`shade_material`, and impostor cards `scene_card_gbuffer_material`, which is derived
-from the frozen `scene_card_shade` by counted rewrites. Scattering materials set flag
-bit 0 and store their per-pixel amount in G2.y with metal 0. Every object entry stores
-its material's lighting record in G1.a; terrain stores record 0. For scattering
-materials whose mask is not packed, forward lights both the metalness and the amount that
-`scene_mask_response` returns, and the G-buffer keeps only the amount. Frames
-without the depth prepass have no stock producer and store nothing unless a
-registered synthetic producer writes texels.
-
-### Lighting records
-
-A lighting record holds the constant material values that shading reads besides
-the surface's own channels: the back-scattering shape, colour and mode and the
-transmission amount (WGSL `SceneLightingRecord` in `shader/environment.wgsl`:
-`scattering_shape`, `scattering_colour`, `scattering_mode`, `transmission`). The
-renderer builds one table per uploaded material set (`gbuffer::records::LightingRecordTable`,
-extended by appends): equal records share an index and index 0 is the neutral standard
-model, no scattering and no transmission. Every material uniform carries its index in
-`scattering_mode.z`, which producers read with `scene_material_lighting_record_index()`
-and store as `SceneGbufferSurface.lighting_record`; G1.a holds it as `index / 255`.
-Eight bits address 255 records besides record 0. A scene with more refuses the lighting
-pass before any pass records, with `FrameError::FeaturePreparation { feature: "opaque
-G-buffer" }` and the reason `opaque path needs N material records, limit is 255`; indices
-are never truncated. Forward drawing is unaffected by the count.
-
-### Deferred lighting
-
-With a G-buffer path the renderer also runs `PassSlot::OpaqueLighting`, one
-full-screen pass after the G-buffer slot and before Opaque, on the scene depth the
-depth prepass completed. A frame without the prepass has no producers, so its
-observation lights nothing. The stock scene features
-(plain, resident and shadowed) draw it with the same forward pipelines, frame group,
-shadow set and screen-space set as their Opaque draws: the program is the frame's
-forward object source with `gbuffer.wgsl` and `shader/gbuffer_lighting.wgsl` appended,
-so every shadow, SSAO receiver, reflection and receiver-payload variant and every
-specialisation constant is the forward one. Its inputs are set 1, bindings 16 to 22: the
-four targets, the scene depth, the record table and a camera block (inverse
-view-projection and inverse view rotation). The inverse projection centres clip depth
-on one, combining its depth and translation columns in f64 before the f32 upload to
-avoid cancellation near the far plane. Per pixel it reconstructs the position once
-from depth, decodes the surface, and evaluates exactly the forward mesh shading after
-decals: `scene_surface_lighting` (sun with the cascades and the selected disk highlight,
-SH or hemisphere ambient, material and screen AO through the selected occlusion rules,
-environment lookup and BRDF factor), then `scene_record_scattering` and
-`scene_record_transmission` from the record, emission, and height fog and exposure once.
-Forward meshes and impostor cards call the same record functions. Pixels whose G3 is 0
-are discarded, so they keep the targets' clear; every lighting function still runs there
-so that the shadow lookups' derivatives stay in uniform control flow.
-
-Outputs, in the scene colour format at the scene extent: the exposed radiance (alpha 1
-where covered) and, when reflections are installed, the replaceable environment
-contribution and replacement factor that Opaque's second and third colour targets carry
-for SSR. In observation they are diagnostic targets cleared to zero every frame
-(`LightingTarget::Colour`, `Environment`, `Factor`), read only by captures as
-`FeatureTarget::DeferredLighting(target)`, so the visible frame stays forward. Shadow
-receiver-plane derivatives come from neighbouring pixels in the full-screen pass (the
-receiver payload, when present, is read per pixel instead), so they differ from forward
-at depth and normal discontinuities.
-
-### Rendering from the G-buffer
-
-`SceneOpaquePath::GBUFFER_RENDER`, `experiment(Render, AllStock, Compact,
-MaterialOwnedDepth)`, makes the visible frame come from the G-buffer. It needs the
-metadata installation through screen-space AO, reflections or depth fitting. Without
-it the frame is refused with
-`FrameError::FeaturePreparation { feature: "opaque G-buffer" }` and the reason
-`rendering from the G-buffer needs the depth prepass`. It refuses a multisampled
-frame. The checked scene depth must be the frame-owned depth target at its canonical
-mip and layer. A foreign depth attachment returns a named error before stock scene
-preparation, including on devices without stencil support. Forward and observation
-retain their existing checked-attachment rules. The frame is:
-
-1. `DepthNormalPrepass` clears and writes depth, G0-G3, the canonical normal and
-   coverage target, optional velocity, and optional SSR material in one terrain/object
-   geometry walk. Depth winners mark stencil when shared depth has a stencil plane.
-   Masked and relief surfaces use the material producer's coverage and fragment depth.
-2. The depth pyramid and SSAO consume those metadata targets. Same-frame depth fitting
-   submits this producer and the first depth level before adopting its fit and drawing
-   fitted shadow casters. The continuation retains the producer's physical resources,
-   velocity attachment and pending colour-draw publication. Camera selection, colour draw
-   counters and effect bindings publish only after the suffix succeeds. A refused suffix
-   preserves the previous completed frame's draw statistics and leaves admitted player work
-   unconsumed; the next frame starts a fresh producer publication.
-3. `OpaqueLighting` takes Opaque's colour target and, with reflections, its environment
-   and factor products, including their clears. No diagnostic lighting targets are
-   allocated and Render has no separate `OpaqueGbuffer` geometry walk.
-4. `Opaque` loads those targets, depth and velocity, and draws the sky, celestial meshes
-   and dynamic meshes. It does not draw terrain or stored objects again.
-5. Water, transparency, SSR and post use the existing suffix. The after-opaque snapshot
-   copies lit colour; post-water final SSR depth remains a separate product.
+The public composition regressions in `tests/stock_composition.rs` and its `stock_composition` children cover sampled stock depth and lit colour, prefix completion and retry behavior, and retained operations. The operation test checks one callback across prefix and suffix recording, no submission before the caller submits once, and exact red RGB through a readback copied in that encoder. The retry tests retain their distinct-backing and same-backing load-contract refusal controls; `stock_camera_taa.rs` keeps the warm velocity-to-plain regression.
 
 Instance-buffer uploads acknowledge current and skin bytes independently of the CPU
 last-colour transform records. Sparse history candidates publish through a suffix-only CPU
@@ -1398,7 +1122,7 @@ instances with TAA and SSR. Its caller-preparation refusal submits nothing and p
 completed raw and resolved colour, metadata, statistics and temporal state. Its public
 `StockDepthPrefix` case submits exactly one prefix before refusing suffix preparation.
 That refusal preserves completed colour, confidence, statistics and temporal state while
-G3 and velocity contain the moved geometry. A fresh ordinary retry preserves that motion;
+the prepass coverage and velocity contain the moved geometry. A fresh ordinary retry preserves that motion;
 retry and settling products match an uninterrupted control in both cases. Declaring one
 scene's resident write keys while encoding a different dirty scene fails capture admission
 with an undeclared resident key before submission; both scenes keep their completed products.
@@ -1408,76 +1132,13 @@ its load contract in the same-frame suffix. They require `AttachmentView(resourc
 `AttachmentContract(entry)`, respectively, before caller preparation or submission, with
 completed products, draw statistics and temporal history unchanged.
 
-The [public camera-only TAA regressions](tests/stock_camera_taa.rs) pair resident TAA with a
-fused G-buffer depth prefix and plain SSAO pipelines. They check that the prefix and prepared
+The [public camera-only TAA regressions](tests/stock_camera_taa.rs) pair resident TAA with the
+stock depth prefix and plain SSAO pipelines. They check that the prefix and prepared
 stock suffix declare no scene-velocity colour writes, while camera history and jitter advance
 across two submitted frames. The retained pipeline-switch case first completes a
 velocity-enabled frame, then switches the same scene and renderer to plain pipelines. It
 requires both plans to omit velocity writes while the velocity allocation stays resident and
 TAA history continues.
-
-[The same-frame capture fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/retained_retry.rs)
-covers program-admission and caller-preparation refusal after a physical prefix. It
-checks one submission on refusal and two on success before reading products, preserves
-completed statistics and temporal state, and compares retry and settling with a control.
-
-[The mixed rigid/skinned fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/skinned_retry.rs)
-checks a resident pose-descriptor switch and root movement across a submitted prefix
-and refused colour suffix. Its non-velocity path compares colour and G3 with an
-uninterrupted control and an unchanged completion, with separately visible changes
-for rigid and weighted geometry.
-
-The ordered producer outputs are G0-G3, optional `Rg16Float` velocity,
-`Rgba16Float` canonical normals, and optional `Rgba16Float` SSR material. Their
-aligned attachment charge is 34, 38, 42 or 46 bytes with five to seven attachments.
-Admission checks this composition against enabled device limits before allocation.
-Render supports Front receivers at zero normal bias. An Opposing reservation or
-nonzero shadow normal bias returns a named admission error before retained state
-changes. Front uses G3's geometric normal and reconstructed scene depth. It retains
-quad displacements within the normal's 7+7-bit octahedral quantization cone only when
-both texels of the derivative pair are covered and carry the same geometric-normal
-code. Material flags do not affect that comparison. Other displacements use the
-current pixel's receiver-plane solve. The compatibility bound is
-`abs(dot(normal, delta)) <= sqrt(18)/127 * length(delta)`; it conservatively contains
-tangents after G3 rounding and normalization. Parallel surfaces with the same code
-can still be accepted inside that cone. The tests in `src/gbuffer/front_tests.rs`
-cover the bound across octahedral folds and axes, reject an outside displacement or
-missing pair provenance, preserve the other coordinate of each derivative pair, and
-check the plane solve with both projection types.
-Both displacements feed the existing projected-gradient solver, without receiver-payload
-attachments. Forward remains the default; observation keeps its separate read-only
-`OpaqueGbuffer` pass.
-
-Differences from Forward: the G-buffer quantisation above; scattering materials that also have a per-pixel
-metalness keep only the scattering amount; shadow receiver-plane derivatives come from
-screen neighbours, so shadow edges can differ by a texel at depth and normal
-discontinuities; impostor cards are lit through the mesh path, without the card shading's
-separate back-face shadow lookup for transmission (the far-side visibility uses the
-receiver's `-normal` lookup instead); and a masked surface's scene colour alpha is 1
-where forward wrote its coverage alpha.
-
-`RendererConfiguration::opaque_admission_report` lists opaque material families and
-candidate-layout colour attachment byte costs, attachment limits, and lighting-record
-counts for a prepared scene. Callers invoke it explicitly; it is independent of
-`SceneOpaquePath` and creates no renderer resources. The report uses typed
-material-family classification, counts the distinct lighting records besides record 0
-over the scene's whole material table, enforces Compact's 255 and Wide's 65,535 records
-with `OpaqueAdmissionError::RecordOverflow`, and refuses sample counts other than one
-with a typed error.
-
-## Composing with the stock scene
-
-A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. Clone the plan's passes and views, append the caller's own, save the declaration and frame uniform, then take `stock.take_offscreen_operations()`. Keep that owned work alive through encoding and pass `offscreen.as_ref().map(|work| work as &dyn FrameOperations)` as the head of `FrameRenderer::encode_frame_with`, with `&(uniform, None)` as its input. Borrow the stock feature mutably in a `BorrowedFeature` beside the caller's features for that call. The offscreen work is separate from `plan()` and can be taken only once; the executor records admitted camera, blit and copy work before the stock passes in the same frame. `encode_scene` follows this path with no caller additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, with no borrow of the renderer.
-
-Retaining or taking admitted offscreen work does not execute it. `encode_frame` supplies no head, and a `None` head in `encode_frame_with` records the stock draws without refreshing their offscreen inputs. Forward any returned work on the preparation encoder before the stock passes, or abandon the frame. The omission characterizations in `src/draw/tests/program_frame/offscreen/composition/omission.rs` cover both leaving work in the feature and taking it without forwarding; the parent test keeps the forwarded pixel, pass-order and single-submission control.
-
-A frame with screen-space metadata can also split off its depth and normal prepass. `FrameRenderer::stock_depth_prefix` takes the scene and the pipelines the suffix draws with, as `prepare_stock_scene` does, and returns a `StockDepthPrefix`; it refuses a renderer that has no metadata. It decides whether the colour draws write velocity before it plans, so a renderer that renders from the G-buffer under TAA lists the velocity target on its first frame as on any later one. `plan()` lists exactly the entries the prefix completes, `PassEntry::new(PassSlot::DepthNormalPrepass)` and `PassEntry::new(PassSlot::DepthPyramid(0))`, with their views. On a renderer that renders from the G-buffer the producer is fused into the prepass: the entries are the same and the prepass entry attaches the G-buffer targets and any velocity target, whose views the plan then lists. `encode` runs the prefix and appends the caller's own passes, views and features to it before the whole list is validated. A caller feature in a later entry reads the original device depth by declaring the prepass depth attachment of that plan, and reads the lit colour by declaring `scene color`; `PrepareContext::resource` gives it the views and `PrepareContext::completed_in_prefix` tells it which entries the prefix completed. `FeatureTarget::Depth` holds linear metres and is a different resource from the device depth.
-
-`FrameRenderer::capture_texture_keys` and `capture_effect_keys` give the write keys a capture needs when the prefix is submitted alone and the suffix prepared afterwards. When the game has a depth-prefix feature, the prefix also runs the game's passes after the prepass, so a host that submits a `StockDepthPrefix` in its own capture lists the keys `capture_effect_keys` returns for the game's targets in the prefix's write contract as well as the suffix's (see "Game passes after the depth prepass" below). A role stays a label: a read of an earlier resource must be declared and is checked like any other.
-
-Caller attachment bindings include the current view's retained-content permission. Changing that permission on the same texture resolves the bindings again. A `Load` without an earlier producer requires `AttachmentView::with_retained_contents()` on the current frame's view; a previously cached retained view cannot authorize it. Refusal occurs before feature preparation or submission. The two permission transitions are covered in `src/compositor/frozen_tests/retained_permission.rs`.
-
-The public composition regressions in `tests/stock_composition.rs` and its `stock_composition` children cover sampled stock depth and lit colour, prefix completion and retry behavior, and retained operations. The operation test checks one callback across prefix and suffix recording, no submission before the caller submits once, and exact red RGB through a readback copied in that encoder. The retry tests retain their distinct-backing and same-backing load-contract refusal controls; `stock_camera_taa.rs` keeps the warm velocity-to-plain regression.
 
 ## Game passes
 
@@ -1495,9 +1156,8 @@ A layer is recorded as written when the *last* attachment that wrote that exact 
 
 ```rust,ignore
 let passes = GamePasses::new().with(Arc::new(MyGame::new()));
-let mut settings = RendererConfiguration::legacy(size, format);
+let mut settings = RendererConfiguration::new(size, format, ToneMap::AcesFitted);
 settings.game_passes = passes;
-settings.terrain_draws = TerrainDraws::CastersOnly; // optional: the game draws the terrain, the stock casters stay
 let renderer = ConfiguredFrameRenderer::new(&context, settings, budget)?;
 
 // Inside the feature's `plan`: A writes four targets and the frame depth before Opaque,
@@ -1533,7 +1193,7 @@ A renderable colour target may carry a mip chain as well, which a game's passes 
 Tests: `tests/game_passes/render_mips.rs` (a two-layer, 4-mip R32Float target on a 16 by 16 extent whose layer 1 is built: one pass per mip reducing 2x2 blocks as the average or the minimum, every mip read back and compared with the CPU's values, a digest pass reading the whole chain, six frames over a persistent target that rewrite only some mips, three shadowed same-frame captures, and the refusals by name), `accounting.rs` (every mip charged, a format that cannot render refused) and the `targets_tests` unit module; the per-subresource frame checks are in render-post's `frame_mip_tests`.
 
 
-`GamePlace::AfterDepthPrepass` passes run after the depth/normal prepass (see below), `BeforeOpaque` passes after the G-buffer and its lighting, `AfterOpaque` before the contour IDs and opaque snapshots, `AfterOpaqueSnapshots` after the opaque snapshot passes and before the water and every other transparent pass, `AfterTransparent` before the reflection and screen-space tail, and `BeforePost` after every other pass of the frame (see "Drawing over the lit frame before post" below). The first game pass to write the frame colour or depth clears it; later game passes and Opaque load what was left, so stock objects compose with the game's output by depth. `PassTarget::of` also works for stock entries (`Opaque`, `OpaqueGbuffer`, `DepthNormalPrepass`, `ShadowCasters(n)`) through `PassTarget::in_plan`.
+`GamePlace::AfterDepthPrepass` passes run after the depth/normal prepass (see below), `BeforeOpaque` passes immediately before Opaque, `AfterOpaque` before the contour IDs and opaque snapshots, `AfterOpaqueSnapshots` after the opaque snapshot passes and before the water and every other transparent pass, `AfterTransparent` before the reflection and screen-space tail, and `BeforePost` after every other pass of the frame (see "Drawing over the lit frame before post" below). The first game pass to write the frame colour or depth clears it; later game passes and Opaque load what was left, so stock objects compose with the game's output by depth. `PassTarget::of` also works for stock entries (`Opaque`, `DepthNormalPrepass`, `ShadowCasters(n)`) through `PassTarget::in_plan`.
 
 `GameBuild::shadows`, a `FrameShadowHandle`, lends the stock shadow cascades of the frame in flight. The shadowed route publishes them when the frame's cascades are final (after any same-frame depth fit and refresh, before the ordinary features prepare), and only when the renderer has game features. `current()` returns `FrameShadows`: the cascade depth array view the stock casters wrote this frame, the comparison sampler the receivers use with it, and each cascade's `view_projection`, `split_distance` and `depth_bias`, with the selection rule, near distance, view-depth vector, blend, fade, normal bias and shadow strength the stock receivers apply, all from the receiver uniform the frame uploads. It refuses with `FrameInputError::OutsideFrame` when no frame is being prepared, and with `NotPrepared` when the frame in flight published nothing (an unshadowed route, shadows off, or a fit with no receivers); a later frame never receives an earlier frame's cascades. The view and sampler belong to the frame: read them in `prepare` and `draw`, never write through them and never keep them, because the next frame writes the same texture and a renderer replacement frees it. A game pass declares no read of the view: every game place whose feature may read the cascades runs after the shadow casters (except `AfterDepthPrepass`: a depth-prefix feature reads the lent terrain only; shadow, occlusion and environment inputs are `NotPrepared` there, see below), and `GamePassSpec::reading` refuses a stock resource such as `shadow depth` with `FrameError::AttachmentView`. Tests: `src/shadows/tests/game_shadows.rs` (including a scene that weakens the shadows to 0.8), `tests/game_passes/shadow_cascades.rs`.
 
@@ -1549,7 +1209,7 @@ The snapshots, all at the frame's extent:
 
 | Snapshot | Format | Holds |
 | --- | --- | --- |
-| `color` | `Rgba16Float` | The lit opaque colour after Opaque and the game passes at `AfterOpaque`, with the samples of a multisampled frame averaged. Needs an HDR frame (`FrameError::UnsupportedEffect("snapshots require HDR")` otherwise). No transparent pass, water included, has drawn into it. |
+| `color` | `Rgba16Float` | The lit opaque colour after Opaque and the game passes at `AfterOpaque`, with the samples of a multisampled frame averaged. No transparent pass, water included, has drawn into it. |
 | `linear_depth` | `R32Float` | Positive view-space metres along the camera's forward axis, reconstructed from the nearest sample of each pixel. A pixel no opaque surface covers holds the far plane's distance. |
 | `device_depth` | `R32Float` | The depth buffer's own values. The engine's depth is not reversed: `0.0` is the near plane, `1.0` is the far plane and the cleared value, and nearer surfaces have smaller values. A multisampled frame keeps the smallest sample of a pixel, the nearest. |
 | `post_water_depth` | `R32Float` | The frame's depth buffer after every pass before the game's `AfterTransparent` passes, as positive view-space metres from the nearest sample of each pixel, like `linear_depth`. It is the stock `post-water depth` product, a copy of the frame's own depth at that point, so it holds the depth a game pass wrote at `AfterOpaqueSnapshots` (a game water drawn with depth writes, for one) and the depth the stock water pass writes when the stock passes draw the water. Where no pass wrote depth after the opaque snapshots it equals `linear_depth`. Only a pass at `AfterTransparent` can read it. |
@@ -1557,7 +1217,7 @@ The snapshots, all at the frame's extent:
 
 Both depth formats sample as unfilterable float (`texture_2d<f32>` with `textureLoad`, or a `filterable: false` binding). The device depth is the second colour attachment of the linear depth snapshot pass, so asking for it adds one attachment to a pass the frame already draws and no pass of its own; the other snapshot passes are untouched. The post-water device depth is added the same way to the post-water depth pass, and only a renderer whose game declares it allocates the texture (`"snapshot post-water device depths"` in the allocation budget, three slots of `R32Float`).
 
-The stock frame plans the post-water depth pass (`AfterWaterDepth`) when the stock water draws, when the stock reflections or a depth-tested overlay read it, or when a caller feature or a game pass declares a read of it. With `WaterDraws::Suppressed` and none of those, the pass is not planned and nothing writes the post-water depth. A game that declares `PostWaterDepth::Linear` or `LinearAndDevice` gets the pass planned and written whatever the water draws, with no change to the stock frame beyond that pass and the second attachment; a frame whose game declares no post-water read plans exactly the passes it did before. The one pass and its views take part in a same-frame capture's write contract, the device depth copy included, so a shadowed capture of a game that reads them is admitted and draws the unshadowed frame's depths. Every route plans through the same forward order, so the place is ordered the same in unshadowed, shadowed, resident and same-frame-capture frames; a frozen plan authors its own order.
+The stock frame plans the post-water depth pass (`AfterWaterDepth`) when the stock water draws, when the stock reflections or a depth-tested overlay read it, or when a caller feature or a game pass declares a read of it. With water that a game draws and none of those, the pass is not planned and nothing writes the post-water depth. A game that declares `PostWaterDepth::Linear` or `LinearAndDevice` gets the pass planned and written whoever draws the water, with no change to the stock frame beyond that pass and the second attachment; a frame whose game declares no post-water read plans exactly the passes it did before. The one pass and its views take part in a same-frame capture's write contract, the device depth copy included, so a shadowed capture of a game that reads them is admitted and draws the unshadowed frame's depths. Every route plans through the same forward order, so the place is ordered the same in unshadowed, shadowed, resident and same-frame-capture frames; a frozen plan authors its own order.
 
 ```rust,ignore
 impl GameFeatureFactory for MyWater {
@@ -1579,23 +1239,25 @@ let scene_colour = snapshots.color.expect("declared").view;
 let scene_depth = snapshots.device_depth.expect("declared").view;
 ```
 
-Tests: `tests/game_passes/post_water_depth.rs` with the game in `post_water_game.rs` (the post-water depth equals the opaque depth where nothing wrote depth and the depth of a pass at `AfterOpaqueSnapshots` where one did, exact device and metre values; it is produced under `Stock` and `Suppressed` water, where the stock water's own depth appears only under `Stock`; the device companion is allocated and budgeted only when declared and survives a replacement; three shadowed same-frame captures sample the unshadowed frame's depths; an early reader is `MissingProducer` and an undeclared read is refused by name), `tests/stock_composition/prefix_operations.rs` (a stock depth prefix pass reading any snapshot is `MissingProducer` naming it), `src/draw/tests/stock_plan/post_water_depth.rs` (which frames plan the post-water pass and which attachments it carries), `tests/game_passes/snapshots.rs` (colour that equals the stock opaque frame and is unreached by later draws into the frame, the `AfterOpaque` draws it includes, exact device and linear depth values at a covered and an uncovered pixel, allocation statistics with and without a reading game, the typed refusals), `tests/game_passes/snapshot_capture.rs` (three same-frame shadowed captures with a reading game give the unshadowed frame's pixels and run the readers before the transparent passes), `src/water/device_depth_tests.rs` (the nearest sample of a multisampled pixel) and the forward-order tests in `src/compositor/forward_order.rs`.
+Tests: `tests/game_passes/post_water_depth.rs` with the game in `post_water_game.rs` (the post-water depth equals the opaque depth where nothing wrote depth and the depth of a pass at `AfterOpaqueSnapshots` where one did, exact device and metre values; it is produced with the water drawn by the stock passes and by the game, where the stock water's own depth appears only in the first; the device companion is allocated and budgeted only when declared and survives a replacement; three shadowed same-frame captures sample the unshadowed frame's depths; an early reader is `MissingProducer` and an undeclared read is refused by name), `tests/stock_composition/prefix_operations.rs` (a stock depth prefix pass reading any snapshot is `MissingProducer` naming it), `src/draw/tests/stock_plan/post_water_depth.rs` (which frames plan the post-water pass and which attachments it carries), `tests/game_passes/snapshots.rs` (colour that equals the stock opaque frame and is unreached by later draws into the frame, the `AfterOpaque` draws it includes, exact device and linear depth values at a covered and an uncovered pixel, allocation statistics with and without a reading game, the typed refusals), `tests/game_passes/snapshot_capture.rs` (three same-frame shadowed captures with a reading game give the unshadowed frame's pixels and run the readers before the transparent passes), `src/water/device_depth_tests.rs` (the nearest sample of a multisampled pixel) and the forward-order tests in `src/compositor/forward_order.rs`.
 
-`RendererConfiguration::terrain_draws` selects what the stock passes do with the scene's terrain, which stays resident, streamed and updated in every case. The default `Stock` draws it everywhere and is byte-identical to a build without the option. `TerrainDraws::Suppressed` skips every stock terrain draw: opaque, G-buffer, depth prefix, metadata, capture terms and shadow casters. `TerrainDraws::CastersOnly` skips every camera pass the same way but keeps the stock terrain in the shadow cascades, so a game that draws the camera-visible terrain itself keeps the terrain's shadows in its lit frame. `TerrainDraws::draws_terrain_in_camera_passes` and `TerrainDraws::casts_terrain_shadows` name the two decisions: the camera passes draw terrain for `Stock` only, and the casters, their retained-map refresh key and their caster selection draw it for `Stock` and `CastersOnly`. A frame with game features is planned without the stock plan cache. Switching between `Stock` and `CastersOnly` leaves the casters unchanged and holds the retained shadow cascades. Switching to or from `Suppressed` changes the casters and refreshes every retained cascade on the next submitted frame, whatever the refresh intervals say. Tests: `tests/game_passes.rs` (`Suppressed` and `CastersOnly` with a game feature), `src/compositor/game/tests.rs`, the capture tests in `src/shadows/tests/sdsm/game_targets.rs`, the Observation and Render route tests in `src/shadows/tests/suppressed_routes.rs` (camera depth and stored pixels equal the terrain-free scene for both variants, and the cascade depth texels of `CastersOnly` equal `Stock` and differ from `Suppressed`), the refresh test in `src/shadows/tests/refresh.rs` (`Stock` to `CastersOnly` holds, `CastersOnly` to `Suppressed` refreshes), the caster and camera pass captures in `src/terrain/capture_tests/suppressed.rs` and the forward-order tests.
+A game feature declares which stock surfaces it draws with `GameFeatureFactory::replaces_stock`, which returns a `StockReplacement { terrain_surface, water }` (`StockReplacement::NONE`, `TERRAIN_SURFACE` and `WATER`, combined with `union`). The default replaces nothing. A renderer reads the declarations of every factory in its inventory when it installs them, so the declaration holds for every frame of that generation, and a renderer built from an inventory without the declaring factory draws the stock surfaces again: there is no setting to switch between frames. A frame with game features is planned without the stock plan cache.
 
-A game that draws the terrain itself reads `GameBuild::terrain`, a `FrameTerrainHandle`. Each stock route (unshadowed, shadowed and resident, including the depth prefix and the suffix of a same-frame capture) publishes it after it prepares the frame's terrain, with the finalized frame and raster extent, so `current()` in a feature's `prepare` returns the chunks the stock camera draw would submit, in its order, as `TerrainChunkDraw`s with their geometric neighbours and resident buffers (`TerrainChunkDraw::buffers`, in the stock vertex layout of `geometry::vertex_attributes`). It returns `None` when the scene has no terrain. Otherwise it refuses with a `FrameTerrainError`: `OutsideFrame`, `NotPrepared` when the frame's route prepared no terrain, `NotStreamed` for terrain without a streaming policy, or `View` with the lender's `TerrainChunkViewError` (for example `Unprepared` or `ViewMismatch`). The route records a refusal instead of failing the frame, so a feature that does not read the terrain is unaffected. The depth prefix publishes right after it prepares the terrain geometry, with the raster extent of the screen-space metadata and before any prefix feature prepares, so a feature that prepares in the depth prefix reads the same chunks as the suffix of the frame; the suffix must lend with the same extent, the colour target's. It never returns an earlier frame's chunks. The lent buffers are the renderer's own: record draws from them in the frame that lent them, and do not keep, write or destroy them. Lending works the same with `TerrainDraws::Stock`. `tests/game_passes/terrain_lender.rs` suppresses the stock draws and draws the lent chunks with an imported program draw. `src/shadows/tests/game_terrain.rs`, `src/shadows/tests/game_terrain_extent.rs` (the extent rules) and `src/draw/tests/streaming/game_lending.rs` read the lent chunks on the shadowed route, in a same-frame capture and on the resident route; the capture test also checks that the prefix and the suffix publish equal chunk lists and that a renderer without game features publishes nothing. A depth prefix planned from caller metadata of another size than the colour target cannot give the suffix other chunks: the frame's terrain is selected for one raster extent, so the suffix's terrain preparation fails the frame with `FrameError::StreamingSelectionConflict` before it publishes, and a second publication with another extent lends `Err(FrameTerrainError::View(TerrainChunkViewError::ViewMismatch))`. `src/shadows/tests/game_terrain_shadows.rs` runs a game that draws the lent chunks under `TerrainDraws::CastersOnly` in a same-frame fitted shadowed frame and shades them by sampling the lent cascade depth with the lent comparison sampler: the pixels the game draws are partly shadowed by the stock terrain casters, and the same frame with `Suppressed` shades none. A same-frame fit sizes the cascade from the depth the stock camera passes write, which under `CastersOnly` and `Suppressed` excludes the terrain, so a frame whose only camera-visible surface is the game's terrain lends `NotPrepared` shadows; that test keeps two thin stock quads in the scene for the fit.
+`terrain_surface` says the game draws the scene's terrain, which stays resident, streamed and updated in every case. Every stock camera pass then skips the terrain: the opaque colour pass, the depth prepass, the metadata prefixes and the capture terms. The stock shadow casters keep drawing it into the cascades, so a game that draws the camera-visible terrain itself keeps the terrain's shadows in its lit frame, and the retained shadow cascades are the ones of a renderer without the declaration. A renderer whose inventory declares nothing is byte-identical to one built without an inventory. Tests: `tests/game_passes/terrain.rs` and `tests/game_passes/terrain_lender.rs` (a game feature that declares the terrain, with the stock draws back after a rebuild without it), `src/shadows/tests/declared_terrain_routes.rs` (camera depth equals the terrain-free scene on the shadowed frame, and the cascade depth texels equal the stock ones), the retained-cascade test in `src/shadows/tests/refresh.rs` (a declaring game holds the retained maps), and the caster and camera pass captures in `src/terrain/capture_tests/declared.rs`.
 
-`RendererConfiguration::water_draws = WaterDraws::Suppressed` keeps the scene's water resident but takes it out of every stock frame. The water bodies are uploaded, and the water environment and surface inputs are kept and updated, exactly as with the default. The frame records no stock water pass, no water reactive mask pass and no water receivers, and the screen-space reflections get no water inputs, so a frame plans, renders and captures as the same scene without water and no refusal arises from it. The opaque snapshots and the post-water depth are planned only when something other than the water reads them. Every stock water consumer reads one query, `FrameRenderer::stock_water`, which is empty while the draws are suppressed; the water's registered feature declares and plans nothing in that case, from the moment it is registered. A capture's write contract follows the same rule: `capture_effect_keys` lists the opaque snapshot banks only when the stock water, reflections, depth-tested overlay geometry or a game feature that declares a snapshot read draws into them (or a caller feature has already asked for a snapshot), so a renderer with suppressed water reports the keys of a renderer without water. The geometry-only `FrameRenderer::encode` refuses installed water only while the stock passes draw it; with the draws suppressed it encodes as it does for a scene without water. The default `Stock` is byte-identical to a build without the option. A host clears the temporal reactive mask before each frame. A frame that suppresses the water after frames that drew it also clears the mask itself once, so the temporal resolve never reads water that is no longer drawn. The stock plan cache keys on whether the water draws, so the frame after a switch is the frame a renderer built with that setting produces. `RendererConfiguration::terrain_draws` and `water_draws` are independent. Tests: `src/draw/tests/stock_plan/water_draws.rs`, `src/compositor/temporal_water_draws_tests.rs`, `src/compositor/temporal_suppressed_water_tests.rs` (capture keys and `encode`) and `src/shadows/tests/suppressed_water.rs`.
+A game that draws the terrain itself reads `GameBuild::terrain`, a `FrameTerrainHandle`. Each stock route (unshadowed, shadowed and resident, including the depth prefix and the suffix of a same-frame capture) publishes it after it prepares the frame's terrain, with the finalized frame and raster extent, so `current()` in a feature's `prepare` returns the chunks the stock camera draw would submit, in its order, as `TerrainChunkDraw`s with their geometric neighbours and resident buffers (`TerrainChunkDraw::buffers`, in the stock vertex layout of `geometry::vertex_attributes`). It returns `None` when the scene has no terrain. Otherwise it refuses with a `FrameTerrainError`: `OutsideFrame`, `NotPrepared` when the frame's route prepared no terrain, `NotStreamed` for terrain without a streaming policy, or `View` with the lender's `TerrainChunkViewError` (for example `Unprepared` or `ViewMismatch`). The route records a refusal instead of failing the frame, so a feature that does not read the terrain is unaffected. The depth prefix publishes right after it prepares the terrain geometry, with the raster extent of the screen-space metadata and before any prefix feature prepares, so a feature that prepares in the depth prefix reads the same chunks as the suffix of the frame; the suffix must lend with the same extent, the colour target's. It never returns an earlier frame's chunks. The lent buffers are the renderer's own: record draws from them in the frame that lent them, and do not keep, write or destroy them. Lending works the same without the terrain declaration. `tests/game_passes/terrain_lender.rs` declares the terrain surface and draws the lent chunks with an imported program draw. `src/shadows/tests/game_terrain.rs`, `src/shadows/tests/game_terrain_extent.rs` (the extent rules) and `src/draw/tests/streaming/game_lending.rs` read the lent chunks on the shadowed route, in a same-frame capture and on the resident route; the capture test also checks that the prefix and the suffix publish equal chunk lists and that a renderer without game features publishes nothing. A depth prefix planned from caller metadata of another size than the colour target cannot give the suffix other chunks: the frame's terrain is selected for one raster extent, so the suffix's terrain preparation fails the frame with `FrameError::StreamingSelectionConflict` before it publishes, and a second publication with another extent lends `Err(FrameTerrainError::View(TerrainChunkViewError::ViewMismatch))`. `src/shadows/tests/game_terrain_shadows.rs` runs a game that declares the terrain surface and draws the lent chunks in a same-frame fitted shadowed frame and shades them by sampling the lent cascade depth with the lent comparison sampler: the pixels the game draws are partly shadowed by the stock terrain casters. A same-frame fit sizes the cascade from the depth the stock camera passes write, which under the declaration excludes the terrain, so a frame whose only camera-visible surface is the game's terrain lends `NotPrepared` shadows; that test keeps two thin stock quads in the scene for the fit.
+
+`StockReplacement::WATER` keeps the scene's water resident but takes it out of every stock frame. The water bodies are uploaded, and the water environment and surface inputs are kept and updated, exactly as without the declaration. The renderer registers no stock water feature, so the frame records no stock water pass and no water receivers, and the screen-space reflections get no water inputs, so a frame plans, renders and captures as the same scene without water and no refusal arises from it. The opaque snapshots and the post-water depth are planned only when something other than the water reads them. Every stock water consumer reads one query, `FrameRenderer::stock_water`, which is empty while a game draws the water. A capture's write contract follows the same rule: `capture_effect_keys` lists the opaque snapshot banks only when the stock water, reflections, depth-tested overlay geometry or a game feature that declares a snapshot read draws into them (or a caller feature has already asked for a snapshot), so a renderer whose game draws the water reports the keys of a renderer without water. The geometry-only `FrameRenderer::encode` refuses installed water only while the stock passes draw it; with a game drawing the water it encodes as it does for a scene without water. A host clears the temporal reactive mask before each frame. The stock plan cache is not used for a frame with game features. The two declarations are independent. Tests: `src/draw/tests/stock_plan/water_draws.rs`, `src/compositor/temporal_water_draws_tests.rs`, `src/compositor/temporal_declared_water_tests.rs` (capture keys and `encode`) and `src/shadows/tests/declared_water.rs`.
 
 ### Game compute passes
 
-A game runs compute work between the frame's passes in a compute pass of its own, planned like its render passes. `GameComputeSpec::new(place, occurrence)` places it at a `GamePlace` with an occurrence it shares with the game's render passes in that place (a collision is `FrameError::DuplicatePass`); `reading` (every mip of target layers), `reading_mips` (single (layer, mip) subresources), `sampling_frame` (stock products such as the G-buffer or the post-water depth) and `reading_snapshots` (snapshots its factory declared) say what it samples, and `writing_mips` the (layer, mip) subresources of declared targets it writes through storage images. `GameTargets::plan_compute_pass(spec, passes, views)`, called from the feature's `plan`, adds the pass (`PassDeclaration::compute_pass`, no attachments) and the views it names, and returns its `FeaturePass`; the frame then orders it with every other pass and validates it with them, so a read needs an earlier writer (`MissingProducer` naming the subresource) and a pass after it may read what it writes, mip by mip. Planning refuses `GamePlace::AfterDepthPrepass` and the depth-prefix feature (`UnsupportedEffect`: the prefix is encoded apart), a write of an undeclared target, layer or mip or of a target declared without `STORAGE_BINDING` (`AttachmentView`), a subresource written twice or read and written (`AttachmentHazard`) and undeclared snapshots (`FeaturePreparation` for "frame snapshots"), planning nothing.
+A game runs compute work between the frame's passes in a compute pass of its own, planned like its render passes. `GameComputeSpec::new(place, occurrence)` places it at a `GamePlace` with an occurrence it shares with the game's render passes in that place (a collision is `FrameError::DuplicatePass`); `reading` (every mip of target layers), `reading_mips` (single (layer, mip) subresources), `sampling_frame` (stock products such as the post-water depth) and `reading_snapshots` (snapshots its factory declared) say what it samples, and `writing_mips` the (layer, mip) subresources of declared targets it writes through storage images. `GameTargets::plan_compute_pass(spec, passes, views)`, called from the feature's `plan`, adds the pass (`PassDeclaration::compute_pass`, no attachments) and the views it names, and returns its `FeaturePass`; the frame then orders it with every other pass and validates it with them, so a read needs an earlier writer (`MissingProducer` naming the subresource) and a pass after it may read what it writes, mip by mip. Planning refuses `GamePlace::AfterDepthPrepass` and the depth-prefix feature (`UnsupportedEffect`: the prefix is encoded apart), a write of an undeclared target, layer or mip or of a target declared without `STORAGE_BINDING` (`AttachmentView`), a subresource written twice or read and written (`AttachmentHazard`) and undeclared snapshots (`FeaturePreparation` for "frame snapshots"), planning nothing.
 
 In `prepare` the feature prepares its dispatches with the program runtime, binding target levels with `GameTargets::import_level` (`LevelAccess::Storage` for a level it writes, `Sampled` for one it reads; the import states that level as its range, so one dispatch may read level n-1 and write level n of one texture, or write seven levels through seven storage images), and stages each with `PrepareContext::record_in_compute_pass(spec.entry(), label, access, Box::new(dispatch))`, declaring what it reads and writes (see render-post's "Compute passes" for the staging rules: a dispatch reads what earlier dispatches of the pass wrote without the plan declaring it, and every level the pass declares must be written). The frame records them in one compute pass at the entry's place. A persistent target a compute pass writes counts as written once the frame is submitted, as an attachment's write does. Tests: `src/compositor/game/compute_tests.rs` (ordering between the places around it, producers before and after it, shared occurrences, snapshots and every planning refusal, on a no-op device) and `tests/game_passes/compute.rs` (a render pass at `BeforeOpaque` writes a seed, a compute pass at `AfterOpaque` builds a three-level chain from it, one dispatch per level reading level n-1 and writing level n of one texture, and a render pass at `AfterOpaqueSnapshots` samples every level, all read back exactly in two frames; and one dispatch writing seven levels of a 64 x 64 texture through seven storage images, read back exactly).
 
 ### Resources a game's passes use
 
-A game's features own no GPU resource. `GameBuild::resources` is a `GameResources`, one per factory and renderer generation, shared by the factory's depth-prefix and ordinary features and released with the generation. It holds the program runtime the features build programs, sets and draws with (`runtime()`, made with the factory's `GameFeatureFactory::resource_budget`, zero by default) and the buffers, textures and samplers the game declares. `declare_buffer(&GameBufferDeclaration { label, usage, contents })` creates a buffer of the role `usage` names (`Uniform`, `Storage`, `Vertex`, `Index`, each also writable) holding `contents`; `declare_texture(&GameTextureDeclaration { label, format, size, dimension, mip_levels, texels })` creates a sampled texture (`D2`, `D2Array` or `D3`) of `mip_levels` levels holding `texels` or zeros (always zeros for a depth format and for a 3D texture deeper than one slice); `declare_sampler(&wgpu::SamplerDescriptor)` creates a sampler. Buffers and textures are counted in the memory census and in the runtime's ledger (`ProgramRuntime::hold_external`), so one budget bounds the declared resources and what the runtime allocates, in either order (`GameResourceError::Budget`). A texture the device cannot create, because its extent or layers pass the device's limits or it is a 3D texture of a depth format, is a `Declaration` refusal and creates nothing. The ledger counts a texture's bytes as they are (`AllocationSet::external`), so no buffer rule applies to them. The game addresses them by `GameBuffer`, `GameTexture` and `GameSampler` handles, which another store refuses (`Foreign`). It binds them with `import_buffer`, `import_texture` (through the declared view dimension) and `import_sampler`, which return render-program `Import`s, and draws from them with `vertex_input` and `indices` (a buffer of another role is `Usage`). `write(context, buffer, offset, bytes)` stages bytes into a buffer in the frame being prepared, in order with the frame's other uploads; a write outside the buffer or not four-byte aligned is `Write`. Declaring during `prepare` is allowed. `GameTargets::import(name, semantic)` gives a declared target as an `Import` through `GameTargets::sampled_view(name)` (every layer and mip). One level of one layer is imported by handle as a `D2` view of exactly that level: `import_texture_level(semantic, texture, GameLevel { layer, mip }, access)` for a declared texture and `GameTargets::import_level(name, semantic, GameLevel, access)` for a target, where `LevelAccess::Sampled` needs `TEXTURE_BINDING` and `LevelAccess::Storage` needs `STORAGE_BINDING` (a target declared with it; a declared texture is never a storage image). Another store's texture is `Foreign`; an undeclared target, a 3D texture, a mip or layer outside the texture or target and a missing usage are `GameResourceError::Import`, naming the label and the cause, so a game binds one layer of a splatted page array, or writes one layer of a target from a kernel, without making a view (tests: `src/compositor/game/level_import_tests.rs` for the refusals, `tests/game_passes/level_import.rs` for a kernel writing layer 2 of a four-layer target with the other layers untouched, a pass loading exactly layer 1, mip 1 of a declared array, and a pass loading the layer a kernel wrote in the same frame through a one-layer import). Render-program's `prepare_external_set` builds the group of a set a game pass binds itself.
+A game's features own no GPU resource. `GameBuild::resources` is a `GameResources`, one per factory and renderer generation, shared by the factory's depth-prefix and ordinary features and released with the generation. It holds the program runtime the features build programs, sets and draws with (`runtime()`, made with the factory's `GameFeatureFactory::resource_budget`, zero by default) and the buffers, textures and samplers the game declares. `declare_buffer(&GameBufferDeclaration { label, usage, contents })` creates a buffer of the role `usage` names (`Uniform`, `Storage`, `Vertex`, `Index`, each also writable) holding `contents`; `declare_texture(&GameTextureDeclaration { label, format, size, dimension, mip_levels, texels })` creates a sampled texture (`D2`, `D2Array` or `D3`) of `mip_levels` levels holding `texels` or zeros (always zeros for a depth format and for a 3D texture deeper than one slice); `declare_sampler(&wgpu::SamplerDescriptor)` creates a sampler. Buffers and textures are counted in the memory census and in the runtime's ledger (`ProgramRuntime::hold_external`), so one budget bounds the declared resources and what the runtime allocates, in either order (`GameResourceError::Budget`). A texture the device cannot create, because its extent or layers pass the device's limits or it is a 3D texture of a depth format, is a `Declaration` refusal and creates nothing. The ledger counts a texture's bytes as they are (`AllocationSet::external`), so no buffer rule applies to them. The game addresses them by `GameBuffer`, `GameTexture` and `GameSampler` handles, which another store refuses (`Foreign`). It binds them with `import_buffer`, `import_texture` (through the declared view dimension) and `import_sampler`, which return render-program `Import`s, and draws from them with `vertex_input` and `indices` (a buffer of another role is `Usage`). `write(context, buffer, offset, bytes)` stages bytes into a buffer in the frame being prepared, in order with the frame's other uploads; a write outside the buffer or not four-byte aligned is `Write`. Declaring during `prepare` is allowed. `GameTargets::import(name, semantic)` gives a declared target as an `Import` through `GameTargets::sampled_view(name)` (every layer and mip). One level of one layer is imported by handle as a `D2` view of exactly that level: `import_texture_level(semantic, texture, GameLevel { layer, mip }, access)` for a declared texture and `GameTargets::import_level(name, semantic, GameLevel, access)` for a target, where `LevelAccess::Sampled` needs `TEXTURE_BINDING` and `LevelAccess::Storage` needs `STORAGE_BINDING` (a target declared with it; a declared texture is never a storage image). `GameTargets::import_level_array(name, semantic, GameLevel, access)` imports the same level as a one-layer `D2Array` view with the same range, for a binding declared as an array of 2D images (HLSL `RWTexture2DArray`), such as each image of a downsample kernel that binds every level of one chain; its range is that one layer, so it aliases a `D2` import of the same level and binds beside one of another layer (tests: `level_import_tests.rs` `a_level_for_an_array_binding_is_lent_as_a_one_layer_array_view` and `an_array_level_aliases_the_same_level_imported_as_2d_and_no_other_layer`, `tests/game_passes/compute.rs` `a_kernel_writes_levels_of_one_layer_through_images_it_declares_as_arrays`). Another store's texture is `Foreign`; an undeclared target, a 3D texture, a mip or layer outside the texture or target and a missing usage are `GameResourceError::Import`, naming the label and the cause, so a game binds one layer of a splatted page array, or writes one layer of a target from a kernel, without making a view (tests: `src/compositor/game/level_import_tests.rs` for the refusals, `tests/game_passes/level_import.rs` for a kernel writing layer 2 of a four-layer target with the other layers untouched, a pass loading exactly layer 1, mip 1 of a declared array, and a pass loading the layer a kernel wrote in the same frame through a one-layer import). Render-program's `prepare_external_set` builds the group of a set a game pass binds itself.
 
 A declared texture's `texels` hold every level, laid out as `GameTextureDeclaration::levels()` lists them (`GameTextureLevel { layer, mip, width, height, bytes_per_row, rows, offset, len }`): layer after layer, each layer's chain finest first, each level tightly packed rows of texels, or of blocks for a block-compressed format (so a BC level's row is its whole blocks times the block's bytes, and a level smaller than a block is one block). The renderer uploads them through render-gpu's `TextureUpload`, the plan the scene's own textures use, so block-compressed chains and arrays whose layers have mip chains take the same validated path; a volume one slice deep goes through render-gpu's `VolumeUpload`. A declaration is refused by its label (`Declaration`) for an empty or partial-block extent, a mip count the extent does not have, a block-compressed volume, texels that are not exactly the levels, and a format the device cannot sample (named with the features it lacks, for example `TEXTURE_COMPRESSION_BC`). Every level counts against the budget.
 
@@ -1631,16 +1293,16 @@ A pass that samples the occlusion declares it with `GamePassSpec::sampling_frame
 
 ### Stock specular environment for game passes
 
-`GameBuild::environment` is a `FrameEnvironmentHandle`, frame-scoped like the shadow and occlusion handles and published by every route as it begins encoding (after a separately submitted depth prefix, see above), the geometry-only `FrameRenderer::encode` included. `current()` is `Ok(None)` when the host installed no environment cube (`set_scene_environment`, `set_reflection_environment` or `set_water_environment`, cleared by `clear_environment`). Otherwise `FrameEnvironment` holds the cube the surface reflections sample (water's when only water has one, named by `consumer`): the texture, a cube view of every level, `mip_count`, the `radiance_scale` the stock consumers multiply sampled radiance by (the environment's specular intensity, not baked into the texels) and the `SceneSpecularConvention`. It is the texture the host installed from `SceneGpu::environment_maps`: the engine's GGX prefiltered `Rgba16Float` cube when the scene's `SceneSpecularCube` requests preparation, else the uploaded mips as authored. The filter stores at level `m` of `n` the radiance for roughness `m / (n - 1)` (`level_roughness`, before the convention's remap, GGX alpha the square of the remapped roughness) in the source's radiance units, and the stock consumers sample level `roughness * (n - 1)` (`level`) for the roughness after the remap. Under the perceptual conventions, whose remap is the identity, a pass that samples that level reads the level filtered for its roughness; under `LinearAlpha` the filter remaps the level's roughness again, so check the pairing before relying on it. The cube is a retained texture, not a frame product: a pass samples it without declaring a read. The water cube is lent from the installed water, whether or not the stock passes draw it: a game that sets `WaterDraws::Suppressed` installed that water's environment for its own water passes, so it is lent although no stock pass samples it. Tests: `lent_environment_is_the_installed_reflection_cube_else_water` in `src/compositor/configuration_tests.rs`, `tests/game_passes/environment.rs` (frames with an installed water cube, with the stock water drawn and suppressed), the unshadowed frame in `tests/game_passes/lighting.rs` and the outside-frame test in `src/compositor/game/lent.rs`.
+`GameBuild::environment` is a `FrameEnvironmentHandle`, frame-scoped like the shadow and occlusion handles and published by every route as it begins encoding (after a separately submitted depth prefix, see above), the geometry-only `FrameRenderer::encode` included. `current()` is `Ok(None)` when the host installed no environment cube (`set_scene_environment`, `set_reflection_environment` or `set_water_environment`, cleared by `clear_environment`). Otherwise `FrameEnvironment` holds the cube the surface reflections sample (water's when only water has one, named by `consumer`): the texture, a cube view of every level, `mip_count`, the `radiance_scale` the stock consumers multiply sampled radiance by (the environment's specular intensity, not baked into the texels) and the `SceneSpecularConvention`. It is the texture the host installed from `SceneGpu::environment_maps`: the engine's GGX prefiltered `Rgba16Float` cube when the scene's `SceneSpecularCube` requests preparation, else the uploaded mips as authored. The filter stores at level `m` of `n` the radiance for roughness `m / (n - 1)` (`level_roughness`, before the convention's remap, GGX alpha the square of the remapped roughness) in the source's radiance units, and the stock consumers sample level `roughness * (n - 1)` (`level`) for the roughness after the remap. Under the perceptual conventions, whose remap is the identity, a pass that samples that level reads the level filtered for its roughness; under `LinearAlpha` the filter remaps the level's roughness again, so check the pairing before relying on it. The cube is a retained texture, not a frame product: a pass samples it without declaring a read. The water cube is lent from the installed water, whether or not the stock passes draw it: a game that declares `StockReplacement::WATER` has that water's environment installed for its own water passes, so it is lent although no stock pass samples it. Tests: `lent_environment_is_the_installed_reflection_cube_else_water` in `src/compositor/configuration_tests.rs`, `tests/game_passes/environment.rs` (frames with an installed water cube, with the stock water drawn and drawn by the game), the unshadowed frame in `tests/game_passes/lighting.rs` and the outside-frame test in `src/compositor/game/lent.rs`.
 
 ### Drawing over the lit frame before post
 
-`GamePlace::BeforePost` is the last place of the forward frame. Its passes run after every pass that writes the lit scene colour: Opaque and the deferred lighting, the water and transparent passes, the reflection trace and the stock screen-space pass after transparency, and the game's passes at every other place. The post chain (resolve, bloom, tone mapping) then reads the colour they leave. The place is named for what follows it rather than for the stock screen-space pass, which a frame has only with screen-space reflections; with or without it, nothing in the frame draws over a pass here. It is where a game draws what the original drew over the finished scene, such as blended particles. In a frame without HDR post the colour is copied to the output as it is, so the place is still its last writer.
+`GamePlace::BeforePost` is the last place of the forward frame. Its passes run after every pass that writes the lit scene colour: Opaque, the water and transparent passes, the reflection trace and the stock screen-space pass after transparency, and the game's passes at every other place. The post chain (resolve, bloom, tone mapping) then reads the colour they leave. The place is named for what follows it rather than for the stock screen-space pass, which a frame has only with screen-space reflections; with or without it, nothing in the frame draws over a pass here. It is where a game draws what the original drew over the finished scene, such as blended particles. In a frame without HDR post the colour is copied to the output as it is, so the place is still its last writer.
 
 - **Where it sits.** The forward order puts it after `ScreenSpaceAfterTransparent` in every route, unshadowed, shadowed, resident and in the suffix of a same-frame capture. A frozen plan must list it after every other role, or it is refused with `FrameError::StockOrder` naming the pass and the later writer (`render-post` `frame/frozen.rs`). Its passes take the frame's attachments from Opaque, as every place but `AfterDepthPrepass` does, so a frame without Opaque refuses it with `FrameError::MissingPass(Opaque)`, and the depth-prefix feature planning it is `FrameError::UnsupportedEffect`.
-- **Blending.** `ColorOutput::Frame` loads the colour every earlier pass left. Blending is the state of the pass's draws: `PassTarget::render_state_with(raster, &[ColorState { blend, write_mask }])` keeps the pass's depth and stencil rules and sets one colour state per attachment (`FrameError::AttachmentContract` naming the entry for a different count). The original's alpha blend over RGB only is `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which leaves the colour's alpha as it was.
+- **Blending.** `ColorOutput::Frame` loads the colour every earlier pass left. Blending is the state of the pass's draws: `PassTarget::render_state(raster)` keeps the pass's depth and stencil rules and has one colour state per attachment in `colors`, which the draw sets to its blend and write mask. The original's alpha blend over RGB only is `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which leaves the colour's alpha as it was.
 - **Testing and sampling the depth in one pass.** `DepthAccess::ReadOnlySampled` attaches the frame's depth read-only and loaded, as `ReadOnly` does, and adds it to the pass's reads, so frame validation orders the pass after the depth's writers and admits the sampled read of a read-only loaded attachment. wgpu allows a texture to be a read-only depth attachment and a sampled texture of the same pass, and render-post's contracts accept it on every backend except GL, which lacks read-only depth attachment transitions and refuses it with `ContractError::DepthSampling` (`contracts_read_only_depth.rs`). In `prepare`, `PassTarget::sampled_depth(context, entry)` returns the frame's `AttachmentView` of that depth: bind `sampled_view()`, which selects the depth aspect of a combined depth-stencil format, with `texture()`, as `texture_depth_2d` (or `texture_depth_multisampled_2d` in a multisampled frame), and do not keep it past the frame. A pass cannot write a depth and sample it: listing the frame's depth in `GamePassSpec::sampling_frame` of a `DepthAccess::ReadWrite` pass is refused at planning with `FrameError::AttachmentHazard` naming the depth, and `sampled_depth` refuses an entry whose depth is writable or cleared the same way. The depth holds what every earlier writer of the frame depth left: the prepass or Opaque, the stock water surface, which writes it, and any game pass with `ReadWrite`.
-- **What it does not write.** A pass here writes no velocity and no temporal reactive mask; under temporal antialiasing its pixels carry the motion of the surface behind them.
+- **What it does not write.** A pass here writes no velocity and no temporal mask; under temporal antialiasing its pixels carry the motion of the surface behind them.
 
 ```rust,ignore
 // Inside `plan`: soft particles over the lit frame.
@@ -1651,15 +1313,16 @@ declared.push(targets.plan_pass(&particles, passes, views)?);
 
 // Inside `prepare`: blend over RGB only, test the depth and sample it.
 let target = PassTarget::of(context, particles.entry())?;
-let state = target.render_state_with(raster, &[ColorState {
+let mut state = target.render_state(raster);
+state.colors[0] = Some(ColorState {
     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
     write_mask: wgpu::ColorWrites::COLOR,
-}])?;
+});
 let depth = PassTarget::sampled_depth(context, particles.entry())?;
 let scene_depth = Import::texture(semantic, depth.texture().clone(), depth.sampled_view());
 ```
 
-Tests: the forward-order test `the_place_before_post_follows_every_other_pass_of_the_frame`, `src/compositor/game/before_post_tests.rs` (the planned pass loads the colour an `AfterTransparent` game pass and the stock screen-space pass wrote, attaches the depth read-only and reads it, validates as a frame; the missing-Opaque, depth-prefix, write-and-sample and colour-count refusals), the frozen-order test in `render-post` `frame/game_tests.rs`, and the Metal frames in `tests/game_passes/before_post.rs`: a quad blended at alpha 0.25 over a game fill drawn after the transparent passes and over the stock quad equals the blend of the two to half precision with the alpha kept; a pass that tests the depth read-only and samples it writes the expected fade, sampled depth and fragment depth in front of the stock quad and off it, and leaves the stock colour where the test rejects it; and a game that plans nothing before post, or blends nothing there, leaves the HDR frame bit for bit as the stock frame.
+Tests: the forward-order test `the_place_before_post_follows_every_other_pass_of_the_frame`, `src/compositor/game/before_post_tests.rs` (the planned pass loads the colour an `AfterTransparent` game pass and the stock screen-space pass wrote, attaches the depth read-only and reads it, validates as a frame; the missing-Opaque, depth-prefix and write-and-sample refusals), the frozen-order test in `render-post` `frame/game_tests.rs`, and the Metal frames in `tests/game_passes/before_post.rs`: a quad blended at alpha 0.25 over a game fill drawn after the transparent passes and over the stock quad equals the blend of the two to half precision with the alpha kept; a pass that tests the depth read-only and samples it writes the expected fade, sampled depth and fragment depth in front of the stock quad and off it, and leaves the stock colour where the test rejects it; and a game that plans nothing before post, or blends nothing there, leaves the HDR frame bit for bit as the stock frame.
 
 ## Native-resolution RCAS
 
@@ -1776,11 +1439,9 @@ removing any referenced ID. A sparse index tracks membership on edits, removals
 and slot reuse. Extraction from object templates preserves IDs.
 
 Stock, resident and shadowed composition schedule `PassSlot::ContourIds` once
-after every Opaque occurrence and before `AfterOpaqueSnapshot`. On Forward,
-Opaque draws the scene's opaque surfaces. With `GBUFFER_RENDER`, Opaque follows
-`OpaqueGbuffer` and `OpaqueLighting` and draws the remaining forward-only
-surfaces, so the ID pass sees the completed scene depth on either path. The
-observation path uses the same ordering. Frozen composition refuses a contour
+after every Opaque occurrence and before `AfterOpaqueSnapshot`. Opaque draws the
+scene's opaque surfaces, so the ID pass sees the completed scene depth. Frozen
+composition refuses a contour
 entry before any later Opaque entry with `FrameError::StockOrder`, preserving
 both occurrence identities in the error. The pass
 writes only selected members, reusing their object programs, original instance

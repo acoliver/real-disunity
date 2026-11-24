@@ -8,14 +8,16 @@
 //! colour-space encodings between the blit and the captured frame. The window is the windowless
 //! viewer of the other retained tests and needs a GPU adapter (lavapipe in CI).
 
-use super::ui_tests::{fixture_config, fixture_turn};
+use super::ui_tests::fixture_config;
+use super::ui_tests::fixture_turn;
 use super::*;
-use std::{path::PathBuf, time::Instant};
-use worldrunner_scene_viewer::SharedGpu;
+use std::path::PathBuf;
+use std::time::Instant;
 
-use crate::gpu_device::headless::HeadlessViewer;
+use crate::GpuLaunch;
+use crate::PreparedPlayer;
+use crate::gpu_device::{SharedDevice, headless};
 use crate::player::window_gpu;
-use crate::{DepthRange, PreparedPlayer};
 
 const SIZE: u32 = 64;
 /// The update that reads the second colour is the fourth `Update` of the script: one in the
@@ -33,21 +35,20 @@ struct Played {
     errors: Vec<String>,
 }
 
-fn readback_window(gpu_work: GpuWork) -> PlayerWindow {
+fn readback_window() -> PlayerWindow {
     PlayerWindow {
         title: "windowless readback".into(),
         size: [SIZE, SIZE],
         fixed_dt: Some(Duration::from_millis(16)),
-        max_frames: None,
+        max_frames: Some(UPDATES),
         capture_frames: BTreeSet::from([0, SECOND_COLOR_FRAME + 4]),
+        capture_files: Vec::new(),
         keys: vec![],
-        gpu_work,
     }
 }
 
-/// Plays the readback scene through the code `play_player_window` runs to start, with the GPU
-/// work the window asks for: a device for `GpuWork::Auto`, none for `GpuWork::Off`.
-fn play(gpu_work: GpuWork) -> Played {
+/// Plays the readback scene through the code `play_player_window` runs to start.
+fn play() -> Played {
     let _turn = fixture_turn();
     let data = tempfile::tempdir().unwrap();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -55,47 +56,39 @@ fn play(gpu_work: GpuWork) -> Played {
         config: fixture_config(),
         request: root.join("csharp/PortableFixture/readback.fixture"),
         data: data.path().to_owned(),
-        depth: DepthRange::default(),
-        globals: Vec::new(),
+        screen: None,
+        gpu: GpuLaunch::default(),
     };
-    let window = readback_window(gpu_work);
-    let mut source = HeadlessViewer::new([SIZE, SIZE]);
+    let window = readback_window();
+    let (mut shared, options) = headless::shared([SIZE, SIZE]);
     let gpu = window_gpu(
-        gpu_work,
         &prepared.data,
-        prepared.depth,
-        &prepared.globals,
-        &mut source,
-    );
-    assert_eq!(
-        gpu.is_some(),
-        gpu_work == GpuWork::Auto,
-        "the test needs a GPU adapter"
-    );
-    let shared = gpu.is_some().then_some(source.gpu);
-    let (viewer, mut driver) = start_window(&prepared, window, gpu).unwrap();
-    let mut run = match shared {
-        Some(gpu) => viewer.windowless_on(&mut driver, gpu),
-        None => viewer.windowless_on(&mut driver, SharedGpu::headless_for_test()),
-    }
-    .unwrap();
+        &prepared.gpu,
+        &mut SharedDevice {
+            gpu: &mut shared,
+            options: &options,
+        },
+    )
+    .expect("the test needs a GPU adapter");
+    let (viewer, mut driver) = start_window(&prepared, &window, options, gpu).unwrap();
+    let mut run = viewer.windowless(&mut driver, Some(shared)).unwrap();
     let deadline = Instant::now() + Duration::from_mins(1);
-    for _ in 0..UPDATES {
+    while !run.is_closed() {
+        assert!(Instant::now() < deadline, "the run timed out");
         run.frame().unwrap();
-        run.poll().unwrap();
-    }
-    while run.poll().unwrap() {
-        assert!(Instant::now() < deadline, "capture timed out");
+        if !run.is_closed() {
+            run.poll().unwrap();
+        }
         std::thread::yield_now();
     }
     run.shutdown().unwrap();
     drop(run);
-    let report = driver.gpu.as_ref().map(|gpu| gpu.report());
+    let report = driver.gpu.report();
     Played {
-        captures: std::mem::take(&mut driver.captures),
-        frames: report.as_ref().map_or(0, |report| report.frames),
-        pixel_reads: report.as_ref().map_or(0, |report| report.pixel_reads),
-        errors: report.map_or_else(Vec::new, |report| report.errors.keys().cloned().collect()),
+        frames: report.frames,
+        pixel_reads: report.pixel_reads,
+        errors: report.errors.keys().cloned().collect(),
+        captures: driver.script.finish().unwrap(),
     }
 }
 
@@ -125,7 +118,7 @@ fn capture_of(played: &Played, frame: u64) -> &Capture {
 
 #[test]
 fn a_blit_read_back_into_a_texture_shows_in_the_window_and_a_later_readback_replaces_it() {
-    let played = play(GpuWork::Auto);
+    let played = play();
     assert_eq!(played.captures.len(), 2);
     let first = capture_of(&played, 0);
     let later = capture_of(&played, SECOND_COLOR_FRAME + 4);
@@ -154,23 +147,4 @@ fn a_blit_read_back_into_a_texture_shows_in_the_window_and_a_later_readback_repl
         played.frames, UPDATES,
         "the window runs the GPU frame path once per update"
     );
-}
-
-#[test]
-fn without_gpu_work_the_image_keeps_the_texture_zero_texels() {
-    let played = play(GpuWork::Off);
-    assert_eq!(played.captures.len(), 2);
-    assert_eq!(played.frames, 0, "no device ran any frame");
-    for capture in &played.captures {
-        let background = pixel(capture, 2, 2);
-        for y in 20..44 {
-            for x in 20..44 {
-                let shown = pixel(capture, x, y);
-                assert!(
-                    (0..4).all(|channel| shown[channel].abs_diff(background[channel]) <= 2),
-                    "a transparent texture shows the background {background:?} at {x},{y}: {shown:?}"
-                );
-            }
-        }
-    }
 }

@@ -7,9 +7,10 @@ namespace Disunity.Hosting;
 
 /// <summary>Building a mesh of a resource plan: <c>{"type": "Mesh", "name", "vertex_count", "channels" [{"name", "dimension"}],
 /// "sub_meshes" [{"first_index", "index_count", "topology", "base_vertex", ...}], "index_count", "index_format" (1 for 32-bit),
-/// "bounds" {"center", "extent"}, "resource"}</c>. The resource file holds, in channel order, <c>vertex_count</c> vertices of
-/// <c>dimension</c> little-endian floats per channel (<c>position</c>, <c>normal</c>, <c>tangent</c>, <c>color</c>, <c>uv0</c> to
-/// <c>uv7</c>), then <c>index_count</c> 32-bit indices. The mesh stays readable (the engine's choice: the player keeps every
+/// "bounds" {"center", "extent"}, "resource", "bind_poses" (optional, one array of 16 row-major floats per bone)}</c>. The
+/// resource file holds, in channel order, <c>vertex_count</c> vertices of <c>dimension</c> little-endian floats per channel
+/// (<c>position</c>, <c>normal</c>, <c>tangent</c>, <c>color</c>, <c>uv0</c> to <c>uv7</c>, <c>blend weights</c> and
+/// <c>blend indices</c>, which make the bone weights together and are four values per vertex; a mesh whose skin channels are not keeps its vertices without a skin), then <c>index_count</c> 32-bit indices. The mesh stays readable (the engine's choice: the player keeps every
 /// mesh readable), and every filter that names it shares the one object.</summary>
 internal static class PlayerMeshes
 {
@@ -24,17 +25,63 @@ internal static class PlayerMeshes
         var indexCount = plan.Int("index_count");
         var offset = 0;
         var mesh = new Mesh { name = name };
+        var skin = new Dictionary<string, (float[] Values, int Dimension)>();
         foreach (var channel in plan.GetProperty("channels").EnumerateArray())
         {
             var dimension = channel.Int("dimension");
             var values = Read(data, ref offset, (long)vertexCount * dimension, name);
-            SetChannel(mesh, channel.Str("name"), values, dimension, name);
+            if (channel.Str("name") is "blend weights" or "blend indices") skin[channel.Str("name")] = (values, dimension);
+            else SetChannel(mesh, channel.Str("name"), values, dimension, name);
         }
+        SetSkin(mesh, plan, skin);
         var indices = ReadIndices(data, ref offset, indexCount, name);
         if (offset != data.Length) throw new InvalidDataException($"mesh {name}: {data.Length - offset} bytes follow its data");
         SetSubMeshes(mesh, plan, indices);
         mesh.bounds = ReadBounds(plan.GetProperty("bounds"));
         return mesh;
+    }
+
+    /// <summary>Sets the bone weights from the blend weight and blend index channels, which come together, and the bind poses. A
+    /// mesh whose skin channels cannot make the bone weights keeps its vertices and gets no bone weights and no bind poses: a
+    /// skinned renderer of it has no placement and is left out of frames, and the log names the mesh and why.</summary>
+    private static void SetSkin(Mesh mesh, JsonElement plan, Dictionary<string, (float[] Values, int Dimension)> channels)
+    {
+        if (SkinFlaw(mesh, channels) is { } flaw)
+        {
+            Debug.LogWarning($"The skin of mesh {mesh.name} is not built and the skinned renderers of it are left out: {flaw}");
+            return;
+        }
+        if (channels.Count == 2)
+        {
+            var (weights, joints) = (channels["blend weights"].Values, channels["blend indices"].Values);
+            mesh.boneWeights = Enumerable.Range(0, weights.Length / 4).Select(i => new BoneWeight
+            {
+                weight0 = weights[i * 4], weight1 = weights[i * 4 + 1], weight2 = weights[i * 4 + 2], weight3 = weights[i * 4 + 3],
+                boneIndex0 = (int)joints[i * 4], boneIndex1 = (int)joints[i * 4 + 1], boneIndex2 = (int)joints[i * 4 + 2], boneIndex3 = (int)joints[i * 4 + 3],
+            }).ToArray();
+        }
+        if (plan.TryGetProperty("bind_poses", out var poses)) mesh.bindposes = poses.EnumerateArray().Select(BindPose).ToArray();
+    }
+
+    /// <summary>Why the skin channels cannot make bone weights, or null when there are none or both are four values per vertex.</summary>
+    private static string? SkinFlaw(Mesh mesh, Dictionary<string, (float[] Values, int Dimension)> channels)
+    {
+        if (channels.Count == 1) return "blend weights and blend indices come together";
+        foreach (var (name, (values, dimension)) in channels)
+        {
+            if (dimension != 4) return $"{name} has {dimension} components, not 4";
+            if (values.Length != mesh.vertexCount * 4) return $"{name} does not match the {mesh.vertexCount} vertices";
+        }
+        return null;
+    }
+
+    /// <summary>A bind pose from its 16 row-major floats.</summary>
+    private static Matrix4x4 BindPose(JsonElement values)
+    {
+        var pose = new Matrix4x4();
+        for (var row = 0; row < 4; row++)
+            for (var column = 0; column < 4; column++) pose[row, column] = values[row * 4 + column].GetSingle();
+        return pose;
     }
 
     private static float[] Read(byte[] data, ref int offset, long count, string mesh)

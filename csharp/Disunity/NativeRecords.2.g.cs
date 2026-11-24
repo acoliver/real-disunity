@@ -315,38 +315,6 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  One bound value. `kind` is 0 for a float (one float at `float_offset`), 1 for an integer
-    ///  (`int_value`), 2 for a vector (four floats), 3 for a matrix (sixteen floats, column-major),
-    ///  4 for a texture and 5 for a buffer (`resource` is the compute buffer's id). A texture reads
-    ///  scale x, scale y, offset x and offset y at `float_offset`; its `texture_kind` is 0 for none,
-    ///  1 for a player texture and 2 for a render texture (`resource` is the identity or the id).
-    ///  The name is `name_length` bytes of the text at `name_offset`.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityComputeBinding
-    {
-        public uint kind;
-        public uint name_offset;
-        public uint name_length;
-        public uint float_offset;
-        public int int_value;
-        public uint texture_kind;
-        public ulong resource;
-    }
-
-    /// <summary>
-    ///  How many entries, floats and text bytes the bindings hold. On input they are the capacities
-    ///  of the arrays a caller passes; on output they are what the bindings hold.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityComputeBindingsInfo
-    {
-        public uint entry_count;
-        public uint float_count;
-        public uint text_length;
-    }
-
-    /// <summary>
     ///  The environment lighting of a world. A section a scene or a script never wrote reads with its
     ///  `*_set` flag 0 and the values of a new scene; writing a section with its flag 0 puts it back to
     ///  unwritten, whatever its other fields hold. Colours are linear RGBA. `ambient_mode` is 0 skybox,
@@ -449,6 +417,28 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  The fields of a batch draw. `metadata_count` names are at the call's `names` pointer
+    ///  (`names_len` bytes of UTF-8 names joined by zero bytes) with one word each at `words`;
+    ///  `visible_count` instance indexes are at `visible`. `tags_len` bytes at `tags` are the pass
+    ///  tags (`LightMode` values) joined by zero bytes, and a record that has them has pass -1.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityDrawBatch
+    {
+        public ulong mesh;
+        public ulong material;
+        public ulong buffer;
+        public ulong offset;
+        public ulong size;
+        public uint submesh;
+        public int pass;
+        public uint metadata_count;
+        public uint names_len;
+        public uint visible_count;
+        public uint tags_len;
+    }
+
+    /// <summary>
     ///  A target. `kind` is 0 for a render texture (`render` is its id), 1 for a temporary render
     ///  texture (`name_id` is the property name id it was allocated under), 2 for the camera's
     ///  target and 3 for none. Fields a kind does not use must be 0.
@@ -462,21 +452,16 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
-    ///  component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
-    ///  compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
-    ///  does (0 none, 1 asset, 2 render texture, 4 temporary render texture), and write the target
-    ///  that `target_kind` names: 0 for the render texture `target`, 1 for the temporary render
+    ///  One piece of offscreen work a script records with [`disunity_offscreen_record`]. `kind` is 0
+    ///  for a camera render (`camera` is the camera component, `target` the render texture), 1 for a
+    ///  blit and 2 for a texture copy. A blit and a copy read `source_kind` and `source` as a texture
+    ///  property does (0 none, 1 asset, 2 render texture, 4 temporary render texture), and write the
+    ///  target that `target_kind` names: 0 for the render texture `target`, 1 for the temporary render
     ///  texture whose property name id is the low 32 bits of `target`. A camera render ignores
-    ///  `target_kind`. A blit draws with `material` (0 for none) and
-    ///  `pass` (-1 for every pass); a copy addresses `source_element`, `source_mip`,
-    ///  `target_element` and `target_mip`. A dispatch names its `shader` and `kernel` and the thread
-    ///  groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
-    ///  it ran with by, valid until the next take. A dispatch is recorded by
-    ///  `disunity_compute_dispatch`, never by [`disunity_offscreen_record`], and only taking returns
-    ///  one. The commands of `graphics_commands` take kinds 4 to 9 and a `bindings` token for
-    ///  `disunity_offscreen_detail`, which reads the record's encoded bytes; they are recorded by
-    ///  their own calls. Fields a kind does not use are ignored.
+    ///  `target_kind`. A blit draws with `material` (0 for none) and `pass` (-1 for every pass); a copy
+    ///  addresses `source_element`, `source_mip`, `target_element` and `target_mip`. A dispatch and the
+    ///  commands of `graphics_commands` are recorded by their own calls. Fields a kind does not use are
+    ///  ignored. A host reads the frame's work, every kind of it, in the graphics snapshot.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityOffscreenWork
@@ -493,12 +478,6 @@ namespace Disunity.Native
         public uint source_mip;
         public uint target_element;
         public uint target_mip;
-        public ulong shader;
-        public uint kernel;
-        public uint groups_x;
-        public uint groups_y;
-        public uint groups_z;
-        public uint bindings;
     }
 
     /// <summary>
@@ -709,6 +688,21 @@ namespace Disunity.Native
         public float effect_g;
         public float effect_b;
         public float effect_a;
+        /// <summary>
+        ///  0 when `DisunityQuad::texture` is a stored image identity (graphics) or a coverage index
+        ///  (text); 1 when it is a render texture id (`RenderTextureId::to_bits`).
+        /// </summary>
+        public uint texture_kind;
+        public uint padding;
+        /// <summary>
+        ///  The world material of a graphic the game draws with its own shader, from
+        ///  `MaterialId::to_bits`; zero for the engine's look and for text.
+        /// </summary>
+        public ulong material;
+        /// <summary>
+        ///  The generation of that material's state; zero when `material` is zero.
+        /// </summary>
+        public ulong material_generation;
     }
 
 }

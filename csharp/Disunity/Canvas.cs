@@ -12,7 +12,11 @@ public sealed partial class Canvas : Behaviour
         DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_read(DisunityHost.WorldHandle, Handle, &value));
         return value;
     }
-    internal unsafe void Write(DisunityCanvas value) => DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_write(DisunityHost.WorldHandle, Handle, &value));
+    internal unsafe void Write(DisunityCanvas value)
+    {
+        DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_write(DisunityHost.WorldHandle, Handle, &value));
+        RectDimensionMessages.MarkChanged();
+    }
     private protected override bool EnabledState { get => Read().enabled == 1; set { var c = Read(); c.enabled = value ? 1u : 0u; Write(c); } }
     public int sortingOrder { get => Read().sorting_order; set { var c = Read(); c.sorting_order = value; Write(c); } }
     /// <summary>On a screen-space canvas, moves each text so its first glyph starts on a whole
@@ -43,10 +47,11 @@ public sealed partial class Canvas : Behaviour
         {
             var scale = new DisunityCanvasScale { mode = 0, factor = value };
             DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_scale_write(DisunityHost.WorldHandle, Handle, &scale));
+            RectDimensionMessages.MarkChanged();
         }
     }
 }
-public sealed class Font : Object
+public sealed partial class Font : Object
 {
     internal readonly ulong Handle;
     internal readonly ulong World;
@@ -64,26 +69,56 @@ public sealed class Font : Object
         FontData = file.Length == 0 ? null : file;
     }
 
+    /// <summary>True when the engine draws this font's glyphs on demand from font data, which is the case for a font that
+    /// holds its font file (registered by the host or stored by a player). A font with no file has only imported glyph data
+    /// and is not dynamic. The engine has no system fonts, so no font is made from an OS font.</summary>
+    public bool dynamic => FontData is not null;
+
     private Material? _material;
+    private bool _materialIsOwn;
+    private Texture2D? _atlas;
 
     /// <summary>The material UI text draws this font with: a copy of the default UI material named after the font,
-    /// made on first use and kept until destroyed. The engine builds no atlas for a font, so it has no main texture
-    /// (the engine's choice); setting it replaces it.</summary>
+    /// made on first use and kept until destroyed. Its main texture is the font's glyph atlas once a glyph was drawn;
+    /// setting the material replaces it, and the engine then leaves the replacement's texture alone.</summary>
     public Material material
     {
-        get => _material ? _material! : _material = new Material(Canvas.GetDefaultCanvasMaterial()) { name = name };
-        set => _material = value;
+        get
+        {
+            if (_material) return _material!;
+            _materialIsOwn = true;
+            return _material = new Material(Canvas.GetDefaultCanvasMaterial()) { name = name, mainTexture = _atlas };
+        }
+        set
+        {
+            _material = value;
+            _materialIsOwn = false;
+        }
+    }
+
+    /// <summary>Makes the atlas texture the main texture of the material the font made.</summary>
+    internal void AdoptAtlas(Texture2D? atlas)
+    {
+        _atlas = atlas;
+        if (_materialIsOwn && _material) _material!.mainTexture = atlas;
     }
 
     private static readonly object RebuildLock = new();
     private static Action<Font>? _textureRebuilt;
 
-    /// <summary>Raised when a dynamic font's atlas is rebuilt. The engine rebuilds no atlas, so it never raises this; UI
-    /// text still adds and removes its handler as it tracks the font.</summary>
+    /// <summary>Raised when a dynamic font's atlas texture is replaced: after it grew, or was made again in a new world.
+    /// UI text adds and removes its handler as it tracks the font, and rebuilds its geometry when it is raised.</summary>
     public static event Action<Font>? textureRebuilt
     {
         add { lock (RebuildLock) _textureRebuilt += value; }
         remove { lock (RebuildLock) _textureRebuilt -= value; }
+    }
+
+    private void RaiseTextureRebuilt()
+    {
+        Action<Font>? handlers;
+        lock (RebuildLock) handlers = _textureRebuilt;
+        handlers?.Invoke(this);
     }
 }
 

@@ -9,23 +9,37 @@
 //! the exception that costs least to keep as a record of their own: a [`Record::Globals`] stands
 //! in front of the first record that follows a change.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use glam::Mat4;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
-use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, GlobalState, Record, RenderDimension, RenderTextureSpec,
-};
+use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::layers::TextureInput;
+use worldrunner_render_program::unity::offscreen::frame::Attachment;
+use worldrunner_render_program::unity::offscreen::frame::Attachments;
+use worldrunner_render_program::unity::offscreen::frame::Clear;
+use worldrunner_render_program::unity::offscreen::frame::GlobalState;
+use worldrunner_render_program::unity::offscreen::frame::Record;
+use worldrunner_render_program::unity::offscreen::frame::RenderDimension;
+use worldrunner_render_program::unity::offscreen::frame::RenderTextureSpec;
 use worldrunner_world_simulation::ComponentHandle;
-use worldrunner_world_simulation::graphics::{
-    CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, PropertyValue as WorldValue, RendererListDesc,
-    TargetRef, TextureRef, WorldRenderTexture, WorldSampler, dimension,
-};
+use worldrunner_world_simulation::graphics::CameraBuffers;
+use worldrunner_world_simulation::graphics::MAX_COLOR_TARGETS;
+use worldrunner_world_simulation::graphics::OffscreenWork;
+use worldrunner_world_simulation::graphics::PropertyValue as WorldValue;
+use worldrunner_world_simulation::graphics::RendererListDesc;
+use worldrunner_world_simulation::graphics::TargetRef;
+use worldrunner_world_simulation::graphics::TextureRef;
+use worldrunner_world_simulation::graphics::WorldRenderTexture;
+use worldrunner_world_simulation::graphics::WorldSampler;
+use worldrunner_world_simulation::graphics::dimension;
 
 use super::assets::sampler_of_world;
-use super::frame::{Mapper, RendererSkip, Skip};
+use super::frame::Mapper;
+use super::frame::RendererSkip;
+use super::frame::Skip;
 use super::ids;
 use super::properties::set_value;
 use super::raster::RasterScript;
@@ -118,6 +132,8 @@ pub(super) struct CameraSetup {
     pub(super) view: Mat4,
     pub(super) projection: Mat4,
     pub(super) viewport: [f32; 4],
+    /// The orthographic half height of the camera, when the snapshot holds it.
+    pub(super) half_height: Option<f32>,
 }
 
 /// What a target names as attachments: the textures whose color buffers are drawn into, in order,
@@ -233,6 +249,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DisableScissor => "DisableScissor",
         OffscreenWork::SetDepthBias { .. } => "SetDepthBias",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
+        OffscreenWork::DrawMeshBatch { .. } => "DrawMeshBatch",
         OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
         OffscreenWork::GenerateMips { .. } => "GenerateMips",
     }
@@ -248,7 +265,6 @@ impl Mapper<'_> {
             | OffscreenWork::AllocateTemporary { .. }
             | OffscreenWork::ReleaseTemporary { .. }
             | OffscreenWork::SetupCamera { .. }
-            | OffscreenWork::Cull { .. }
             | OffscreenWork::CreateRendererList { .. }
             | OffscreenWork::SetViewProjection { .. }
             | OffscreenWork::SetViewport { .. }
@@ -285,6 +301,13 @@ impl Mapper<'_> {
                 (*material, *pass),
                 (block.as_deref(), *instances),
             ),
+            OffscreenWork::DrawMeshBatch {
+                mesh,
+                material,
+                submesh,
+                pass,
+                batch,
+            } => self.draw_mesh_batch((*mesh, *submesh), (*material, *pass), batch),
             OffscreenWork::DrawProcedural {
                 matrix,
                 material,
@@ -300,6 +323,7 @@ impl Mapper<'_> {
             ),
             OffscreenWork::GenerateMips { texture } => self.generate_mips(*texture),
             OffscreenWork::CameraRender { .. }
+            | OffscreenWork::Cull { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
             | OffscreenWork::Dispatch { .. }
@@ -320,10 +344,14 @@ impl Mapper<'_> {
                 slice,
             } => self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?,
             OffscreenWork::SetGlobal(value) => {
+                if let WorldValue::Texture(name, _) = value {
+                    self.report.global_reads.set.insert(name.clone());
+                }
                 let temporary = self.temporary_global(value)?;
                 let globals = &mut self.script.globals;
                 match temporary {
                     Some((name, input)) => {
+                        globals.layer.none_textures.remove(&name);
                         globals.layer.textures.insert(name, input);
                     }
                     None => set_value(&mut globals.layer, value, &mut self.textures),
@@ -354,12 +382,6 @@ impl Mapper<'_> {
                 target,
                 buffers,
             } => self.setup_camera(*camera, (view, projection), (*target, *buffers))?,
-            OffscreenWork::Cull {
-                id,
-                culling_mask,
-                planes,
-                ..
-            } => self.cull(*id, *culling_mask, planes),
             OffscreenWork::CreateRendererList { id, desc } => self.create_list(*id, desc),
             OffscreenWork::SetViewProjection { view, projection } => {
                 self.set_view_projection(view, projection);
@@ -653,17 +675,15 @@ impl Mapper<'_> {
     ) -> Result<(), Skip> {
         // The world copies the cameras that camera renders name, so a camera set up alone may be
         // absent; it then has the whole target.
-        let viewport = self
-            .snapshot
-            .cameras
-            .get(&camera)
-            .map_or([0.0, 0.0, 1.0, 1.0], |held| held.settings.viewport);
+        let held = self.snapshot.cameras.get(&camera);
+        let viewport = held.map_or([0.0, 0.0, 1.0, 1.0], |held| held.settings.viewport);
         self.script.camera = Some(CameraSetup {
             target,
             buffers,
             view: Mat4::from_cols_array(view),
             projection: Mat4::from_cols_array(projection),
             viewport,
+            half_height: held.map(|held| held.settings.half_height),
         });
         self.script.viewport = None;
         self.script.raster.end_scissor();
@@ -714,6 +734,7 @@ impl Mapper<'_> {
                     view,
                     projection,
                     viewport: [0.0, 0.0, 1.0, 1.0],
+                    half_height: None,
                 });
             }
         }

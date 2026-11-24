@@ -14,7 +14,7 @@ fn a_windowless_session_on_a_shared_device_runs_the_callers_offscreen_work_in_it
     let mut driver = Driver::default();
     let mut host = host(crate::renderer::retained_tests::source());
     host.admit_offscreen(operations);
-    let mut run = host.windowless_on(&mut driver, gpu).unwrap();
+    let mut run = host.windowless(&mut driver, Some(gpu)).unwrap();
 
     let before = authority.submitted_serial();
     assert!(run.frame().unwrap());

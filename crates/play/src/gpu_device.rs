@@ -7,36 +7,33 @@
 
 use std::path::Path;
 
+use worldrunner_render_gpu::adapter_memory::AdapterMemory;
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
+use worldrunner_render_gpu::device::{
+    DeviceRequirements, request_device, storage_images_per_stage,
+};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::ProgramRuntime;
+use worldrunner_scene_viewer::{SharedGpu, ViewerOptions};
 
-use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
+use crate::storage_budget::{self, Choice, host_available_bytes};
 
 /// Inputs sampled once when a player starts, so its adapter requests use one storage policy.
 #[derive(Clone, Debug)]
 pub(crate) struct PlayerStartupInputs {
-    storage_budget_mb: Option<String>,
     host_available_bytes: Option<u64>,
 }
 
 impl PlayerStartupInputs {
-    /// Takes the process inputs that determine a software adapter's adaptive storage budget.
+    /// Takes the process input that determines the storage budget besides the adapter's own
+    /// memory: the host's available memory.
     pub(crate) fn capture() -> Self {
-        Self::from_snapshot(
-            std::env::var(STORAGE_BUDGET_ENV).ok(),
-            host_available_bytes(),
-        )
+        Self::from_snapshot(host_available_bytes())
     }
 
     /// Holds a startup snapshot, also used to make parity checks independent of host memory.
-    pub(crate) fn from_snapshot(
-        storage_budget_mb: Option<String>,
-        host_available_bytes: Option<u64>,
-    ) -> Self {
+    pub(crate) fn from_snapshot(host_available_bytes: Option<u64>) -> Self {
         Self {
-            storage_budget_mb,
             host_available_bytes,
         }
     }
@@ -73,40 +70,56 @@ pub(crate) trait DeviceSource {
     ) -> Result<(wgpu::Device, SubmissionAuthority), String>;
 }
 
+/// The one source of a window's device: the viewer's [`SharedGpu`], which a window's start and a
+/// windowless run both hold, under the options the viewer runs with.
+pub(crate) struct SharedDevice<'a> {
+    pub(crate) gpu: &'a mut SharedGpu,
+    pub(crate) options: &'a ViewerOptions,
+}
+
+impl DeviceSource for SharedDevice<'_> {
+    fn adapter(&mut self) -> Result<wgpu::Adapter, String> {
+        self.gpu.adapter().map_err(|error| error.to_string())
+    }
+
+    fn device(
+        &mut self,
+        requirements: &DeviceRequirements,
+    ) -> Result<(wgpu::Device, SubmissionAuthority), String> {
+        self.gpu
+            .device(self.options, requirements)
+            .map_err(|error| error.to_string())
+    }
+}
+
 /// The storage budget for `adapter`: see [`storage_budget`].
 fn storage_choice(adapter: &wgpu::Adapter, inputs: &PlayerStartupInputs) -> Choice {
-    storage_budget::choose(
-        inputs.storage_budget_mb.as_deref(),
-        adapter.get_info().device_type,
-        inputs.host_available_bytes,
-    )
+    let device_local = AdapterMemory::probe(&adapter.get_info()).map(|memory| memory.device_local);
+    storage_budget::choose(device_local, inputs.host_available_bytes)
 }
 
 /// The device the player asks for, headless or in a window: the default limits and block
 /// compression where offered, with buffers as large as the storage budget allows (the adapter's
-/// own limit when that is less, since the budget does not need one buffer to hold it). It prefers
-/// eight storage images in a stage where the adapter has them, because two of the Old World's
-/// compute variants bind five and the default limit is four; an adapter that does not has the
-/// default limit and leaves those two variants out by name.
+/// own limit when that is less, since the budget does not need one buffer to hold it). It asks
+/// for the storage images in a stage that the scene's device asks for, [`storage_images_per_stage`],
+/// so a window's device and a headless one agree; two of the Old World's compute variants bind
+/// five, one more than the default limit of four, and an adapter offering only four leaves those
+/// two variants out by name.
 pub(crate) fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequirements {
     let default = wgpu::Limits::default();
-    let required = wgpu::Limits {
-        max_buffer_size: budget
-            .max(default.max_buffer_size)
-            .min(available.max_buffer_size),
-        ..default
-    };
     DeviceRequirements {
         // The player stores some textures block-compressed; a device without the feature leaves
         // them out by name. Unity filters its 32-bit float render textures; without
         // FLOAT32_FILTERABLE they are read at the nearest texel instead.
         optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC
             | wgpu::Features::FLOAT32_FILTERABLE,
-        optional_limits: Some(wgpu::Limits {
-            max_storage_textures_per_shader_stage: PREFERRED_STORAGE_IMAGES,
-            ..required.clone()
-        }),
-        required_limits: required,
+        required_limits: wgpu::Limits {
+            max_buffer_size: budget
+                .max(default.max_buffer_size)
+                .min(available.max_buffer_size),
+            max_storage_textures_per_shader_stage: storage_images_per_stage(available),
+            ..default
+        },
         ..DeviceRequirements::default()
     }
 }
@@ -124,11 +137,20 @@ pub(crate) fn headless_gpu_instance() -> wgpu::Instance {
     worldrunner_render_gpu::test_support::test_instance()
 }
 
-/// The storage images a stage may bind that the device is asked for.
-const PREFERRED_STORAGE_IMAGES: u32 = 8;
+/// The shared device of a run with no window: the headless instance, and render-gpu's test
+/// instance in play's tests, as for the headless player's device (see `headless_gpu_instance`).
+#[cfg(not(test))]
+pub(crate) fn headless_shared_gpu() -> SharedGpu {
+    SharedGpu::headless()
+}
+
+#[cfg(test)]
+pub(crate) fn headless_shared_gpu() -> SharedGpu {
+    SharedGpu::headless_for_test()
+}
 
 /// Builds every compute kernel variant of the player in `data` as a compute program on the
-/// device the headless player asks for, and counts what the device cannot hold by cause.
+/// device the headless player asks for with its default storage budget, and counts what the device cannot hold by cause.
 ///
 /// # Errors
 /// Fails with the reason when the machine has no adapter or device, or the player cannot be read.
@@ -162,60 +184,27 @@ pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeC
 pub(crate) mod headless {
     use std::collections::BTreeSet;
 
-    use worldrunner_scene_viewer::{SharedGpu, ViewerOptions};
-
     use super::*;
-    use crate::player::GpuWork;
     use crate::retained_driver::{PlayerWindow, viewer_options};
 
-    pub(crate) struct HeadlessViewer {
-        pub gpu: SharedGpu,
-        pub options: ViewerOptions,
-        /// What the player asked of the device, in order.
-        pub asked: Vec<DeviceRequirements>,
+    /// A `SharedGpu` on the test instance and the options a window of `size` runs under.
+    pub(crate) fn shared(size: [u32; 2]) -> (SharedGpu, ViewerOptions) {
+        let window = PlayerWindow {
+            title: "windowless".into(),
+            size,
+            fixed_dt: None,
+            max_frames: None,
+            capture_frames: BTreeSet::new(),
+            capture_files: Vec::new(),
+            keys: Vec::new(),
+        };
+        (headless_shared_gpu(), viewer_options(&window))
     }
 
-    impl HeadlessViewer {
-        pub(crate) fn new(size: [u32; 2]) -> Self {
-            let window = PlayerWindow {
-                title: "windowless".into(),
-                size,
-                fixed_dt: None,
-                max_frames: None,
-                capture_frames: BTreeSet::new(),
-                keys: Vec::new(),
-                gpu_work: GpuWork::Auto,
-            };
-            Self {
-                gpu: SharedGpu::headless_for_test(),
-                options: viewer_options(&window),
-                asked: Vec::new(),
-            }
-        }
-
-        /// The authority of the device, which the window's frames and the player both submit
-        /// through.
-        pub(crate) fn authority(&mut self) -> SubmissionAuthority {
-            self.gpu
-                .device(&self.options, &DeviceRequirements::default())
-                .expect("the viewer's device")
-                .1
-        }
-    }
-
-    impl DeviceSource for HeadlessViewer {
-        fn adapter(&mut self) -> Result<wgpu::Adapter, String> {
-            self.gpu.adapter().map_err(|error| error.to_string())
-        }
-
-        fn device(
-            &mut self,
-            requirements: &DeviceRequirements,
-        ) -> Result<(wgpu::Device, SubmissionAuthority), String> {
-            self.asked.push(requirements.clone());
-            self.gpu
-                .device(&self.options, requirements)
-                .map_err(|error| error.to_string())
-        }
+    /// The authority of the device, which the window's frames and the player both submit through.
+    pub(crate) fn authority(gpu: &mut SharedGpu, options: &ViewerOptions) -> SubmissionAuthority {
+        gpu.device(options, &DeviceRequirements::default())
+            .expect("the viewer's device")
+            .1
     }
 }

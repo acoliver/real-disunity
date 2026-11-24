@@ -4,9 +4,10 @@ use super::{
     SdsmSettings,
 };
 use crate::{
+    compositor::ColorDepth,
     device::GpuContext,
     frame::{FrameUniform, metadata::FrameProduct},
-    shadows::{ShadowError, ShadowedScene},
+    shadows::{ShadowError, ShadowedScene, frame::FitInput},
     view::SceneView,
 };
 use worldrunner_render_gpu::submission::capture::CaptureWrites;
@@ -23,10 +24,10 @@ pub(crate) struct SceneDepthFitting {
     last_time: Option<std::time::Duration>,
 }
 impl ShadowedScene {
-    /// Discards camera-dependent depth evidence and temporal history after a camera cut.
+    /// Discards camera-dependent depth evidence and scene history after a camera cut.
     /// Frame identities remain monotonic; the next view gathers new fitting evidence.
+    /// The host resets its own renderer's temporal history.
     pub fn reset_camera_history(&mut self) {
-        self.scheduler.reset_temporal_history();
         self.gpu.reset_velocity_history();
         self.refresh.borrow_mut().invalidate();
         if let Some(state) = &mut self.depth_fitting {
@@ -74,41 +75,6 @@ impl ShadowedScene {
         Ok(())
     }
 
-    /// Same-frame capture submits only metadata and reduction before refitting.
-    /// Interactive mode polls completed evidence without waiting for the GPU.
-    pub fn render_depth_fitted(
-        &mut self,
-        context: &GpuContext,
-        view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
-        source_frame: u64,
-    ) -> Result<Option<AdoptedFit>, ShadowError> {
-        let mut state = self
-            .depth_fitting
-            .take()
-            .ok_or(ShadowError::UnsupportedFeature("depth fitting is disabled"))?;
-        let result = self.render_sdsm(context, view, attachments, (source_frame, &[]), &mut state);
-        self.scheduler.clear_capture_resources();
-        self.gpu.clear_capture_pages();
-        self.depth_fitting = Some(state);
-        result
-    }
-
-    /// Uses a host's retained stock frame profile, including HDR and screen effects.
-    pub fn render_depth_fitted_with(
-        &mut self,
-        context: &GpuContext,
-        view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
-        source_frame: u64,
-        scheduler: &mut crate::compositor::FrameRenderer,
-    ) -> Result<Option<AdoptedFit>, ShadowError> {
-        std::mem::swap(&mut self.scheduler, scheduler);
-        let result = self.render_depth_fitted(context, view, attachments, source_frame);
-        std::mem::swap(&mut self.scheduler, scheduler);
-        result
-    }
-
     pub fn last_depth_fit(&self) -> Option<AdoptedFit> {
         self.depth_fitting.as_ref().and_then(|state| state.current)
     }
@@ -117,25 +83,11 @@ impl ShadowedScene {
         self.depth_fitting.as_ref().map(|state| state.settings)
     }
 
+    /// Fits with a host's retained stock frame profile, including HDR and screen effects,
+    /// replaying requested opaque terms in the fitted frame's drawing transaction.
+    /// Same-frame capture submits only metadata and reduction before refitting.
+    /// Interactive mode polls completed evidence without waiting for the GPU.
     pub fn render_depth_fitted_host(
-        &mut self,
-        context: &GpuContext,
-        view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
-        frame: (Option<u64>, bool),
-        scheduler: &mut crate::compositor::FrameRenderer,
-    ) -> Result<Option<AdoptedFit>, ShadowError> {
-        self.render_depth_fitted_host_terms(
-            context,
-            view,
-            attachments,
-            (frame.0, frame.1, &[]),
-            scheduler,
-        )
-    }
-
-    /// Replays requested opaque terms in the fitted frame's drawing transaction.
-    pub fn render_depth_fitted_host_terms(
         &mut self,
         context: &GpuContext,
         view: &SceneView,
@@ -151,18 +103,14 @@ impl ShadowedScene {
         if frame.1 {
             state.settings.policy = AdoptionPolicy::SameFrameCapture;
         }
-        std::mem::swap(&mut self.scheduler, scheduler);
-        let source_frame = frame.0.unwrap_or(state.next_frame);
-        let result = self.render_sdsm(
-            context,
-            view,
-            attachments,
-            (source_frame, frame.2),
-            &mut state,
-        );
-        self.scheduler.clear_capture_resources();
+        let work = FrameWork {
+            source_frame: frame.0.unwrap_or(state.next_frame),
+            terms: frame.2,
+            scheduler: &mut *scheduler,
+        };
+        let result = self.render_sdsm(context, view, attachments, work, &mut state);
+        scheduler.clear_capture_resources();
         self.gpu.clear_capture_pages();
-        std::mem::swap(&mut self.scheduler, scheduler);
         state.settings.policy = policy;
         self.depth_fitting = Some(state);
         result
@@ -173,15 +121,17 @@ impl ShadowedScene {
         context: &GpuContext,
         view: &SceneView,
         attachments: (&AttachmentView, &AttachmentView),
-        frame: (u64, &[crate::compositor::terms::TermCapture]),
+        work: FrameWork<'_>,
         state: &mut SceneDepthFitting,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
-        let (source_frame, terms) = frame;
-        self.prepare_sdsm_producers(context, attachments.1, source_frame, state)?;
-        let metadata = state.bind(context, &self.scheduler, attachments.0.size())?;
-        let frame = self
-            .scheduler
-            .prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
+        let FrameWork {
+            source_frame,
+            terms,
+            scheduler,
+        } = work;
+        self.prepare_sdsm_producers(context, attachments.1, source_frame, state, scheduler)?;
+        let metadata = state.bind(context, scheduler, attachments.0.size())?;
+        let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         let input = RenderInput {
             context,
             view,
@@ -192,16 +142,16 @@ impl ShadowedScene {
             terms,
         };
         let mut fitting = state.fitting.take().expect("fitting installed");
-        fitting.set_timing(self.scheduler.timing_state());
+        fitting.set_timing(scheduler.timing_state());
         let result = match state.settings.policy {
             AdoptionPolicy::SameFrameCapture => {
-                let result = self.render_capture(&input, state, &fitting);
+                let result = self.render_capture(&input, state, &fitting, scheduler);
                 fitting.invalidate_pending();
                 state.pending.clear();
                 result
             }
             AdoptionPolicy::Interactive { .. } | AdoptionPolicy::QuantizedPerBound { .. } => {
-                self.render_interactive(&input, state, &mut fitting)
+                self.render_interactive(&input, state, &mut fitting, scheduler)
             }
         };
         if result.is_err() {
@@ -225,6 +175,7 @@ impl ShadowedScene {
         depth: &AttachmentView,
         source_frame: u64,
         state: &mut SceneDepthFitting,
+        scheduler: &mut crate::compositor::FrameRenderer,
     ) -> Result<(), ShadowError> {
         if source_frame < state.next_frame {
             return Err(SdsmError::FrameIdentity.into());
@@ -238,22 +189,16 @@ impl ShadowedScene {
             }
             .into());
         }
-        self.scheduler.validate_opaque_depth(depth)?;
-        self.scheduler
-            .validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
-        state.select_time(self.scheduler.selected_time);
-        self.scheduler.prepare_receiver_gradients(
+        state.select_time(scheduler.selected_time);
+        scheduler.prepare_receiver_gradients(
             context.device(),
             &self.gpu,
             self.settings.normal_bias_meters,
         )?;
-        self.scheduler
-            .prepare_scene_inputs(context.device(), &self.gpu);
-        let depth = self.scheduler.forward_depth(&self.gpu, depth);
-        let selected = self.scheduler.receiver_pipelines(&self.pipelines, depth);
+        scheduler.prepare_scene_inputs(context.device(), &self.gpu);
+        let depth = scheduler.forward_depth(&self.gpu, depth);
+        let selected = scheduler.receiver_pipelines(&self.pipelines, depth);
         let velocity = selected.writes_velocity();
-        self.scheduler
-            .match_producer_velocity(context.device(), velocity);
         self.gpu.track_previous_transforms(velocity);
         Ok(())
     }
@@ -261,17 +206,17 @@ impl ShadowedScene {
     fn capture_contract(
         &mut self,
         input: &RenderInput<'_>,
+        scheduler: &mut crate::compositor::FrameRenderer,
         key: worldrunner_render_gpu::submission::capture::WriteKey,
     ) -> Result<CaptureWrites, ShadowError> {
-        self.scheduler
-            .prepare_scene_inputs(input.context.device(), &self.gpu);
+        scheduler.prepare_scene_inputs(input.context.device(), &self.gpu);
         let scene_keys = self.gpu.capture_write_keys(input.context.device())?;
         let mut suffix = scene_keys.clone();
         suffix.push(self.gpu.instance_history_key());
         suffix.push(crate::compositor::publication::key(&self.refresh));
-        suffix.extend(self.scheduler.capture_write_keys());
-        suffix.extend(self.scheduler.capture_effect_keys(input.context.device())?);
-        suffix.extend(self.scheduler.capture_contour_keys(
+        suffix.extend(scheduler.capture_write_keys());
+        suffix.extend(scheduler.capture_effect_keys(input.context.device())?);
+        suffix.extend(scheduler.capture_contour_keys(
             input.context.device(),
             &self.gpu,
             input.attachments.1,
@@ -279,52 +224,36 @@ impl ShadowedScene {
         let celestial = self
             .gpu
             .capture_celestial_textures(input.context.device(), input.attachments.0.size());
-        suffix.extend(
-            self.scheduler
-                .capture_texture_keys(&celestial.iter().collect::<Vec<_>>())?,
-        );
-        suffix.extend(self.scheduler.capture_texture_keys(&[
+        suffix.extend(scheduler.capture_texture_keys(&celestial.iter().collect::<Vec<_>>())?);
+        suffix.extend(scheduler.capture_texture_keys(&[
             input.attachments.0.texture(),
             input.attachments.1.texture(),
             self.map.depth.texture(),
         ])?);
         for term in input.terms {
-            suffix.extend(self.scheduler.capture_texture_keys(&term.textures())?);
+            suffix.extend(scheduler.capture_texture_keys(&term.textures())?);
         }
-        let prefix = self.capture_prefix_keys(scene_keys)?;
-        let metadata = self.capture_metadata_keys(input)?;
-        let scene_depth = self
-            .scheduler
-            .capture_texture_keys(&[input.attachments.1.texture()])?[0];
+        let prefix = Self::capture_prefix_keys(scheduler, scene_keys)?;
+        let metadata = Self::capture_metadata_keys(input, scheduler)?;
+        let scene_depth = scheduler.capture_texture_keys(&[input.attachments.1.texture()])?[0];
         Ok(capture_writes(prefix, suffix, metadata, scene_depth, key).map_err(SdsmError::from)?)
     }
 
     fn capture_prefix_keys(
-        &mut self,
+        scheduler: &mut crate::compositor::FrameRenderer,
         keys: Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, ShadowError> {
         let mut prefix = keys;
-        prefix.extend(self.scheduler.capture_prefix_game_keys()?);
-        if self
-            .scheduler
-            .gbuffer
-            .as_ref()
-            .is_some_and(crate::gbuffer::Gbuffer::renders)
-        {
-            let velocity = self.scheduler.targets().velocity_texture().cloned();
-            let textures: Vec<_> = velocity.as_ref().into_iter().collect();
-            prefix.extend(self.scheduler.capture_texture_keys(&textures)?);
-        }
+        prefix.extend(scheduler.capture_prefix_game_keys()?);
         Ok(prefix)
     }
 
     fn capture_metadata_keys(
-        &mut self,
         input: &RenderInput<'_>,
+        scheduler: &mut crate::compositor::FrameRenderer,
     ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, ShadowError> {
         // With reflections installed the prefix prepass also writes the reflection material.
-        let material = self
-            .scheduler
+        let material = scheduler
             .ssr
             .as_ref()
             .map(|ssr| ssr.material_target().clone());
@@ -334,30 +263,22 @@ impl ShadowedScene {
             input.metadata.passes.depth_levels()[0],
         ];
         written.extend(material.as_ref());
-        let gbuffer_textures: Vec<_> = self
-            .scheduler
-            .gbuffer
-            .as_ref()
-            .filter(|gbuffer| gbuffer.renders())
-            .into_iter()
-            .flat_map(|gbuffer| gbuffer.written_textures().cloned())
-            .collect();
-        written.extend(gbuffer_textures.iter());
         if let Some(receiver) = &input.metadata.receiver {
             written.extend(receiver.textures.iter());
         }
-        Ok(self.scheduler.capture_texture_keys(&written)?)
+        Ok(scheduler.capture_texture_keys(&written)?)
     }
 
     fn encode_fitted_prefix(
         &mut self,
         input: &RenderInput<'_>,
+        scheduler: &mut crate::compositor::FrameRenderer,
         encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), ShadowError> {
-        self.scheduler
+        scheduler
             .begin_timing(input.source_frame)
             .map_err(worldrunner_render_post::FrameError::from)?;
-        self.scheduler.encode_depth_prefix(
+        scheduler.encode_depth_prefix(
             input.context.device(),
             encoder,
             (&mut self.gpu, &self.pipelines),
@@ -372,12 +293,13 @@ impl ShadowedScene {
         input: &RenderInput<'_>,
         state: &SceneDepthFitting,
         fitting: &DepthFitting,
+        scheduler: &mut crate::compositor::FrameRenderer,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
         self.request_shadow_capture();
         let context = input.context;
         drain_capture(context)?;
         let key = fitting.reducer().write_key();
-        let contract = self.capture_contract(input, key)?;
+        let contract = self.capture_contract(input, scheduler, key)?;
         let prefix = fitting
             .reducer()
             .begin_capture(
@@ -391,7 +313,7 @@ impl ShadowedScene {
                 },
                 fitting.ticket(input.source_frame),
                 |encoder, _, _| {
-                    self.encode_fitted_prefix(input, encoder)?;
+                    self.encode_fitted_prefix(input, scheduler, encoder)?;
                     Ok::<_, ShadowError>(())
                 },
             )
@@ -400,14 +322,16 @@ impl ShadowedScene {
         let mut adopted = None;
         let suffix = continuation
             .resume(context.device(), |encoder, _, frozen, fit| {
-                self.encode_depth_fitted(
-                    context,
-                    frozen,
-                    input.attachments,
-                    encoder,
-                    (fit, state.settings.range),
-                )?;
-                self.encode_term_captures(context.device(), encoder, input.terms)?;
+                let fitted = FitInput {
+                    scheduler: &mut *scheduler,
+                    fitting: Some((fit.depth, state.settings.range)),
+                };
+                let attachments = ColorDepth {
+                    color: input.attachments.0,
+                    depth: input.attachments.1,
+                };
+                self.encode_fitted(context, frozen, attachments, encoder, fitted)?;
+                self.encode_term_captures(context.device(), encoder, input.terms, scheduler)?;
                 adopted = Some(fit);
                 Ok::<_, ShadowError>(())
             })
@@ -425,6 +349,7 @@ impl ShadowedScene {
         input: &RenderInput<'_>,
         state: &mut SceneDepthFitting,
         fitting: &mut DepthFitting,
+        scheduler: &mut crate::compositor::FrameRenderer,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
         let context = input.context;
         let mut index = 0;
@@ -447,22 +372,23 @@ impl ShadowedScene {
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                self.encode_fitted_prefix(input, encoder)?;
+                self.encode_fitted_prefix(input, scheduler, encoder)?;
                 pending = Some(fitting.encode(
                     context.device(),
                     encoder,
                     input.source_frame,
                     fitting.reducer().write_key(),
                 )?);
-                self.refuse_programs()?;
-                self.encode_fitted(
-                    context,
-                    input.view,
-                    input.attachments,
-                    encoder,
-                    (None, current.map(|fit| (fit.depth, state.settings.range))),
-                )?;
-                self.encode_term_captures(context.device(), encoder, input.terms)?;
+                let attachments = ColorDepth {
+                    color: input.attachments.0,
+                    depth: input.attachments.1,
+                };
+                let fitting = FitInput {
+                    scheduler: &mut *scheduler,
+                    fitting: current.map(|fit| (fit.depth, state.settings.range)),
+                };
+                self.encode_fitted(context, input.view, attachments, encoder, fitting)?;
+                self.encode_term_captures(context.device(), encoder, input.terms, scheduler)?;
                 Ok::<_, ShadowError>(())
             })
             .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
@@ -472,6 +398,13 @@ impl ShadowedScene {
         state.pending.push(pending);
         Ok(current)
     }
+}
+/// The frame a depth-fitted render draws: its identity, the opaque terms replayed in its
+/// drawing transaction and the host's renderer it schedules through.
+struct FrameWork<'a> {
+    source_frame: u64,
+    terms: &'a [crate::compositor::terms::TermCapture],
+    scheduler: &'a mut crate::compositor::FrameRenderer,
 }
 struct RenderInput<'a> {
     context: &'a GpuContext,

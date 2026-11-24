@@ -1,5 +1,7 @@
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_post::{FrameError, ToneMap};
 
 fn source() -> RenderScene {
@@ -41,13 +43,7 @@ pub(super) fn encode(
     )
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    let result = resident.encode_with(
-        context,
-        &view(),
-        (&color, &depth),
-        &mut encoder,
-        Some(frame),
-    );
+    let result = resident.encode_with(context, &view(), (&color, &depth), &mut encoder, frame);
     encoder.finish().submit().unwrap();
     context
         .device()
@@ -62,12 +58,11 @@ fn shadowed_ssao_requires_exact_profile_settings_before_preparation() {
     let context = context();
     let source = source();
     let size = [view().viewport().width, view().viewport().height];
-    let mut resident = ShadowedScene::with_target(
+    let mut resident = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let original = source.effects().unwrap().ssao().unwrap();

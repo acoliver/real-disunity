@@ -493,8 +493,9 @@ fn globals_set_by_commands_reach_the_records_after_them_and_not_the_ones_before(
     );
 }
 
+/// The name stays in the globals as set to none, which a draw reads as the stand-in.
 #[test]
-fn a_global_texture_set_to_nothing_is_taken_away() {
+fn a_global_texture_set_to_nothing_is_taken_away_and_set_to_none() {
     let mut world = world();
     let a = render_texture(&mut world, [8, 8]);
     let map = render_texture(&mut world, [4, 4]);
@@ -515,11 +516,14 @@ fn a_global_texture_set_to_nothing_is_taken_away() {
         .records
         .iter()
         .filter_map(|record| match record {
-            Record::Globals(state) => Some(state.values.textures.contains_key("_Map")),
+            Record::Globals(state) => Some((
+                state.values.textures.contains_key("_Map"),
+                state.values.none_textures.contains("_Map"),
+            )),
             _ => None,
         })
         .collect();
-    assert_eq!(held, [true, false]);
+    assert_eq!(held, [(true, false), (false, true)]);
 }
 
 #[test]

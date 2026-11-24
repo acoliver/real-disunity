@@ -35,8 +35,14 @@ fn rect(w: &mut World, parent: Option<ObjectHandle>, x: f32) -> ObjectHandle {
 fn fixture() -> (World, UiRouter, ObjectHandle, ObjectHandle) {
     let mut w = World::new(WorldSettings::default()).unwrap();
     let root = rect(&mut w, None, 0.);
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let button = rect(&mut w, Some(root), 0.);
     let mut router = UiRouter::default();
     router.controls.insert(button, UiControl::button());
@@ -104,6 +110,7 @@ fn canvas_sort_order_wins_over_creation_order() {
         ComponentDesc::Canvas(Canvas {
             sorting_layer: 2,
             sorting_order: -1,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )
@@ -114,6 +121,7 @@ fn canvas_sort_order_wins_over_creation_order() {
         ComponentDesc::Canvas(Canvas {
             sorting_layer: 1,
             sorting_order: 99,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )
@@ -213,6 +221,7 @@ fn two_x_scale_uses_physical_pixels_and_top_left_origin() {
         canvas,
         ComponentDesc::Canvas(Canvas {
             scale: CanvasScale::Constant(2.),
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )
@@ -280,6 +289,7 @@ fn order_within_layer_and_capture_invalidation() {
         front_root,
         ComponentDesc::Canvas(Canvas {
             sorting_order: 1,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )

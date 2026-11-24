@@ -81,7 +81,7 @@ fn recorded_work_reads_and_writes_a_temporary_in_call_order() {
     for record in &work {
         world.record_offscreen(record.clone()).unwrap();
     }
-    assert_eq!(world.take_offscreen(), work);
+    assert_eq!(world.take_offscreen().0, work);
 }
 
 #[test]

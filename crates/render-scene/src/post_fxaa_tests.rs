@@ -18,7 +18,10 @@ pub(crate) fn effects(quality: Option<s::SceneFxaaQuality>) -> s::SceneEffects {
 fn omitted_and_explicit_default_quality_translate_identically() {
     let omitted = crate::post_settings(&effects(None)).unwrap();
     let explicit = crate::post_settings(&effects(Some(s::SceneFxaaQuality::default()))).unwrap();
-    assert_eq!(omitted.resolve, p::PostResolve::fxaa(0.75));
+    assert_eq!(
+        omitted.resolve,
+        p::PostResolve::fxaa(0.75, p::FxaaQuality::default())
+    );
     assert_eq!(explicit.resolve, omitted.resolve);
 }
 
@@ -56,7 +59,7 @@ fn scene_quality_reaches_existing_post_executor_settings() {
             .unwrap();
             assert_eq!(
                 settings.resolve,
-                p::PostResolve::fxaa_with(
+                p::PostResolve::fxaa(
                     0.75,
                     p::FxaaQuality {
                         edge_threshold: 0.125,
@@ -98,7 +101,7 @@ fn scene_anti_alias_strength_uses_hdr_quality_kernel() {
     let actual = crate::post_settings(&effects).unwrap();
     assert_eq!(
         actual.resolve,
-        p::PostResolve::fxaa_with(
+        p::PostResolve::fxaa(
             0.75,
             p::FxaaQuality {
                 kernel: p::FxaaKernel::Quality {

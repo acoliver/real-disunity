@@ -1,5 +1,6 @@
 use super::foliage::{contact_scene, geometry_sources, pass_color};
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneTerrainContact, SceneTint, SceneTranslucency, SceneTranslucencyParts,
 };
@@ -59,11 +60,10 @@ fn folded_placement(height: i64, minimum: u32, placement: Option<SceneTransform>
 fn folded_directions_match_forward_and_both_metadata_passes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (height, weight) in [(0, 0.0), (500, 0.25), (2000, 1.0)] {
         let scene = folded_scene(height);
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         let mut camera = pose();
         camera.eye_millimeters[2] += height - 500;
         camera.target_millimeters[2] += height - 500;
@@ -129,7 +129,7 @@ fn mask_settings() -> SceneTranslucency {
 fn metalness_mask_is_removed_from_forward_and_reflection_materials() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let base = scene(SceneAlphaMode::Opaque, true, 1);
     let mut materials = base.resources().materials().to_vec();
     materials[0] = SceneMaterial::new(SceneMaterialParts {
@@ -153,7 +153,7 @@ fn metalness_mask_is_removed_from_forward_and_reflection_materials() {
         effects: base.effects().cloned(),
     })
     .unwrap();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     gpu.set_frame(context.queue(), frame_from(pose()));
     let [forward, _, metadata, _] = geometry_sources();
     let diagnostic = "vec4<f32>(vec3<f32>(0.202 + metalness * 0.2), 1.0)";
@@ -200,7 +200,7 @@ fn scaled_instances_keep_unscaled_authored_fold_weights() {
 
 fn transformed_fold_weights(position: [i64; 3], scale: u32) {
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for (height, weight) in [(0, 0.25), (500, 0.5), (2000, 1.0)] {
         let scene = folded_placement(
             height,
@@ -211,8 +211,7 @@ fn transformed_fold_weights(position: [i64; 3], scale: u32) {
                 ..identity()
             }),
         );
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         let world_z = position[2] + height * i64::from(scale) / 1_000_000;
         let mut camera = pose();
         for point in [&mut camera.eye_millimeters, &mut camera.target_millimeters] {
@@ -244,11 +243,10 @@ fn transformed_fold_weights(position: [i64; 3], scale: u32) {
 fn mapped_mask_combines_texture_vertex_and_material_ao_once() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for vertex_ao in [300_000, 700_000] {
         let scene = mapped_ao_scene(vertex_ao);
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
         gpu.set_frame(context.queue(), frame_from(pose()));
         let [source, ..] = geometry_sources();
         let source = source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
@@ -270,9 +268,9 @@ fn mapped_mask_combines_texture_vertex_and_material_ao_once() {
 fn rendered_backlight_has_parallel_orthographic_and_diverging_perspective_rays() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = backlight_scene();
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, &layouts).unwrap();
     let [source, ..] = geometry_sources();
     let scattered = "return scene_scattering_tint(albedo, record.scattering_colour,\n        record.scattering_mode.x) * frame.sun_irradiance.rgb * intensity;";
     assert!(source.contains(scattered), "the shared scattering term");

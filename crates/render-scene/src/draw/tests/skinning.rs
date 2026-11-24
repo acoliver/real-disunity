@@ -5,6 +5,7 @@
 //! indices name joint 1. The camera stands on the `x = 0` plane, so everything left of that plane
 //! lands in the left half of the frame and everything right of it in the right half.
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneAffineMatrix, SceneSkeleton, SceneSkinInfluence, SceneSkinPose, SkeletonHandle,
     SkinPoseHandle,
@@ -184,9 +185,9 @@ fn the_rest_pose_draws_the_bind_mesh() {
 fn a_skinned_object_without_a_pose_or_with_the_wrong_joint_count_is_refused() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let scene = ribbon_scene(0, None);
-    let mut gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines)
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines)
         .expect("a scene with no placements uploads");
     let object = |pose: Option<SkinPoseHandle>| {
         let placed = SceneObject::new(
@@ -226,7 +227,7 @@ fn a_pass_that_writes_object_motion_refuses_skinned_geometry_until_it_has_a_prev
     let pipelines =
         ScenePipelines::with_taa_velocity(context.device(), TextureFormat::Rgba16Float, 1)
             .expect("the device supports the velocity pipelines");
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &posed(SHIFT_MM),

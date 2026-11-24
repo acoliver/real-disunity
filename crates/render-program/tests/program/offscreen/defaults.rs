@@ -20,6 +20,9 @@ fn table(channel: i8) -> [[i8; 2]; 3] {
 
 const COLOUR: i8 = 3;
 const NORMAL: i8 = 1;
+/// The blend weights and blend indices of a skinned mesh.
+const BLEND_WEIGHTS: i8 = 12;
+const BLEND_INDICES: i8 = 13;
 
 /// The left half of the target drawn in red by a pass of `wgsl` whose third input is fed by
 /// `channel`, over the mesh `mesh`.
@@ -223,4 +226,78 @@ fn defaulted_draws_are_counted_each_and_reported_apart_from_the_ones_left_out() 
         }]
     );
     assert_eq!(operations.missing_channel_draws(), vec![]);
+}
+
+/// The quad of a skinned renderer: positions, and blend weights and indices at every vertex.
+fn skinned_quad() -> Mesh {
+    let mut mesh = with_channel(
+        BLEND_WEIGHTS,
+        ChannelFormat::Float32x4,
+        &[0.0, 0.0, 1.0, 0.0],
+    );
+    mesh.channels.push(MeshChannel {
+        source: BLEND_INDICES,
+        format: ChannelFormat::Float32x4,
+        bytes: (0..4)
+            .flat_map(|_| {
+                [0.0_f32, 1.0, 2.0, 3.0]
+                    .into_iter()
+                    .flat_map(f32::to_le_bytes)
+            })
+            .collect(),
+    });
+    mesh
+}
+
+#[test]
+fn a_pass_with_no_skin_inputs_draws_a_skinned_mesh_and_nothing_is_left_out() {
+    let wgsl = tint_with_extra_input("vec4<f32>", "material.tint + in.extra");
+    let mut rig = Rig::new();
+    let frame = left_half(&mut rig, (&wgsl, NORMAL), &skinned_quad());
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 0, 0));
+    assert_eq!(operations.missing_channel_draws(), vec![]);
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert_eq!(
+        pixel(&image, 8, (1, 3)),
+        RED,
+        "the skin channels change nothing it reads"
+    );
+}
+
+#[test]
+fn a_pass_that_reads_the_blend_weights_is_fed_them_by_a_skinned_mesh() {
+    let wgsl = tint_with_extra_input("vec4<f32>", "material.tint + in.extra");
+    let mut rig = Rig::new();
+    let frame = left_half(&mut rig, (&wgsl, BLEND_WEIGHTS), &skinned_quad());
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 0, 0));
+    assert_eq!(operations.missing_channel_draws(), vec![]);
+    assert_eq!(operations.defaulted_channel_draws(), vec![]);
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert_eq!(
+        pixel(&image, 8, (1, 3)),
+        [255, 0, 255, 255],
+        "red plus the blue weight"
+    );
+}
+
+#[test]
+fn a_pass_that_reads_blend_weights_a_mesh_lacks_is_left_out_rather_than_given_zeros() {
+    let wgsl = tint_with_extra_input("vec4<f32>", "material.tint + in.extra");
+    let mut rig = Rig::new();
+    let frame = left_half(&mut rig, (&wgsl, BLEND_WEIGHTS), &quad(0.5));
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(0, 0, 0, 1));
+    assert_eq!(operations.defaulted_channel_draws(), vec![]);
+    assert_eq!(
+        operations.missing_channel_draws(),
+        vec![MissingChannelDraws {
+            channel: BLEND_WEIGHTS,
+            input: 15,
+            draws: 1
+        }]
+    );
 }

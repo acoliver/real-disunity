@@ -39,7 +39,10 @@ pub fn options() -> ViewerOptions {
             max_elevation_radians: 1.4,
         },
         shadows: None,
-        frame_profile: FrameProfile::Legacy,
+        frame_profile: FrameProfile::Hdr {
+            samples: 1,
+            tone_map: worldrunner_scene_viewer::ToneMap::Clamp,
+        },
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,

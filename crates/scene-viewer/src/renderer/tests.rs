@@ -2,8 +2,22 @@
 fn device_error_observer_does_not_retain_the_context_queue() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::test_support::test_instance();
-    let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
-    let other = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
+    let context = pollster::block_on(GpuContext::from_instance(
+        &instance,
+        &DeviceRequest {
+            features: REQUIRED_FEATURES,
+            ..DeviceRequest::default()
+        },
+    ))
+    .unwrap();
+    let other = pollster::block_on(GpuContext::from_instance(
+        &instance,
+        &DeviceRequest {
+            features: REQUIRED_FEATURES,
+            ..DeviceRequest::default()
+        },
+    ))
+    .unwrap();
     assert_ne!(context.device(), other.device());
     assert_ne!(context.queue(), other.queue());
     drop(other);
@@ -197,7 +211,6 @@ fn present_retained(renderer: &mut Renderer, host: &mut crate::RetainedHost) {
 
 mod budget;
 mod capture;
-mod live;
 mod recovery;
 mod sdsm;
 mod shared;
@@ -214,6 +227,7 @@ use winit::{
     window::WindowId,
 };
 use worldrunner_render_gpu::surface::AcquiredFrame;
+use worldrunner_render_scene::device::{DeviceRequest, REQUIRED_FEATURES};
 
 #[derive(Default)]
 struct Harness {
@@ -234,7 +248,7 @@ impl ApplicationHandler for Harness {
                     Arc::new(window),
                     &crate::tests::scene(false),
                     None,
-                    crate::FrameProfile::Legacy,
+                    crate::tests::CLAMP,
                     2.into(),
                 ))
                 .unwrap(),
@@ -262,8 +276,7 @@ fn view(renderer: &Renderer) -> SceneView {
 fn present(renderer: &mut Renderer) {
     let deadline = Instant::now() + Duration::from_secs(10);
     let view = view(renderer);
-    let mut update: crate::SceneUpdate = Box::new(|_| Ok(()));
-    while !renderer.render(&view, &mut update).unwrap() {
+    while !renderer.render(&view).unwrap() {
         assert!(
             Instant::now() < deadline,
             "surface failed to deliver a frame"
@@ -294,8 +307,7 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     let previous_view = view(renderer);
     renderer.resize([0, 480]).unwrap();
     assert_eq!(renderer.viewport, None);
-    let mut update: crate::SceneUpdate = Box::new(|_| panic!("suspended update"));
-    assert!(!renderer.render(&previous_view, &mut update).unwrap());
+    assert!(!renderer.render(&previous_view).unwrap());
     renderer.resize([640, 480]).unwrap();
     present(renderer);
     renderer.check_errors().unwrap();
@@ -326,14 +338,13 @@ fn actual_resize_recovery_and_pending_submission_cleanup_preserve_presentation()
     capture::retained_capture_present(&event_loop, &window);
     capture::retained_page_capture_present(&event_loop, &window);
     sdsm::retained_depth_fitting(&event_loop, &window);
-    live::pending_survives_resize_and_surface_recovery(&mut event_loop, window.clone());
     teardown::assert_pending_submission_cleanup(
         pollster::block_on(Renderer::new(
             event_loop.owned_display_handle(),
             window,
             &crate::tests::scene(false),
             None,
-            crate::FrameProfile::Legacy,
+            crate::tests::CLAMP,
             2.into(),
         ))
         .unwrap(),

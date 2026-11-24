@@ -6,7 +6,7 @@ use worldrunner_render_plan::{
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
     FrameProfile, OrbitLimits, PresentationBudget, PresentationCadence, RenderClock,
-    RetainedDriver, RetainedHost, RetainedTick, ViewerError, ViewerOptions,
+    RetainedDriver, RetainedHost, RetainedTick, ViewerError, ViewerOptions, ViewerStart,
 };
 
 struct Driver(bool);
@@ -45,7 +45,9 @@ fn main() {
     let mut options = options();
     options.presentation_budget =
         PresentationBudget(if reject { 256 } else { 300 } * 1024 * 1024).into();
-    let result = RetainedHost::new(scene, options).unwrap().run(&mut driver);
+    let result = RetainedHost::new(scene, options)
+        .unwrap()
+        .run(ViewerStart::new().unwrap(), &mut driver);
     if reject {
         assert!(!driver.0);
         assert!(matches!(result,
@@ -66,7 +68,10 @@ fn options() -> ViewerOptions {
         window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
         window_mode: worldrunner_scene_viewer::WindowMode::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
-        frame_profile: FrameProfile::Legacy,
+        frame_profile: FrameProfile::Hdr {
+            samples: 1,
+            tone_map: worldrunner_scene_viewer::ToneMap::Clamp,
+        },
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,

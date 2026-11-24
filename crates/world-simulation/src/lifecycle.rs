@@ -49,6 +49,11 @@ pub(crate) struct ScriptState {
     pub active: bool,
     pub entered: EnteredState,
     pub messages: crate::ScriptMessages,
+    /// The script's execution order: scripts with a lower order receive a message first.
+    pub execution_order: i32,
+    /// Where the script registered among all scripts of the world. Equal orders deliver by it.
+    /// Set by `Lifecycle::register`.
+    pub registered: u64,
 }
 
 impl ScriptState {
@@ -76,6 +81,8 @@ impl Default for ScriptState {
             active: false,
             entered: EnteredState::Dormant,
             messages: crate::ScriptMessages::ALL,
+            execution_order: 0,
+            registered: 0,
         }
     }
 }
@@ -88,6 +95,7 @@ pub(crate) struct Lifecycle {
     pub(crate) added: Vec<ComponentHandle>,
     pub(crate) mutations: BTreeMap<usize, Vec<LifecycleWork>>,
     next_sequence: usize,
+    next_registration: u64,
     pub(crate) unpublished: crate::unpublished::Unpublished,
     pub cleanup: Vec<LifecycleWork>,
     /// The scripts a phase visits, kept equal to a scan of `scripts` by the methods below. Change
@@ -99,8 +107,10 @@ pub(crate) struct Lifecycle {
 
 impl Lifecycle {
     /// Stores a script's state and notes it for the scheduler's next look at new scripts.
-    pub(crate) fn register(&mut self, script: ComponentHandle, state: ScriptState) {
+    pub(crate) fn register(&mut self, script: ComponentHandle, mut state: ScriptState) {
         self.remove_script(script);
+        state.registered = self.next_registration;
+        self.next_registration += 1;
         self.index.add(script, crate::phase_index::Key::of(&state));
         self.scripts.insert(script, state);
         self.added.push(script);
@@ -144,12 +154,34 @@ impl Lifecycle {
         self.edit_script(script, |state| state.messages = messages);
     }
 
-    /// The scripts a phase for `message` has to look at, in handle order.
+    /// Gives a registered script its execution order.
+    pub(crate) fn set_execution_order(&mut self, script: ComponentHandle, order: i32) {
+        self.edit_script(script, |state| state.execution_order = order);
+    }
+
+    /// Puts messages in the one order every script message is delivered in: the lowest execution
+    /// order first, and among equal orders the script registered first. Messages to one script
+    /// keep their order. A script that is no longer registered sorts as order 0 registered first.
+    pub(crate) fn sort_for_delivery<T>(
+        &self,
+        messages: &mut [T],
+        script_of: impl Fn(&T) -> ComponentHandle,
+    ) {
+        messages.sort_by_key(|message| {
+            self.scripts
+                .get(&script_of(message))
+                .map_or((0, 0), |state| (state.execution_order, state.registered))
+        });
+    }
+
+    /// The scripts a phase for `message` has to look at, in delivery order.
     pub(crate) fn phase_candidates(&self, message: crate::ScriptMessage) -> Vec<ComponentHandle> {
-        match self.index.visit(message) {
+        let mut scripts = match self.index.visit(message) {
             crate::phase_index::Visit::Listed(scripts) => scripts,
             crate::phase_index::Visit::All => self.scripts.keys().copied().collect(),
-        }
+        };
+        self.sort_for_delivery(&mut scripts, |&script| script);
+        scripts
     }
 
     #[cfg(test)]
@@ -243,7 +275,8 @@ impl World {
 
     pub fn take_cleanup(&mut self) -> Vec<LifecycleWork> {
         let mut work = std::mem::take(&mut self.lifecycle.cleanup);
-        work.sort_by_key(|work| work.script);
+        self.lifecycle
+            .sort_for_delivery(&mut work, |work| work.script);
         work
     }
 
@@ -279,17 +312,21 @@ impl World {
                 }
             }
         }
+        self.lifecycle
+            .sort_for_delivery(&mut awake, |work| work.script);
+        self.lifecycle
+            .sort_for_delivery(&mut transitions, |work| work.script);
         awake.extend(transitions);
         self.lifecycle.mutations.insert(mutation.sequence, awake);
     }
 
-    /// The object's registered, unretired scripts in handle order, the order of the script table.
-    /// Reading the object's own component list keeps a refresh proportional to the objects it visits.
+    /// The object's registered, unretired scripts, in no delivery order. Reading the object's own
+    /// component list keeps a refresh proportional to the objects it visits.
     fn object_scripts(&self, object: ObjectHandle) -> Vec<ComponentHandle> {
         let Ok(stored) = self.live_object(object) else {
             return Vec::new();
         };
-        let mut scripts: Vec<_> = stored
+        stored
             .components
             .iter()
             .copied()
@@ -298,9 +335,7 @@ impl World {
                     && !self.lifetime.components.contains(script)
                     && self.component(*script).is_ok_and(|c| c.object == object)
             })
-            .collect();
-        scripts.sort_unstable();
-        scripts
+            .collect()
     }
 }
 

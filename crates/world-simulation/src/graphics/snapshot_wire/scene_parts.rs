@@ -219,15 +219,18 @@ fn read_copy(input: &mut Reader<'_>) -> Result<OffscreenWork, WireError> {
 }
 
 wire_struct!(GraphicsSnapshot {
+    work,
     shaders,
     materials,
     render_textures,
     global,
     environment,
-    work,
     cameras,
     lights,
     renderers,
+    renderer_sets,
+    record_sets,
+    skinned_not_drawn,
     compute_shaders,
     compute_buffers
 });

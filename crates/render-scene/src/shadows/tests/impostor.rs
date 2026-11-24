@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 fn source(relief: bool, alpha: [u8; 4], enlarged: bool) -> RenderScene {
     let base = fixture::caster_scene(
@@ -80,11 +81,12 @@ fn gpu_relief_directional_shadows_use_flat_card_cutout_with_independent_views() 
     let context = context();
     let view = camera();
     let mut maps = Vec::new();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     for relief in [false, true] {
         let source = source(relief, [255, 255, 0, 0], false);
-        let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+        let mut renderer = shadowed(&context, &source, settings()).unwrap();
         let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-        render_target(&mut renderer, &context, &view, &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
         let image = target.read_rgba8(&context).unwrap();
         let baseline = capture_scene(&context, &source, &view).unwrap();
         let shadow = Vec3::new(-0.75, 0.18, 0.0);

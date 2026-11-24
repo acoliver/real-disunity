@@ -110,8 +110,39 @@ After an intentional ABI change:
    offscreen source accepts with texture identity 0; the world reads it as no texture, and the
    graphics snapshot wire version is 17 to carry it. Revision 22 adds
    `disunity_world_advance_teardown`, an advance that runs only the `OnDisable` and
-   `OnDestroy` messages and the asset cleanup that destruction queued. Native and managed
-   hosts reject
+   `OnDestroy` messages and the asset cleanup that destruction queued. Revision 23 removes
+   `disunity_offscreen_set_global`, `disunity_offscreen_set_global_keyword`,
+   `disunity_offscreen_set_global_vector_array` and `disunity_offscreen_set_global_matrix_array`
+   and adds `disunity_offscreen_set_global_texture`: a command buffer's global value, array or
+   keyword is a direct write of the world's global state (`disunity_shader_*`), and only a global
+   texture set to a temporary render texture is recorded. Revision 24 removes
+   `disunity_mesh_renderer_slots_write` and `disunity_mesh_renderer_slots_read`: a mesh
+   object slot draws from the slot's world material alone. Revision 25 gives
+   `disunity_canvas_renderer_texture_write` a texture kind (0 a stored image identity, 1 a
+   render texture the world holds) and adds `texture_kind` and a padding word to
+   `DisunityUiGraphicInfo` (16 to 24 bytes) and `DisunityUiDraw` (152 to 160 bytes); the quad
+   texture of a draw whose kind is 1 is the render texture id. Revision 26 adds the
+   `world_material` argument of `disunity_canvas_renderer_material_write` (the world material
+   of main slot 0, 0 for none) and the `material` and `material_generation` fields of
+   `DisunityUiDraw` (160 to 176 bytes). Revision 27 adds `disunity_script_execution_order`, the execution order of a script (a 32-bit signed
+   integer, 0 by default), which a lifecycle phase uses to deliver messages to the lowest order first and,
+   for equal orders, in registration order. Revision 28 adds `disunity_skinned_renderer_write`, which names the mesh
+   identity and the root bone of a skinned mesh renderer with the root bone's bind pose (16
+   column-major floats); the renderer is drawn where the root bone's matrix times that pose
+   puts it, and one with no root bone is left out. The graphics snapshot, at wire version 19,
+   carries the count of skinned renderers it leaves out for want of a root bone. Revision 29 adds
+   `disunity_offscreen_draw_mesh_batch` and the 64-byte `DisunityDrawBatch` (offscreen kind 23): a
+   draw of the instances a shader reads from a window of a compute buffer, with the game's metadata
+   words by property name and the visible instance indexes, carried in the graphics snapshot from
+   wire version 20. Revision 30 makes the stored-texture `dimension` 2 the only spelling of a 2D
+   texture: `disunity_texture_store` refuses a record whose `dimension` is 0, and the host reads
+   only 2, 3, 4 and 5. Revision 31 removes `disunity_offscreen_take`, `disunity_offscreen_detail`
+   and `disunity_compute_bindings_read`, the test-only reading calls that ran beside the graphics
+   snapshot, and the fields of `DisunityOffscreenWork` that only they wrote (`shader`, `kernel`,
+   `groups_x`, `groups_y`, `groups_z`, `bindings`; 104 to 72 bytes). A host reads the frame's work,
+   the material copies its records name, the global state they replay from and the values each
+   dispatch ran with in `disunity_graphics_snapshot`, whose wire version 21 puts the work list
+   first in the body so a reader that needs only the work stops after it. Native and managed hosts reject
    mismatched revisions before creating a world or accessing versioned records.
    Managed startup reads `disunity_abi_version` and uses the generated
    `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,

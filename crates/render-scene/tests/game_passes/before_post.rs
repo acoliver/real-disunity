@@ -5,6 +5,10 @@ use super::common::{self, texture_binding};
 use super::fixture::{Rig, SIZE, quad_scene};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -15,10 +19,6 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
     },
     wgpu,
 };
@@ -264,7 +264,8 @@ impl ParticleFrame {
             return Ok((&programs.fill, target.render_state(RASTER), Vec::new(), 6));
         }
         if self.mode != Mode::Soft {
-            let state = target.render_state_with(RASTER, &[ALPHA_OVER_RGB])?;
+            let mut state = target.render_state(RASTER);
+            state.colors[0] = Some(ALPHA_OVER_RGB);
             return Ok((&programs.blend, state, Vec::new(), 6));
         }
         let depth = PassTarget::sampled_depth(context, entry)?;

@@ -1,4 +1,4 @@
-use crate::{FrameProfile, ViewerError, ViewerOptions};
+use crate::{ViewerError, ViewerOptions};
 use worldrunner_render_plan::RenderScene;
 
 pub(crate) fn startup_scene(
@@ -11,9 +11,6 @@ pub(crate) fn startup_scene(
     settings
         .validate()
         .map_err(|error| ViewerError::Driver(error.to_string()))?;
-    if matches!(options.frame_profile, FrameProfile::Legacy) {
-        return Err(ViewerError::UnsupportedScene("SSR requires HDR"));
-    }
     let effects = scene
         .effects()
         .ok_or(ViewerError::InvalidOptions(
@@ -30,6 +27,7 @@ pub(crate) fn startup_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FrameProfile;
     use worldrunner_render_plan::{SceneSsr, SceneSsrComposition};
 
     #[test]
@@ -91,14 +89,10 @@ mod tests {
     }
 
     #[test]
-    fn invalid_or_non_hdr_startup_settings_fail_before_rendering() {
+    fn invalid_startup_settings_fail_before_rendering() {
         let mut options = crate::tests::options();
         options.ssr = Some(SceneSsr::default());
-        assert!(startup_scene(crate::tests::scene(false), &options).is_err());
-        options.frame_profile = FrameProfile::Hdr {
-            samples: 1,
-            tone_map: crate::ToneMap::Reinhard,
-        };
+        assert!(startup_scene(crate::tests::scene(false), &options).is_ok());
         options.ssr.as_mut().unwrap().max_distance_millimeters = 0;
         assert!(startup_scene(crate::tests::scene(false), &options).is_err());
     }

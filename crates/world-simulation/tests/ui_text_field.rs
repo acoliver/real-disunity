@@ -13,8 +13,14 @@ fn fixture(max: usize) -> (World, UiRouter, FontBook, ObjectHandle) {
     let root = w.create_object(ObjectDesc::default()).unwrap();
     w.add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let object = w.create_object(ObjectDesc::default()).unwrap();
     w.add_component(
         object,

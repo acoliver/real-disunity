@@ -6,7 +6,7 @@
 //! needs no flip. A scissor rectangle is rounded to whole texels and clipped to the attachments; a
 //! viewport is used as given, and one that is not inside the attachments draws nothing. The
 //! depth bias is the script's pair of constant and slope terms as the pipeline takes them, negated
-//! for a reversed buffer.
+//! because the buffer is reversed.
 
 use super::frame::DrawRaster;
 
@@ -21,12 +21,14 @@ pub(super) struct PassRaster {
     pub(super) viewport: Option<[f32; 4]>,
     /// The depth bias of the pipelines of the triangle draws.
     pub(super) bias: wgpu::DepthBiasState,
+    /// Whether the draws blend their alpha as coverage (see `DrawRaster::coverage_alpha`).
+    pub(super) coverage_alpha: bool,
 }
 
 /// The state of the draws of `raster` over attachments of `size` texels, or `None` when its
 /// scissor leaves no texel or its viewport is not inside the attachments, and the draws draw
 /// nothing.
-pub(super) fn resolve(raster: &DrawRaster, size: [u32; 2], reversed: bool) -> Option<PassRaster> {
+pub(super) fn resolve(raster: &DrawRaster, size: [u32; 2]) -> Option<PassRaster> {
     let scissor = match raster.scissor {
         Some(rect) => Some(clipped(rect, size)?),
         None => None,
@@ -36,16 +38,16 @@ pub(super) fn resolve(raster: &DrawRaster, size: [u32; 2], reversed: bool) -> Op
         Some(_) => return None,
         None => None,
     };
-    let sign = if reversed { -1.0 } else { 1.0 };
     let [constant, slope] = raster.depth_bias;
     Some(PassRaster {
         scissor,
         viewport,
         bias: wgpu::DepthBiasState {
-            constant: round_to_i32(sign * f64::from(constant)),
-            slope_scale: if reversed { -slope } else { slope },
+            constant: round_to_i32(-f64::from(constant)),
+            slope_scale: -slope,
             clamp: 0.0,
         },
+        coverage_alpha: raster.coverage_alpha,
     })
 }
 

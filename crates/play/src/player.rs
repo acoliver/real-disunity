@@ -1,26 +1,39 @@
 //! Runs a built Unity player's scene headless in the managed host.
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_disunity_runtime::ManagedHostConfig;
 use worldrunner_original_games::workspace_root;
-use worldrunner_unity_import::{
-    player_identity::{
-        PlayerIdentity, player_identity, player_project_graphics, player_quality,
-        player_scene_paths,
-    },
-    player_plan::plan_player_scene,
-    player_resources::plan_player_resources,
-    script_layouts::{ScriptLayouts, parse_script_layouts},
-};
+use worldrunner_unity_import::player_identity::PlayerIdentity;
+use worldrunner_unity_import::player_identity::ProjectGraphics;
+use worldrunner_unity_import::player_identity::player_identity;
+use worldrunner_unity_import::player_identity::player_project_graphics;
+use worldrunner_unity_import::player_identity::player_quality;
+use worldrunner_unity_import::player_identity::player_scene_paths;
+use worldrunner_unity_import::player_plan::plan_player_scene;
+use worldrunner_unity_import::player_resources::plan_player_resources;
+use worldrunner_unity_import::script_layouts::parse_script_layouts;
+use worldrunner_unity_serialized::script_data::ScriptLayouts;
 
 use crate::PlayError;
-use crate::offscreen::{DepthRange, SuppliedGlobal};
+use crate::driver::FIRST_COVERAGE_TEXTURE;
+use crate::gpu_player::GpuLaunch;
+use crate::gpu_player::PlayerGpu;
+use crate::offscreen::StandInLook;
+use crate::offscreen::SuppliedGlobal;
 use crate::plan_differences::shader_difference_lines;
-use crate::player_screen_ui::{CaptureSink, ScreenComposer, ScreenDevice};
-use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
-use crate::{driver::FIRST_COVERAGE_TEXTURE, gpu_player::PlayerGpu, player_meshes::PlayerMeshes};
+use crate::player_meshes::PlayerMeshes;
+use crate::prepare::FIRST_TEXTURE;
+use crate::prepare::bridge_config;
+use crate::prepare::dotnet;
+use crate::prepare::run;
+use crate::prepare::target;
+use crate::prepare::write;
+use crate::target_read::TargetRead;
 
 /// A player scene ready to boot: the host configuration and the request its bridge loads.
 pub struct PreparedPlayer {
@@ -28,40 +41,32 @@ pub struct PreparedPlayer {
     pub request: PathBuf,
     /// The player's `<Game>_Data` directory, where its shaders and serialized files are read.
     pub data: PathBuf,
-    /// The depth range the request told the managed side about and the run's GPU work draws with.
-    pub depth: DepthRange,
-    /// The globals the run supplies by name, which its GPU work starts every frame from.
-    pub globals: Vec<SuppliedGlobal>,
+    /// The size the player reads as its screen, which a headless run presents its frames at and
+    /// draws its screen texture in; `None` when the launch gave none.
+    pub screen: Option<[u32; 2]>,
+    /// What the run asks of its GPU work: the globals it supplies, the stand-in look, whether it
+    /// reports after every frame and the target reads.
+    pub gpu: GpuLaunch,
 }
 
 /// How a player is started besides its files: the command line after its executable path,
 /// the size of the window the frame is drawn into, which is the size the player's `Screen`
-/// reports (a headless run gives none), and extra native plugin directories the player
-/// searches after its own `Plugins` directories and the engine's substitutes. `depth` is the
-/// run's one depth range (see [`DepthRange`]): `prepare_player` sends it to the managed side as
-/// the request's `reversed_z_buffer`, and the run's GPU work draws with the same value. `globals`
-/// are the values `--global` supplies; they reach the GPU work only, not the request.
-#[derive(Clone, Copy)]
+/// reports (a run with no viewer gives none unless it reads targets), and extra native plugin directories the player
+/// searches after its own `Plugins` directories and the engine's substitutes. `globals` are the
+/// values `--global` supplies; they reach the GPU work only, not the request, and so do
+/// `stand_ins` (how the stand-in textures look), `report_each_frame` and `read_targets` (the
+/// records whose targets a headless run writes to files). The default has no arguments, no
+/// window, no extra plugins and no globals, and the declared stand-ins and a report at the end
+/// only.
+#[derive(Clone, Copy, Default)]
 pub struct PlayerLaunch<'a> {
     pub arguments: &'a [String],
     pub screen: Option<[u32; 2]>,
     pub plugins: &'a [PathBuf],
-    pub depth: DepthRange,
     pub globals: &'a [SuppliedGlobal],
-}
-
-impl Default for PlayerLaunch<'_> {
-    /// No arguments, no window, no extra plugins, and the depth range of a built player,
-    /// [`DepthRange::PLAYER`].
-    fn default() -> Self {
-        Self {
-            arguments: &[],
-            screen: None,
-            plugins: &[],
-            depth: DepthRange::PLAYER,
-            globals: &[],
-        }
-    }
+    pub stand_ins: StandInLook,
+    pub report_each_frame: bool,
+    pub read_targets: &'a [TargetRead],
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
@@ -105,19 +110,32 @@ pub fn prepare_player(
         &resources_path,
         &serde_json::to_vec(&resources).expect("plans serialize"),
     )?;
+    let project = player_project_graphics(data)?;
     let request = write_request(
         &output,
         data,
         [&plan_path, &resources_path],
-        (&scenes, launch),
+        (&scenes, launch, project),
     )?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
         request,
         data: data.to_owned(),
-        depth: launch.depth,
-        globals: launch.globals.to_vec(),
+        screen: launch.screen,
+        gpu: gpu_launch(launch, project),
     })
+}
+
+/// What the run asks of its GPU work: the launch's own settings, and the project's colour space
+/// the request tells the managed side.
+fn gpu_launch(launch: PlayerLaunch, project: Option<ProjectGraphics>) -> GpuLaunch {
+    GpuLaunch {
+        globals: launch.globals.to_vec(),
+        stand_ins: launch.stand_ins,
+        report_each_frame: launch.report_each_frame,
+        reads: launch.read_targets.to_vec(),
+        linear_colour_space: project.is_some_and(ProjectGraphics::is_linear),
+    }
 }
 
 /// Builds the layouts tool, has it write the player's script layouts and reads them.
@@ -202,15 +220,16 @@ fn plan_build_scenes(
 /// Writes the bridge's request: the player's paths, plans, identity, command line arguments,
 /// quality levels and project graphics settings. Each game keeps its preferences in its own
 /// `persistent/<company>/<product>` directory under `output`. `plans` are the scene plan and
-/// the resource plan; `launch` is the build's scene list and the command line.
+/// the resource plan; `launch` is the build's scene list, the command line and the project
+/// graphics settings, which the GPU work reads as well.
 fn write_request(
     output: &Path,
     data: &Path,
     plans: [&Path; 2],
-    launch: (&[serde_json::Value], PlayerLaunch),
+    launch: (&[serde_json::Value], PlayerLaunch, Option<ProjectGraphics>),
 ) -> Result<PathBuf, PlayError> {
     let [plan, resources] = plans;
-    let (scenes, launch) = launch;
+    let (scenes, launch, project) = launch;
     let identity = player_identity(data)?;
     eprintln!(
         "[player] {} {} {} built with Unity {} for {}",
@@ -237,7 +256,7 @@ fn write_request(
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
     }
-    if let Some(project) = player_project_graphics(data)? {
+    if let Some(project) = project {
         body["project"] = serde_json::json!(project);
     }
     write(&request, body.to_string().as_bytes())?;
@@ -253,8 +272,8 @@ fn write_request(
 /// the `GraphicsFormat` codes the offscreen renderer draws into and samples, which the player's
 /// device reports as supported. `shadow_sampling` says the offscreen renderer reads a depth render
 /// texture through a comparison sampler, which the player's device reports as shadow support.
-/// `reversed_z_buffer` is `launch.depth`, the value the run's GPU work draws with, so the player's
-/// device declares a reversed depth buffer exactly when the host's depth is reversed.
+/// `reversed_z_buffer` is true: the run's GPU work draws with reversed depth, so the player's
+/// device declares a reversed depth buffer.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
@@ -267,8 +286,7 @@ fn request_body(
         arguments,
         screen,
         plugins,
-        depth,
-        globals: _,
+        ..
     } = launch;
     let mut body = serde_json::json!({
         "player": data,
@@ -281,7 +299,7 @@ fn request_body(
         "callback_cache": callback_cache,
         "render_formats": worldrunner_render_program::unity::offscreen::RENDER_FORMATS,
         "shadow_sampling": true,
-        "reversed_z_buffer": depth.reversed(),
+        "reversed_z_buffer": true,
     });
     if let Some(screen) = screen {
         body["screen"] = serde_json::json!(screen);
@@ -312,144 +330,77 @@ fn path_component(name: &str) -> String {
     }
 }
 
-/// Whether a run does the player's offscreen work on a device.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum GpuWork {
-    /// Takes a device when the machine has an adapter, and runs without GPU work when it has
-    /// none. A frame whose snapshot holds no work leaves the device alone.
-    #[default]
-    Auto,
-    /// Never touches a device: the run is the one before the offscreen host existed.
-    Off,
-}
-
-/// The device and offscreen host a run does its GPU work on, or `None` for [`GpuWork::Off`] and
-/// when the machine has no adapter, which is reported on standard error. Shaders are loaded
-/// from the player's `data` directory.
-pub(crate) fn player_gpu(work: GpuWork, prepared: &PreparedPlayer) -> Option<PlayerGpu> {
-    match work {
-        GpuWork::Off => None,
-        GpuWork::Auto => PlayerGpu::headless(&prepared.data, prepared.depth, &prepared.globals)
-            .inspect_err(|reason| {
-                eprintln!("[gpu] {reason}; the offscreen work does not run");
-            })
-            .ok(),
-    }
+/// The device and offscreen host a run does its GPU work on. Shaders are loaded from the player's
+/// `data` directory.
+///
+/// # Errors
+/// Fails naming the reason when the machine has no adapter or the device cannot be had.
+pub(crate) fn player_gpu(prepared: &PreparedPlayer) -> Result<PlayerGpu, PlayError> {
+    PlayerGpu::headless(&prepared.data, &prepared.gpu).map_err(|reason| gpu_unavailable(&reason))
 }
 
 /// The device and offscreen host a window does its GPU work on, on the device `source` makes for
-/// the viewer, or `None` for [`GpuWork::Off`] and when the device cannot be had, which is
-/// reported on standard error. Shaders are loaded from the player's `data` directory, and the
-/// work draws with the run's `depth` and starts every frame from the `globals` it supplies, as a
-/// headless run does ([`player_gpu`]).
-pub(crate) fn window_gpu(
-    work: GpuWork,
-    data: &Path,
-    depth: DepthRange,
-    globals: &[SuppliedGlobal],
-    source: &mut dyn crate::gpu_device::DeviceSource,
-) -> Option<PlayerGpu> {
-    match work {
-        GpuWork::Off => None,
-        GpuWork::Auto => PlayerGpu::shared(source, data, depth, globals)
-            .inspect_err(|reason| {
-                eprintln!("[gpu] {reason}; the offscreen work does not run");
-            })
-            .ok(),
-    }
-}
-
-/// What a headless run writes of the screen: the screen's size, and a file for the composed frame
-/// after each listed frame's GPU work. The composed frame is the screen the player's offscreen work
-/// drew into with the game's UI over it, the frame a window captures at that size.
-#[derive(Clone, Debug)]
-pub struct ScreenOutput {
-    pub size: [u32; 2],
-    /// A frame, counting from zero, and the PNG its composed frame is written to.
-    pub files: Vec<(u64, PathBuf)>,
-}
-
-/// The environment variable that makes a headless run print the GPU report after every frame, not
-/// only at the end. The counts are the run's so far, except the stand-in census, which is the
-/// frame's own.
-const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
-
-/// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
-/// player's offscreen work on a device when there is one ([`GpuWork::Auto`]). The error names the
-/// step that failed: starting the scene or the frame that failed.
-pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
-    run_player_with(prepared, frames, dt, GpuWork::Auto)
-}
-
-/// [`run_player`] with `gpu` saying whether the offscreen work runs. The run has no screen.
-pub fn run_player_with(
-    prepared: &PreparedPlayer,
-    frames: u64,
-    dt: Duration,
-    gpu: GpuWork,
-) -> Result<(), PlayError> {
-    run_player_screens(prepared, frames, dt, gpu, None)
-}
-
-/// [`run_player_with`] with a screen, when `screen` is given: the offscreen work draws a
-/// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
-/// frame `screen` lists, the frame a window shows is written to that frame's file as an RGB PNG:
-/// the newest image of the screen with the game's UI over it. The offscreen work and the viewer
-/// that draws the UI share one device (see [`crate::player_screen_ui`]), and the frame is
-/// presented at the screen's size, which the game's UI lays itself out for. Without `screen` the
-/// run has none and behaves as [`run_player_with`] always did.
+/// the viewer. Shaders are loaded from the player's `data` directory, and the work is set up from
+/// `launch` as a headless run's is ([`player_gpu`]).
 ///
 /// # Errors
-/// As [`run_player_with`]. A run with a screen also fails before the scene starts when the work
-/// has no device or a listed frame is not among the `frames` run, and at a listed frame that has no
-/// image yet because no work has drawn into the screen, or whose UI cannot be drawn.
-pub fn run_player_screens(
-    prepared: &PreparedPlayer,
-    frames: u64,
-    dt: Duration,
-    gpu: GpuWork,
-    screen: Option<&ScreenOutput>,
-) -> Result<(), PlayError> {
+/// Fails naming the reason when `source` has no adapter or cannot make the device.
+pub(crate) fn window_gpu(
+    data: &Path,
+    launch: &GpuLaunch,
+    source: &mut dyn crate::gpu_device::DeviceSource,
+) -> Result<PlayerGpu, PlayError> {
+    PlayerGpu::shared(source, data, launch).map_err(|reason| gpu_unavailable(&reason))
+}
+
+fn gpu_unavailable(reason: &str) -> PlayError {
+    PlayError::Invalid(format!("the player's offscreen work needs a GPU: {reason}"))
+}
+
+/// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
+/// player's offscreen work on a device and no viewer: the run measures the game and its GPU work
+/// and shows nothing. It presents its frames at the screen size `prepared` carries, else at a small
+/// window's, and writes each `--read-target` read its frame names. The error names the step that
+/// failed: the missing GPU, starting the scene or the frame that failed. A run that writes frames
+/// is a windowless run ([`play_player_windowless`](crate::play_player_windowless)).
+///
+/// # Errors
+/// Fails naming the reason when the machine has no GPU adapter or device, when the scene cannot
+/// start, when a read names a frame the run does not play, and at a frame that fails, including a
+/// frame or flush the GPU refuses (the error names the refusal).
+pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
-    let mut sink = CaptureSink::default();
-    let mut device = screen.map(|screen| ScreenDevice::new(screen.size));
-    let gpu = match device.as_mut() {
-        Some(device) => device.player_gpu(gpu, prepared),
-        None => player_gpu(gpu, prepared),
-    };
-    check_screen(gpu.as_ref(), frames, screen)?;
-    let mut composer = match device {
-        Some(device) if gpu.is_some() => Some(device.compose(&mut sink)?),
-        _ => None,
-    };
+    let gpu = player_gpu(prepared)?;
+    TargetRead::check_frames(&prepared.gpu.reads, frames).map_err(PlayError::Invalid)?;
+    gpu.set_reads(prepared.gpu.reads.clone());
     // Installed before the scene loads: a script may read a compute buffer back while it does.
-    if let Some(gpu) = &gpu {
-        gpu.install(&mut host)?;
-        gpu.set_screen(screen.map(|screen| screen.size));
-    }
+    gpu.install(&mut host)?;
+    gpu.set_screen(prepared.screen);
     host.run_slice(&prepared.request)?;
     let nanos = u64::try_from(dt.as_nanos())
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
     let mut result = Ok(());
     let mut meshes = PlayerMeshes::default();
-    let viewport = screen.map_or(PRESENTED_SIZE, |screen| screen.size);
+    let viewport = prepared.screen.unwrap_or(PRESENTED_SIZE);
     let mut times = Vec::new();
     for frame in 0..frames {
-        let stand_ins_before = gpu.as_ref().map(|gpu| gpu.report().stand_ins.clone());
+        let stand_ins_before = gpu.report().stand_ins.clone();
         let started = Instant::now();
         let stepped = host
             .advance(nanos, 1_000_000_000)
             .map_err(PlayError::from)
             .and_then(|()| present_meshes(&mut host, &mut meshes, viewport))
-            .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)))
-            .and_then(|()| write_screens(gpu.as_ref(), composer.as_mut(), &host, frame, screen));
+            .and_then(|()| gpu.frame(&mut host))
+            .and_then(|()| match gpu.take_refusal() {
+                Some(refusal) => Err(PlayError::Invalid(refusal)),
+                None => Ok(()),
+            });
         times.push(started.elapsed());
-        // A run that dies in a later frame still leaves the counts of the frames before it.
-        if std::env::var_os(REPORT_EACH_FRAME).is_some()
-            && let (Some(gpu), Some(before)) = (&gpu, &stand_ins_before)
-        {
+        // A run that dies in a later frame still leaves the counts of the frames before it. The
+        // counts are the run's so far, except the stand-in census, which is the frame's own.
+        if prepared.gpu.report_each_frame {
             eprintln!("[gpu] report after frame {frame}");
-            gpu.report().print_frame(before);
+            gpu.report().print(Some(&stand_ins_before));
         }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
@@ -460,104 +411,43 @@ pub fn run_player_screens(
         eprintln!("[player] ran {frames} frames");
     }
     report_times(&times);
-    if let Some(gpu) = &gpu {
-        gpu.report().print();
+    gpu.report().print(None);
+    let unwritten = gpu.report().reads_unwritten;
+    if result.is_ok() && unwritten > 0 {
+        result = Err(PlayError::Invalid(format!(
+            "{unwritten} --read-target reads wrote no file; the errors above name each"
+        )));
     }
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
 }
 
-/// Checks that a run with a screen can give the images asked for: the work has a device and every
-/// listed frame is one of the `frames` run.
-fn check_screen(
-    gpu: Option<&PlayerGpu>,
-    frames: u64,
-    screen: Option<&ScreenOutput>,
-) -> Result<(), PlayError> {
-    let Some(screen) = screen else {
-        return Ok(());
-    };
-    if gpu.is_none() {
-        return Err(PlayError::Invalid(
-            "a screen needs the offscreen work on a device, and the run has none".into(),
-        ));
-    }
-    match screen.files.iter().find(|(frame, _)| *frame >= frames) {
-        Some((frame, _)) => Err(PlayError::Invalid(format!(
-            "screen frame {frame} is not among the {frames} frames the run plays"
-        ))),
-        None => Ok(()),
-    }
-}
-
-/// The files `screen` lists for `frame`, and the number of the frame whose work drew the image
-/// they will hold: the newest image of the screen, which is this frame's when its work drew into
-/// it.
-fn screens_due<'a>(
-    gpu: Option<&PlayerGpu>,
-    frame: u64,
-    screen: Option<&'a ScreenOutput>,
-) -> Result<(u64, Vec<&'a Path>), PlayError> {
-    let Some(screen) = screen else {
-        return Ok((frame, Vec::new()));
-    };
-    let files: Vec<&Path> = screen
-        .files
-        .iter()
-        .filter(|(listed, _)| *listed == frame)
-        .map(|(_, file)| file.as_path())
-        .collect();
-    if files.is_empty() {
-        return Ok((frame, files));
-    }
-    let image = gpu.and_then(PlayerGpu::screen).ok_or_else(|| {
-        PlayError::Invalid(format!(
-            "no screen image after frame {frame}: no work has drawn into the screen yet"
-        ))
-    })?;
-    Ok((image.frame, files))
-}
-
-/// Writes the composed frame to the file `screen` lists for `frame`, if it lists one: the newest
-/// screen image with the UI the world holds now over it.
-fn write_screens(
-    gpu: Option<&PlayerGpu>,
-    composer: Option<&mut ScreenComposer<'_>>,
-    host: &DisunityHost,
-    frame: u64,
-    screen: Option<&ScreenOutput>,
-) -> Result<(), PlayError> {
-    let (drawn, files) = screens_due(gpu, frame, screen)?;
-    match (composer, gpu) {
-        (Some(composer), Some(gpu)) if !files.is_empty() => {
-            composer.write(host, gpu, drawn, &files)
-        }
-        _ => Ok(()),
-    }
-}
-
-/// Writes the first, mean and slowest frame time to standard error.
-fn report_times(times: &[Duration]) {
-    let Some(first) = times.first() else {
-        return;
-    };
+/// The line that gives the first, mean and slowest frame time, which the run's scripts read.
+fn frame_time_line(times: &[Duration]) -> Option<String> {
+    let first = times.first()?;
     let total: Duration = times.iter().sum();
     let slowest = times.iter().max().copied().unwrap_or_default();
     let count = u32::try_from(times.len()).unwrap_or(u32::MAX);
-    eprintln!(
+    Some(format!(
         "[player] frame time: first {first:?}, mean {:?}, slowest {slowest:?}, {} frames",
         total / count,
         times.len()
-    );
+    ))
 }
 
-/// The size a headless run presents its frames at when it has no screen: a small window's.
+/// Writes the first, mean and slowest frame time to standard error.
+pub(crate) fn report_times(times: &[Duration]) {
+    if let Some(line) = frame_time_line(times) {
+        eprintln!("{line}");
+    }
+}
+
+/// The size a headless run presents its frames at: a small window's.
 const PRESENTED_SIZE: [u32; 2] = [960, 540];
 
-/// Prepares the frame's presentation at `viewport`, the screen's size for a run with a screen
-/// (which is the size the game's UI is laid out for) and a small window's otherwise, and brings
-/// its meshes in, so a headless run reports what the player shows in 3D.
+/// Prepares the frame's presentation at `viewport` and brings its meshes in, so a headless run
+/// reports what the player shows in 3D.
 fn present_meshes(
     host: &mut DisunityHost,
     meshes: &mut PlayerMeshes,
@@ -567,10 +457,6 @@ fn present_meshes(
     let objects = host.mesh_objects()?;
     meshes.refresh(host, &objects)
 }
-
-#[cfg(test)]
-#[path = "player_screen_tests.rs"]
-mod screen_tests;
 
 #[cfg(test)]
 mod tests {
@@ -590,24 +476,6 @@ mod tests {
         body_in(arguments, None)
     }
 
-    fn body_with_depth(depth: DepthRange) -> serde_json::Value {
-        let (plan, resources, persistent) = (
-            Path::new("plan.json"),
-            Path::new("resources.json"),
-            Path::new("persistent"),
-        );
-        request_body(
-            Path::new("/games/Game/Game_Data"),
-            [plan, resources, persistent],
-            &identity(),
-            PlayerLaunch {
-                depth,
-                ..PlayerLaunch::default()
-            },
-            Path::new("/out/callback-cache"),
-        )
-    }
-
     fn body_in(arguments: &[String], screen: Option<[u32; 2]>) -> serde_json::Value {
         let (plan, resources, persistent) = (
             Path::new("plan.json"),
@@ -625,6 +493,33 @@ mod tests {
             },
             Path::new("/out/callback-cache"),
         )
+    }
+
+    fn project(space: &'static str) -> ProjectGraphics {
+        ProjectGraphics { color_space: space }
+    }
+
+    #[test]
+    fn a_linear_project_gives_its_gpu_work_a_linear_colour_space() {
+        let launch = PlayerLaunch::default();
+        assert!(gpu_launch(launch, Some(project("linear"))).linear_colour_space);
+    }
+
+    #[test]
+    fn a_gamma_project_and_a_player_with_no_project_settings_give_a_gamma_colour_space() {
+        let launch = PlayerLaunch::default();
+        assert!(!gpu_launch(launch, Some(project("gamma"))).linear_colour_space);
+        assert!(!gpu_launch(launch, None).linear_colour_space);
+    }
+
+    #[test]
+    fn the_frame_time_line_gives_the_first_mean_and_slowest_frame_and_their_count() {
+        let times = [30, 10, 20].map(Duration::from_millis);
+        assert_eq!(
+            frame_time_line(&times).as_deref(),
+            Some("[player] frame time: first 30ms, mean 20ms, slowest 30ms, 3 frames")
+        );
+        assert_eq!(frame_time_line(&[]), None);
     }
 
     #[test]
@@ -665,19 +560,8 @@ mod tests {
     }
 
     #[test]
-    fn a_built_player_declares_a_reversed_depth_buffer_unless_the_launch_says_otherwise() {
-        assert_eq!(
-            body_with_depth(PlayerLaunch::default().depth)["reversed_z_buffer"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            body_with_depth(DepthRange::Reversed)["reversed_z_buffer"],
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            body_with_depth(DepthRange::Forward)["reversed_z_buffer"],
-            serde_json::json!(false)
-        );
+    fn a_built_player_declares_a_reversed_depth_buffer() {
+        assert_eq!(body(&[])["reversed_z_buffer"], serde_json::json!(true));
     }
 
     #[test]

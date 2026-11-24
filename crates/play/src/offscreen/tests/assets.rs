@@ -15,7 +15,7 @@ use super::super::assets::{
     Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
 };
 
-fn channel(number: u32, dimension: u32, data: Vec<f32>) -> StoredChannel {
+pub(super) fn channel(number: u32, dimension: u32, data: Vec<f32>) -> StoredChannel {
     StoredChannel {
         number,
         dimension,
@@ -32,7 +32,7 @@ fn triangles(start: u32, count: u32) -> MeshRange {
     }
 }
 
-fn mesh() -> MeshChannels {
+pub(super) fn mesh() -> MeshChannels {
     MeshChannels {
         generation: 4,
         vertex_count: 3,
@@ -45,14 +45,14 @@ fn mesh() -> MeshChannels {
     }
 }
 
-fn floats(bytes: &[u8]) -> Vec<f32> {
+pub(super) fn floats(bytes: &[u8]) -> Vec<f32> {
     bytes
         .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
         .collect()
 }
 
-fn sources(made: &worldrunner_render_program::unity::offscreen::frame::Mesh) -> Vec<i8> {
+pub(super) fn sources(made: &worldrunner_render_program::unity::offscreen::frame::Mesh) -> Vec<i8> {
     made.channels.iter().map(|channel| channel.source).collect()
 }
 
@@ -111,14 +111,6 @@ fn normals_tangents_colours_and_every_texture_coordinate_set_are_channels_by_the
         ]
     );
     assert_eq!(floats(&made.channels[6].bytes), [7.0, 8.0, 9.0]);
-}
-
-#[test]
-fn blend_weights_and_indices_are_not_vertex_inputs_of_this_renderer() {
-    let mut stored = mesh();
-    stored.channels.push(channel(12, 4, vec![0.0; 12]));
-    stored.channels.push(channel(13, 4, vec![0.0; 12]));
-    assert_eq!(sources(&mesh_of(&stored).unwrap()), [0, 4]);
 }
 
 #[test]

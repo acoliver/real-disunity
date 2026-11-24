@@ -16,10 +16,16 @@ mod planning_tests;
 mod budget_tests;
 
 #[cfg(test)]
+mod targets_tests;
+
+#[cfg(test)]
 mod capture_budget_tests;
 
 #[cfg(test)]
 mod game_tests;
+
+#[cfg(test)]
+pub(crate) mod fixtures;
 
 use crate::ViewerError;
 pub(crate) mod planning;
@@ -27,7 +33,7 @@ mod setup;
 
 #[cfg(test)]
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_post::FrameConfig;
+use worldrunner_render_post::{AttachmentView, FrameConfig, ResourceRef};
 use worldrunner_render_scene::Viewport;
 use worldrunner_render_scene::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 
@@ -70,8 +76,6 @@ impl PresentationPolicy {
     ) -> Result<(RendererConfiguration, Option<u64>), ViewerError> {
         settings.receiver_gradients = self.receiver_gradients;
         settings.game_passes = self.game.passes.clone();
-        settings.terrain_draws = self.game.terrain_draws;
-        settings.water_draws = self.game.water_draws;
         let pool = self.pool_bytes(&settings)?;
         settings.additional = planning::additional(capture_size, pool);
         let required = settings
@@ -105,53 +109,12 @@ pub(crate) struct SceneReservations {
 pub(super) struct Targets {
     pub color: wgpu::TextureView,
     pub depth: wgpu::TextureView,
+    /// The scene color and depth as frame attachments, made for these views on first use.
+    attachments: std::sync::OnceLock<(AttachmentView, AttachmentView)>,
 }
 
 impl Presentation {
-    #[cfg(test)]
     pub fn new(
-        context: &worldrunner_render_scene::device::GpuContext,
-        format: wgpu::TextureFormat,
-        size: Viewport,
-    ) -> Self {
-        Self::with_profile(
-            context,
-            format,
-            size,
-            size,
-            crate::FrameProfile::Legacy,
-            None,
-        )
-        .unwrap()
-    }
-
-    #[cfg(test)]
-    pub fn with_profile(
-        context: &worldrunner_render_scene::device::GpuContext,
-        format: wgpu::TextureFormat,
-        size: Viewport,
-        capture_size: Viewport,
-        profile: crate::FrameProfile,
-        effects: Option<&worldrunner_render_plan::SceneEffects>,
-    ) -> Result<Self, ViewerError> {
-        Self::with_settings(
-            context,
-            format,
-            [size, capture_size],
-            profile,
-            effects,
-            &PresentationPolicy {
-                receiver_gradients:
-                    worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
-                budget: crate::PresentationBudget::default().into(),
-                capture_pool: crate::CapturePoolPolicy::default(),
-                recipes: true,
-                game: crate::GameRendering::default(),
-            },
-        )
-    }
-
-    pub fn with_settings(
         context: &worldrunner_render_scene::device::GpuContext,
         format: wgpu::TextureFormat,
         [size, capture_size]: [Viewport; 2],
@@ -164,11 +127,8 @@ impl Presentation {
         let (settings, capture_pool) =
             policy.inventory(settings, capture_size, &context.device().limits())?;
         let native_rcas = settings.post.native_rcas;
-        let scheduler = ConfiguredFrameRenderer::new_with_policy(
-            context,
-            settings,
-            policy.budget.allocation_policy(),
-        )?;
+        let scheduler =
+            ConfiguredFrameRenderer::new(context, settings, policy.budget.allocation_policy())?;
         let targets = Targets::new(context.device(), &scheduler, size);
         Ok(Self {
             scheduler,
@@ -255,6 +215,12 @@ impl Presentation {
         Ok(())
     }
 
+    /// The format every output stage of the frame chain is built for, and so the format of any
+    /// texture a frame draws its output into.
+    pub fn output_format(&self) -> wgpu::TextureFormat {
+        self.scheduler.configuration().output_format
+    }
+
     pub(crate) fn capture_pool_bytes(&self) -> u64 {
         self.capture_pool.unwrap_or(0)
     }
@@ -269,10 +235,10 @@ impl Presentation {
     }
 
     pub fn refresh_targets(&mut self) {
-        self.targets = Targets {
-            color: self.scheduler.targets().scene().clone(),
-            depth: self.scheduler.targets().depth().clone(),
-        };
+        self.targets = Targets::from_views(
+            self.scheduler.targets().scene().clone(),
+            self.scheduler.targets().depth().clone(),
+        );
     }
 }
 
@@ -298,10 +264,33 @@ fn capture_allocations(size: Viewport) -> worldrunner_render_gpu::configuration:
 
 impl Targets {
     fn new(_device: &wgpu::Device, chain: &ConfiguredFrameRenderer, _size: Viewport) -> Self {
+        Self::from_views(
+            chain.targets().scene().clone(),
+            chain.targets().depth().clone(),
+        )
+    }
+
+    pub(super) fn from_views(color: wgpu::TextureView, depth: wgpu::TextureView) -> Self {
         Self {
-            color: chain.targets().scene().clone(),
-            depth: chain.targets().depth().clone(),
+            color,
+            depth,
+            attachments: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The "scene color" and "scene depth" attachments of these targets. A frame borrows the same
+    /// two views for as long as the targets last, rather than creating a pair each time.
+    pub(super) fn scene_attachments(
+        &self,
+    ) -> Result<&(AttachmentView, AttachmentView), worldrunner_render_post::FrameError> {
+        if let Some(attachments) = self.attachments.get() {
+            return Ok(attachments);
+        }
+        let attachments = (
+            AttachmentView::new(ResourceRef::new("scene color"), self.color.texture())?,
+            AttachmentView::new(ResourceRef::new("scene depth"), self.depth.texture())?,
+        );
+        Ok(self.attachments.get_or_init(|| attachments))
     }
 }
 

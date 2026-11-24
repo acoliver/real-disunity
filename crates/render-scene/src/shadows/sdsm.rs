@@ -18,19 +18,20 @@
 //! rendering a changed layer count.
 //!
 //! ```no_run
-//! use worldrunner_render_scene::{device::GpuContext, shadows::{ShadowedScene, ShadowError, sdsm::*}, SceneView};
+//! use worldrunner_render_scene::{compositor::FrameRenderer, device::GpuContext, shadows::{ShadowedScene, ShadowError, sdsm::*}, SceneView};
 //! use worldrunner_render_post::AttachmentView;
-//! # fn frame(context: &GpuContext, renderer: &mut ShadowedScene, view: &SceneView,
-//! # color: &AttachmentView, depth: &AttachmentView) -> Result<(), ShadowError> {
+//! # fn frame(context: &GpuContext, renderer: &mut ShadowedScene, scheduler: &mut FrameRenderer,
+//! # view: &SceneView, color: &AttachmentView, depth: &AttachmentView) -> Result<(), ShadowError> {
 //! let range = RangeFit { near_step: 0.1, far_step: 1.0, minimum_span: 1.0, minimum_span_policy: worldrunner_render_shadow::MinimumSpanPolicy::ExtendNear, active_maximum: None, split_lambda: 0.5, split_policy: Default::default() };
 //! renderer.set_depth_fitting(context, Some(SdsmSettings {
 //!     policy: AdoptionPolicy::Interactive { latency_frames: 2, contraction_frames: 4 }, range,
 //! }))?;
-//! renderer.render(context, view, color, depth)?; // Nonwaiting readback polling.
+//! // Nonwaiting readback polling; `None` takes the next frame identity.
+//! renderer.render_depth_fitted_host(context, view, (color, depth), (None, false, &[]), scheduler)?;
 //! renderer.set_depth_fitting(context, Some(SdsmSettings {
 //!     policy: AdoptionPolicy::SameFrameCapture, range,
 //! }))?;
-//! let fit = renderer.render_depth_fitted(context, view, (color, depth), 42)?;
+//! let fit = renderer.render_depth_fitted_host(context, view, (color, depth), (Some(42), false, &[]), scheduler)?;
 //! assert_eq!(fit.unwrap().source_frame, 42); // Waits for this frame's reduction.
 //! renderer.set_depth_fitting(context, None)?; // Restores the original pass plan.
 //! # Ok(())

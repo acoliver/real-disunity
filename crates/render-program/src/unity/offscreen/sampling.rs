@@ -62,15 +62,13 @@ pub(super) fn merge(earlier: Option<&Sampled>, read: Sampled) -> Sampled {
 }
 
 /// The function a comparison sampler compares a shader's reference depth with the stored depth by:
-/// the reference passes when it is less than or equal to the stored depth.
+/// the reference passes when it is at least the stored depth.
 ///
-/// Offscreen depth is forward unless the host sets a reversed range. A camera clears depth to 1
-/// and a pass's `ZTest LEqual` is `LessEqual`, so nearer is smaller and a fragment at the stored
-/// depth or in front of it passes its depth test. The same function makes a comparison read 1 for
-/// a receiver at the stored depth or in front of it. With the host's depth range reversed (clear
-/// 0, `ZTest LEqual` as `GreaterEqual`), the comparison is `GreaterEqual` (see
-/// `depth_range::shadow_compare`).
-pub(super) const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::LessEqual;
+/// Offscreen depth is reversed: a camera clears depth to 0 and a pass's `ZTest LEqual` is
+/// `GreaterEqual`, so nearer is larger and a fragment at the stored depth or in front of it passes
+/// its depth test. The same function makes a comparison read 1 for a receiver at the stored depth
+/// or in front of it (see `depth_range`).
+pub(super) const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::GreaterEqual;
 
 /// The state of a comparison sampler: what its name says, else what the texture it is paired with
 /// is read with, else linear filtering clamped to the edge.
@@ -381,7 +379,7 @@ mod tests {
 
     #[test]
     fn a_stored_depth_passes_a_reference_at_it_or_in_front_of_it() {
-        // Depth is not reversed: the camera clears to 1 and a pass's LEqual is LessEqual.
-        assert_eq!(SHADOW_COMPARE, wgpu::CompareFunction::LessEqual);
+        // Depth is reversed: the camera clears to 0 and a pass's LEqual is GreaterEqual.
+        assert_eq!(SHADOW_COMPARE, wgpu::CompareFunction::GreaterEqual);
     }
 }

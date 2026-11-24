@@ -1,6 +1,6 @@
 //! Stock-only operations, without allocation-changing access to the renderer.
 use super::{ConfiguredFrameRenderer, FrameRenderer};
-use worldrunner_render_post::{AttachmentView, FrameError, PostError};
+use worldrunner_render_post::{AttachmentView, BorrowedFeature, FrameError, PostError};
 
 /// Restricted stock composition. It runs the stock frame and the features the configuration
 /// inventoried in [`RendererConfiguration::game_passes`](super::RendererConfiguration::game_passes);
@@ -150,11 +150,8 @@ impl ConfiguredFrameRenderer {
     pub fn has_temporal_history(&self) -> bool {
         self.state.current().has_temporal_history()
     }
-    pub fn set_frame_time(&mut self, seconds: f32) -> Result<(), FrameError> {
-        self.state.current_mut().set_frame_time(seconds)
-    }
-    pub fn set_frame_time_duration(&mut self, time: std::time::Duration) -> Result<(), FrameError> {
-        self.state.current_mut().set_frame_time_duration(time)
+    pub fn set_frame_time(&mut self, time: std::time::Duration) {
+        self.state.current_mut().set_frame_time(time);
     }
     pub fn set_frame_delta(&mut self, delta: f32) -> Result<(), PostError> {
         self.state.current_mut().set_frame_delta(delta)
@@ -168,6 +165,9 @@ impl ConfiguredFrameRenderer {
         output: &wgpu::TextureView,
     ) -> Result<(), PostError> {
         self.state.current().encode_output(encoder, output)
+    }
+    pub fn encode_resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.state.current().encode_resolve(encoder);
     }
     pub fn begin_timing(
         &self,
@@ -189,6 +189,13 @@ impl ConfiguredFrameRenderer {
     }
 }
 impl FrameEncoding<'_> {
+    /// Encodes a resident unshadowed scene through the feature boundary.
+    /// Checked attachments retain their selected mip, array layer and view format.
+    /// The submission and abandonment rules of [`FrameRenderer`] apply.
+    ///
+    /// This is [`prepare_stock_scene`](super::super::prepare_stock_scene) encoded alone: callers
+    /// that add passes or features of their own prepare the stock scene themselves and forward
+    /// its offscreen operations to [`FrameRenderer::encode_frame`].
     pub fn encode_scene(
         &mut self,
         device: &wgpu::Device,
@@ -197,7 +204,25 @@ impl FrameEncoding<'_> {
         attachments: (&AttachmentView, &AttachmentView),
         frame: crate::frame::FrameUniform,
     ) -> Result<(), FrameError> {
-        super::super::encode_scene(self.0, device, encoder, scene, attachments, frame)
+        let mut stock =
+            super::super::prepare_stock_scene(self.0, device, encoder, scene, attachments, frame)?;
+        let plan = stock.plan();
+        let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
+        let (declaration, frame) = (stock.declaration(), stock.frame());
+        let offscreen = stock.take_offscreen_operations();
+        self.0.encode_frame(
+            device,
+            encoder,
+            (&passes, &views),
+            offscreen
+                .as_ref()
+                .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
+            &mut [BorrowedFeature {
+                declaration,
+                prepared: &mut stock,
+            }],
+            &(frame, None),
+        )
     }
     /// The pass that shows a game screen named `resource` in the renderer's scene colour format.
     /// Build it once and reuse it for every frame that shows a screen.
@@ -223,18 +248,8 @@ impl FrameEncoding<'_> {
     ) -> Result<(), FrameError> {
         super::super::game_screen_frame::encode_game_screen(self.0, device, encoder, scene, frame)
     }
-    pub fn render_depth_fitted(
-        &mut self,
-        context: &crate::device::GpuContext,
-        view: &crate::SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
-        frame: (Option<u64>, bool),
-        scene: &mut crate::shadows::ShadowedScene,
-    ) -> Result<Option<crate::shadows::sdsm::AdoptedFit>, crate::shadows::ShadowError> {
-        scene.render_depth_fitted_host(context, view, attachments, frame, self.0)
-    }
     /// Captures terms before the fitted frame releases transaction-owned scene state.
-    pub fn render_depth_fitted_terms(
+    pub fn render_depth_fitted(
         &mut self,
         context: &crate::device::GpuContext,
         view: &crate::SceneView,
@@ -242,7 +257,7 @@ impl FrameEncoding<'_> {
         frame: (Option<u64>, bool, &[crate::compositor::terms::TermCapture]),
         scene: &mut crate::shadows::ShadowedScene,
     ) -> Result<Option<crate::shadows::sdsm::AdoptedFit>, crate::shadows::ShadowError> {
-        scene.render_depth_fitted_host_terms(context, view, attachments, frame, self.0)
+        scene.render_depth_fitted_host(context, view, attachments, frame, self.0)
     }
     pub fn encode_shadowed(
         &mut self,
@@ -252,6 +267,6 @@ impl FrameEncoding<'_> {
         encoder: &mut wgpu::CommandEncoder,
         scene: &mut crate::shadows::ShadowedScene,
     ) -> Result<(), crate::shadows::ShadowError> {
-        scene.encode_with(context, view, attachments, encoder, Some(self.0))
+        scene.encode_with(context, view, attachments, encoder, self.0)
     }
 }

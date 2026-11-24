@@ -23,7 +23,8 @@ worldrunner-render-program = { path = "../render-program" }
 worldrunner-render-lighting = { path = "../render-lighting" }
 glam.workspace = true
 half = "2.7.1"
-worldrunner-render-plan = { path = "../render-plan", features = ["ui"] }
+worldrunner-render-plan = { path = "../render-plan" }
+worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"] }
 thiserror.workspace = true
 worldrunner-render-shadow = { path = "../render-shadow" }
 worldrunner-texture = { path = "../texture" }
@@ -36,8 +37,7 @@ pollster.workspace = true
 wgpu = { workspace = true, features = ["noop"] }
 worldrunner-render-scene = { path = ".", features = ["test-support"] }
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
-worldrunner-render-plan = { path = "../render-plan", features = ["ui"] }
-worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"] }
+worldrunner-render-plan = { path = "../render-plan", features = ["simulation"] }
 # `spv-out` turns the WGSL of a synthetic player program into the SPIR-V a player ships.
 naga = { version = "30.0.0", features = ["wgsl-in", "spv-out"] }
 worldrunner-unity-serialized = { path = "../unity-serialized" }

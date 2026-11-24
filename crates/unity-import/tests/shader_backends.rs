@@ -1,4 +1,5 @@
-use worldrunner_unity_import::shader_prep::{Backend, check_with_naga, prepare};
+use worldrunner_unity_import::shader_prep::{Backend, check_with_naga};
+use worldrunner_unity_serialized::spirv_prep::prepare;
 
 fn op(code: u32, operands: &[u32]) -> Vec<u32> {
     let len = u32::try_from(operands.len() + 1).unwrap();

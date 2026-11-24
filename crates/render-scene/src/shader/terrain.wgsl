@@ -422,10 +422,11 @@ fn terrain_quad_footprint(fragment: vec4<f32>, axis: vec2<f32>, normal: vec3<f32
     return clamp(displacement.xy * direction, vec2<f32>(-1e4), vec2<f32>(1e4));
 }
 
-// A terrain fragment's material after projected decals: the values the forward path lights and
-// the G-buffer stores, evaluated once by either.
+// A terrain fragment's material after projected decals: the values the forward path lights.
 struct TerrainMaterial {
-    geometric: vec3<f32>,
+    // The unit normal of the triangle plane the fragment rasterises on, which the forward
+    // receiver derivatives follow. The pixel's smooth heightfield normal differs from it.
+    facet: vec3<f32>,
     projected: SceneDecalSurface,
 }
 
@@ -457,7 +458,7 @@ fn terrain_material(input: TerrainVertexOutput) -> TerrainMaterial {
 
     let projected = scene_project_decals(input.world_position, geometric, 2u,
         blended.albedo, vec2<f32>(blended.roughness, blended.metalness), normal);
-    return TerrainMaterial(geometric, projected);
+    return TerrainMaterial(footprint_normal, projected);
 }
 
 @fragment

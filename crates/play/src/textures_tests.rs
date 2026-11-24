@@ -1,4 +1,4 @@
-use worldrunner_disunity_runtime::PlayerTexture;
+use worldrunner_disunity_runtime::{PlayerTexture, TextureDimension};
 use worldrunner_render_plan::{SceneTexture, TextureColorSpace};
 use worldrunner_render_scene::texture::prepare_texture;
 
@@ -76,13 +76,31 @@ fn texels(texture: &SceneTexture) -> (TextureColorSpace, &[u8]) {
     }
 }
 
+/// The texels of a texture of `levels` levels, whole.
+fn texel_levels(texture: &SceneTexture, levels: u32) -> &[u8] {
+    match texture {
+        SceneTexture::Texels { bytes, mips, .. } if *mips == levels => bytes,
+        other => panic!("expected {levels} levels of texels, got {other:?}"),
+    }
+}
+
 /// The renderer's own view of a container: its GPU format name, size, and base level bytes.
 fn prepared(texture: &SceneTexture) -> (String, [u32; 2], Vec<u8>) {
+    let (name, size, mut levels) = prepared_levels(texture);
+    assert_eq!(levels.len(), 1, "one level is carried");
+    (name, size, levels.remove(0))
+}
+
+/// The renderer's own view of a container: its GPU format name, size, and the bytes of each level.
+fn prepared_levels(texture: &SceneTexture) -> (String, [u32; 2], Vec<Vec<u8>>) {
     let prepared = prepare_texture(texture).expect("the renderer accepts the container");
-    assert_eq!(prepared.mips().len(), 1, "only the base level is carried");
     let name = format!("{:?}", prepared.format());
-    let level = prepared.mips()[0].bytes.to_vec();
-    (name, [prepared.width(), prepared.height()], level)
+    let levels = prepared
+        .mips()
+        .iter()
+        .map(|mip| mip.bytes.to_vec())
+        .collect();
+    (name, [prepared.width(), prepared.height()], levels)
 }
 
 #[test]
@@ -209,13 +227,59 @@ fn a_width_that_is_not_a_multiple_of_four_rounds_up_to_whole_blocks() {
 }
 
 #[test]
-fn mip_levels_after_the_base_are_left_out() {
-    let mut bytes = vec![7; 4 * 4 * 4];
-    bytes.extend_from_slice(&[9; 4 * 2 * 2]);
-    let mut texture = player(RGBA32, [4, 4], true, bytes);
+fn every_mip_level_is_carried_with_its_rows_turned_over_alone() {
+    // A 2x2 texture whose rows are 1 and 2 (bottom first) and a 1x1 second level.
+    let mut bytes = vec![1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2];
+    bytes.extend_from_slice(&[9; 4]);
+    let mut texture = player(RGBA32, [2, 2], true, bytes);
     texture.mips = 2;
     let scene = player_scene_texture(&texture).unwrap();
-    assert_eq!(texels(&scene).1, vec![7; 64]);
+    let mut want = vec![2; 8];
+    want.extend_from_slice(&[1; 8]);
+    want.extend_from_slice(&[9; 4]);
+    assert_eq!(texel_levels(&scene, 2), want);
+}
+
+#[test]
+fn more_levels_than_the_size_has_and_bytes_short_of_the_levels_are_refused_by_name() {
+    let mut texture = player(RGBA32, [4, 4], true, vec![7; 4 * 4 * 4 + 16 + 4]);
+    texture.mips = 4;
+    assert_eq!(
+        player_scene_texture(&texture),
+        Err(PlayerTextureError::Mips {
+            mips: 4,
+            width: 4,
+            height: 4
+        })
+    );
+    texture.mips = 3;
+    texture.bytes.truncate(4 * 4 * 4 + 16 + 3);
+    assert_eq!(
+        player_scene_texture(&texture),
+        Err(PlayerTextureError::Levels {
+            mips: 3,
+            needed: 4 * 4 * 4 + 16 + 4,
+            actual: 4 * 4 * 4 + 16 + 3
+        })
+    );
+}
+
+#[test]
+fn block_levels_below_four_texels_are_turned_over_by_the_rows_they_hold() {
+    // Three levels of a 4x4 DXT1 texture: 4x4, 2x2 and 1x1, one block each.
+    let top = bc1_block(0xF800, 0x001F, 0);
+    let two = bc1_block(0xF800, 0x001F, 0x0000_0a05);
+    let one = bc1_block(0xF800, 0x001F, 0x0000_0002);
+    let bytes = [top.clone(), two, one.clone()].concat();
+    let mut texture = player(DXT1, [4, 4], false, bytes);
+    texture.mips = 3;
+    let (name, size, levels) = prepared_levels(&player_scene_texture(&texture).unwrap());
+    assert_eq!((name.as_str(), size), ("Bc1RgbaUnormSrgb", [4, 4]));
+    assert_eq!(levels.len(), 3);
+    assert_eq!(levels[0], top, "equal rows stay equal");
+    // The 2x2 level holds two rows, bytes 4 and 5 of the block, and swaps them.
+    assert_eq!(levels[1][4..8], [0x0a, 0x05, 0x00, 0x00]);
+    assert_eq!(levels[2], one, "a level of one row turns over to itself");
 }
 
 #[test]
@@ -504,4 +568,27 @@ fn a_distance_field_keeps_its_rows_top_first() {
     let scene = player_scene_texture(&texture).unwrap();
     let (_, rows) = texels(&scene);
     assert_eq!(rows, [255, 255, 255, 0, 255, 255, 255, 255]);
+}
+
+#[test]
+fn a_texture_of_layers_is_not_a_flat_texture() {
+    for dimension in [
+        TextureDimension::D2Array,
+        TextureDimension::Cube,
+        TextureDimension::D3,
+    ] {
+        let layered = PlayerTexture {
+            dimension,
+            depth: 6,
+            ..player(RGBA32, [1, 1], false, vec![255; 24])
+        };
+        assert!(
+            matches!(
+                player_scene_texture(&layered),
+                Err(PlayerTextureError::NotFlat { dimension: found }) if found == dimension
+            ),
+            "{dimension:?}"
+        );
+    }
+    assert!(player_scene_texture(&player(RGBA32, [1, 1], false, vec![255; 4])).is_ok());
 }

@@ -10,7 +10,7 @@ fn windowless_derived_budget_is_observable_and_tracks_resize() {
         cap_bytes: None,
     };
     host.options.window_size_unit = crate::WindowSizeUnit::Physical;
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     assert!(run.frame().unwrap());
     let first = run.host().statistics().unwrap().presentation_budget_bytes;
     assert!(first > 256 * 1024 * 1024);
@@ -28,7 +28,7 @@ fn windowless_statistics_report_resident_bytes_by_class() {
     use crate::ResourceClass;
     let mut driver = Driver::default();
     let host = host(crate::renderer::retained_tests::source());
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     assert!(run.frame().unwrap());
     let resident = run.host().statistics().unwrap().resident_bytes;
     // The scene's placements are drawn from instance buffers, which the census counts.
@@ -44,7 +44,7 @@ fn windowless_statistics_report_resident_bytes_by_class() {
 fn windowless_steady_frames_reuse_upload_staging() {
     let mut driver = Driver::default();
     let host = host(crate::renderer::retained_tests::source());
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let mut staging = Vec::new();
     // A frame is skipped while every flight slot is busy; polling lets earlier frames retire.
     let deadline = std::time::Instant::now() + std::time::Duration::from_mins(1);

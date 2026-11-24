@@ -26,12 +26,11 @@ fn requirements(
             max_sampled_textures_per_shader_stage: available
                 .max_sampled_textures_per_shader_stage
                 .min(32),
-            // A single-pass downsampler binds its source and six levels as storage images; 16
-            // covers a full twelve-level chain's thirteen. An adapter that offers fewer keeps its
-            // own limit, and a program that binds more is refused by name when it is prepared.
-            max_storage_textures_per_shader_stage: available
-                .max_storage_textures_per_shader_stage
-                .min(16),
+            // The adapter's count up to 16, which the player's headless device asks too. An
+            // adapter offering fewer than 4 gets no device: the negotiation refuses the limit and
+            // the request reports `DeviceError::DeviceRefused`.
+            max_storage_textures_per_shader_stage:
+                worldrunner_render_gpu::device::storage_images_per_stage(available),
             ..Default::default()
         },
         // Lets frame validation use adapter-reported sample counts (2x and 8x). wgpu filters
@@ -83,42 +82,42 @@ pub struct GpuContext {
     unavailable_optional_limits: Vec<String>,
 }
 
+/// What a scene device is asked to provide.
+#[derive(Clone, Debug, Default)]
+pub struct DeviceRequest {
+    /// Features the adapter must offer. Use [`Features::empty()`] for scenes containing only raw
+    /// textures; block-compressed textures need [`REQUIRED_FEATURES`].
+    pub features: Features,
+    /// Optional timing enables supported timestamp queries; required timing rejects an adapter
+    /// without them.
+    pub timing: worldrunner_render_post::TimingMode,
+    /// For a device another user shares, such as a player's offscreen work: the device also meets
+    /// these requirements, each limit at the more demanding of the scene's value and this one,
+    /// and every feature either asks for.
+    pub shared: worldrunner_render_gpu::device::DeviceRequirements,
+}
+
 impl GpuContext {
-    /// Acquires a device able to sample block-compressed textures.
+    /// Acquires a headless device meeting `request`.
     ///
     /// # Errors
     ///
-    /// Returns [`DeviceError`] when no adapter exists, when the best available
-    /// adapter cannot sample compressed textures, or when device creation
-    /// fails.
-    pub async fn request() -> Result<Self, DeviceError> {
-        Self::request_with_features(REQUIRED_FEATURES).await
-    }
-
-    /// Acquires a headless device enabling exactly the requested optional features.
-    ///
-    /// Use [`Features::empty()`] for scenes containing only raw textures.
-    /// Returns [`DeviceError`] if no adapter exists or any requirement is unmet.
-    pub async fn request_with_features(required_features: Features) -> Result<Self, DeviceError> {
+    /// As [`GpuContext::from_instance`].
+    pub async fn request(request: &DeviceRequest) -> Result<Self, DeviceError> {
         let instance = worldrunner_render_gpu::device::headless_instance();
-        Self::from_instance_with_features(&instance, required_features).await
+        Self::from_instance(&instance, request).await
     }
 
-    /// Acquires a device from a caller-supplied instance.
+    /// Acquires a device meeting `request` from the high-performance adapter of a
+    /// caller-configured instance.
     ///
     /// # Errors
     ///
-    /// As [`GpuContext::request`].
-    pub async fn from_instance(instance: &Instance) -> Result<Self, DeviceError> {
-        Self::from_instance_with_features(instance, REQUIRED_FEATURES).await
-    }
-
-    /// Acquires a device with explicit features from a caller-configured instance.
-    ///
-    /// Returns [`DeviceError`] rather than dropping unsupported requirements.
-    pub async fn from_instance_with_features(
+    /// Returns [`DeviceError::NoAdapter`] when the instance offers no adapter, otherwise as
+    /// [`GpuContext::from_adapter`].
+    pub async fn from_instance(
         instance: &Instance,
-        required_features: Features,
+        request: &DeviceRequest,
     ) -> Result<Self, DeviceError> {
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
@@ -130,59 +129,28 @@ impl GpuContext {
             .await
             .map_err(|_| DeviceError::NoAdapter)?;
 
-        Self::from_adapter_with_features(adapter, required_features).await
+        Self::from_adapter(adapter, request).await
     }
 
-    /// Acquires a device from an explicitly selected adapter, enabling exactly the
-    /// requested features. Desktop hosts can select a surface-compatible adapter
-    /// without adding window-system dependencies to this pathless GPU crate.
-    pub async fn from_adapter_with_features(
-        adapter: Adapter,
-        required_features: Features,
-    ) -> Result<Self, DeviceError> {
-        Self::from_adapter_with_timing(
-            adapter,
-            required_features,
-            worldrunner_render_post::TimingMode::Disabled,
-        )
-        .await
-    }
-
-    /// Optional timing enables supported timestamp queries; required timing rejects absent capability.
-    pub async fn from_adapter_with_timing(
-        adapter: Adapter,
-        required_features: Features,
-        timing: worldrunner_render_post::TimingMode,
-    ) -> Result<Self, DeviceError> {
-        Self::from_adapter_shared(
-            adapter,
-            required_features,
-            timing,
-            &worldrunner_render_gpu::device::DeviceRequirements::default(),
-        )
-        .await
-    }
-
-    /// As [`Self::from_adapter_with_timing`], for a device another user shares, such as a
-    /// player's offscreen work: the device also meets `caller`'s requirements, each limit at the
-    /// more demanding of the scene's value and the caller's, and every feature either asks for.
+    /// Acquires a device meeting `request` from an explicitly selected adapter. Desktop hosts can
+    /// select a surface-compatible adapter without adding window-system dependencies to this
+    /// pathless GPU crate.
     ///
     /// # Errors
-    /// As [`Self::from_adapter_with_timing`], and when the adapter cannot meet the caller's
-    /// required features or limits.
-    pub async fn from_adapter_shared(
+    /// Returns [`DeviceError`] rather than dropping unsupported requirements: when the adapter
+    /// lacks a required feature or limit, or refuses to create the device.
+    pub async fn from_adapter(
         adapter: Adapter,
-        required_features: Features,
-        timing: worldrunner_render_post::TimingMode,
-        caller: &worldrunner_render_gpu::device::DeviceRequirements,
+        request: &DeviceRequest,
     ) -> Result<Self, DeviceError> {
-        let required_features = required_features
-            | if timing == worldrunner_render_post::TimingMode::Required {
-                timing.features()
+        let required_features = request.features
+            | if request.timing == worldrunner_render_post::TimingMode::Required {
+                request.timing.features()
             } else {
                 Features::empty()
             };
-        let requirements = requirements(&adapter.limits(), required_features, timing).union(caller);
+        let requirements = requirements(&adapter.limits(), required_features, request.timing)
+            .union(&request.shared);
         let missing = requirements
             .required_features
             .difference(adapter.features());

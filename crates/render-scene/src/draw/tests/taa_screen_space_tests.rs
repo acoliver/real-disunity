@@ -7,7 +7,8 @@
 //! contribution moves when TAA is switched on. Values are on the 0..=1 scale of the 8-bit
 //! sRGB bytes, which carries a quantisation floor of about 0.001.
 use super::*;
-use crate::compositor::{FrameRenderer, encode_scene};
+use crate::compositor::FrameRenderer;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsr, TexelFormat,
 };
@@ -132,7 +133,7 @@ fn pipelines(
     if feature == Feature::Ssao && variant.feature_on {
         ScenePipelines::with_ssao(device, HDR, samples.count()).unwrap()
     } else {
-        ScenePipelines::with_samples(device, HDR, samples.count()).unwrap()
+        ScenePipelines::new(device, HDR, samples.count()).unwrap()
     }
 }
 
@@ -179,7 +180,7 @@ fn render(
     )
     .unwrap();
     let pipelines = pipelines(context, feature, variant, samples);
-    let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let attach = |name, texture| AttachmentView::new(ResourceRef::new(name), texture).unwrap();
     let color = attach("scene color", renderer.targets().scene().texture());
     let depth = attach("scene depth", renderer.targets().depth().texture());
@@ -208,8 +209,7 @@ fn render(
                 .submission()
                 .prepare(device, |encoder, _| {
                     let scene = (&mut gpu, &pipelines);
-                    encode_scene(
-                        &mut renderer,
+                    renderer.encoding().encode_scene(
                         device,
                         encoder,
                         scene,

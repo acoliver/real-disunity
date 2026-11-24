@@ -122,7 +122,7 @@ pub(crate) fn build(device: &Device, config: &Config) -> Built {
     let samples = config.samples;
     let (pipelines, formats, screen, layout) = match config.kind {
         Kind::Plain(format) => (
-            ScenePipelines::with_samples(device, format, samples).unwrap(),
+            ScenePipelines::new(device, format, samples).unwrap(),
             vec![format],
             Screen::None,
             None,

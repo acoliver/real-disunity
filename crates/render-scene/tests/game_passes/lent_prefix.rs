@@ -8,15 +8,15 @@ use super::lighting::ssao;
 use super::shadowed::{capture_fit, effects_with, shadowed};
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, EngineConstants, FrameSceneMeshesHandle, GameBuild, GameFeatureFactory,
         GamePassSpec, GamePasses, GameTargets, TargetDeclaration, TargetExtent,
         TerrainMaterialChannel,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedFeature,
     },
     wgpu,
 };

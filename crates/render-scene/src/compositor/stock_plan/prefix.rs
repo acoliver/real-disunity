@@ -14,12 +14,10 @@ pub(crate) struct PrefixPlan {
 }
 
 impl FrameRenderer {
-    /// Plans the prefix that completes `source`'s depth and normals, with the early producer's
-    /// outputs fused into its prepass when the frame renders from the G-buffer.
+    /// Plans the prefix that completes `source`'s depth and normals.
     ///
     /// # Errors
-    /// When an attachment cannot be viewed, or the producer needs a velocity target the renderer
-    /// lacks.
+    /// When an attachment cannot be viewed.
     pub(crate) fn plan_prefix(
         &self,
         source: &SceneMetadata,
@@ -32,10 +30,7 @@ impl FrameRenderer {
             ssao: Some(source),
             ssr: self.ssr.as_ref(),
             water: None,
-            water_registered: false,
-            gbuffer: self.gbuffer.as_ref(),
             velocity: self.targets().velocity_texture().cloned(),
-            temporal_mask: None,
             requested: (self.ssao_requested, self.ssr_requested),
             overlay_depth: false,
             shadow: false,
@@ -84,20 +79,6 @@ impl FrameRenderer {
         let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
         crate::ssao::passes::prepass(source, material, &mut passes, &mut views)?;
         let screen = source.passes.schedule_metadata(&mut passes, &mut views)?;
-        if let Some(gbuffer) = self.gbuffer.as_ref().filter(|gbuffer| gbuffer.renders()) {
-            let (producer, _) = source.geometry.gbuffer.as_ref().expect("early producer");
-            let velocity = self.velocity_attachment(producer.writes_velocity())?;
-            gbuffer.fuse_prepass(&mut passes, &mut views, velocity.as_ref())?;
-            let prepass = crate::gbuffer::producer_pass(producer, source.depth.format());
-            return Ok((
-                LogicalPrefix {
-                    passes,
-                    prepass,
-                    screen,
-                },
-                views,
-            ));
-        }
         let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
         prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
         prepass.depth_format = Some(source.depth.format());

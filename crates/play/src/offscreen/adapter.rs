@@ -27,7 +27,6 @@ use worldrunner_world_simulation::graphics::{
 use super::assets::Assets;
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
-use super::depth_range::DepthRange;
 use super::frame::{
     Adapted, Available, BLIT_MESH, PASS_TAG, Report, Settings, ShaderInfo, adapt_probing,
     textures_of,
@@ -117,13 +116,6 @@ impl OffscreenAdapter {
         }
     }
 
-    /// How depth runs in the camera renders this adapter maps: the [`Settings::depth`] it was
-    /// made with.
-    #[must_use]
-    pub fn depth(&self) -> DepthRange {
-        self.settings.depth
-    }
-
     /// Chooses whether block-compressed textures go up as blocks (the default, on a device that
     /// samples them) or decoded to RGBA8.
     #[must_use]
@@ -160,64 +152,12 @@ impl OffscreenAdapter {
 
     /// Registers what the snapshot needs with `state`, then maps it. What cannot be loaded or
     /// uploaded is counted in the report's failures and left out of the frame.
-    pub fn adapt(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (false, &BTreeMap::new()),
-            Settling::Wait,
-        )
-    }
-
-    /// As [`adapt`](Self::adapt); with `settling`, the way the uploads that need room get the GPU
-    /// to finish with the storage they give back, and with `buffers`, the compute buffers the host
-    /// uploaded for the materials that bind them.
-    pub(crate) fn adapt_settling(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        settling: Settling,
-        buffers: &BTreeMap<ComputeBufferId, BufferHandle>,
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (false, buffers),
-            settling,
-        )
-    }
-
-    /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
-    /// dispatch binds are examined ([`adapt_probing`]). `buffers` are the compute buffers the host
-    /// uploaded for the materials that bind them, which the frame's materials name by handle.
-    pub fn adapt_probing(
-        &mut self,
-        snapshot: &GraphicsSnapshot,
-        assets: &dyn Assets,
-        state: &mut OffscreenState,
-        runtime: &mut ProgramRuntime,
-        (probe, buffers): (bool, &BTreeMap<ComputeBufferId, BufferHandle>),
-    ) -> Adapted {
-        self.adapt_with(
-            snapshot,
-            assets,
-            (state, runtime),
-            (probe, buffers),
-            Settling::Wait,
-        )
-    }
-
-    fn adapt_with(
+    ///
+    /// With `probe`, the camera renders into the render textures a dispatch binds are examined.
+    /// `buffers` are the compute buffers the host uploaded for the materials that bind them,
+    /// which the frame's materials name by handle. `settling` is the way the uploads that need
+    /// room get the GPU to finish with the storage they give back.
+    pub(crate) fn adapt(
         &mut self,
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
@@ -333,13 +273,15 @@ impl OffscreenAdapter {
                         light_modes,
                         queue: loaded.queue,
                         texture_defaults: loaded.texture_defaults,
-                        fill: loaded.fill,
+                        fill: loaded
+                            .fill
+                            .in_colour_space(self.settings.linear_colour_space),
                     };
                     state.add_shader(ids::shader(*id), loaded.program);
                     self.shaders.insert(*id, (source.clone(), info.clone()));
                     available.shaders.insert(*id, info);
                 }
-                Err(error) => notes.fail("shader", &error),
+                Err(error) => notes.fail("shader", None, &error),
             }
         }
     }
@@ -356,11 +298,11 @@ impl OffscreenAdapter {
                 continue;
             }
             let look = self.settings.stand_in_look;
-            match state.set_texture(runtime, &texture.texture_in(look)) {
+            match state.set_texture(runtime, &texture.texture(look)) {
                 Ok(()) => {
                     self.defaults.insert(texture);
                 }
-                Err(error) => notes.fail("defaulttexture", &error),
+                Err(error) => notes.fail("defaulttexture", None, &error),
             }
         }
     }
@@ -369,7 +311,9 @@ impl OffscreenAdapter {
 /// The identities of the meshes the snapshot's renderers and mesh draws name.
 fn named_meshes(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
     let drawn = snapshot.work.iter().filter_map(|work| match work {
-        OffscreenWork::DrawMesh { mesh, .. } => Some(*mesh),
+        OffscreenWork::DrawMesh { mesh, .. } | OffscreenWork::DrawMeshBatch { mesh, .. } => {
+            Some(*mesh)
+        }
         _ => None,
     });
     snapshot
@@ -495,7 +439,7 @@ pub fn build(
     adapted: &mut Adapted,
 ) -> Result<OffscreenOperations, OffscreenError> {
     let started = Instant::now();
-    let operations = match state.build_naming_record(runtime, arena, &adapted.frame) {
+    let operations = match state.build(runtime, arena, &adapted.frame) {
         Ok(operations) => operations,
         Err(first) => {
             let rebuilt = rebuild_without_unusable_parts(state, runtime, arena, adapted, first);
@@ -572,6 +516,9 @@ fn rebuild_without_unusable_parts(
     first: Refusal,
 ) -> Result<OffscreenOperations, OffscreenError> {
     adapted.report.phases.refusals += 1;
+    // Leaving records out renumbers the ones after them, so a read could land on another record.
+    adapted.frame.taps.clear();
+    adapted.report.reads.clear();
     let over_budget = is_over_budget(&first.error);
     if over_budget && adapted.report.holdings.is_empty() {
         adapted.report.holdings = holdings::describe(runtime);
@@ -589,13 +536,13 @@ fn rebuild_without_unusable_parts(
     if over_budget {
         match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
-            Err(error) if is_over_budget(&error) => return Err(error),
+            Err(refusal) if is_over_budget(&refusal.error) => return Err(refusal.error),
             Err(_) => {}
         }
     }
     adapted.report.phases.probes += adapted.frame.records.len();
     drop_unusable_records(state, runtime, arena, adapted);
-    state.build(runtime, arena, &adapted.frame)
+    build_rest(state, runtime, arena, adapted)
 }
 
 /// Leaves out the record the state refused and builds the frame again, for as long as the state
@@ -610,7 +557,7 @@ fn rebuild_without_named_records(
 ) -> Result<OffscreenOperations, OffscreenError> {
     let mut index = named;
     while drop_record_refused_alone(state, runtime, arena, adapted, index) {
-        match state.build_naming_record(runtime, arena, &adapted.frame) {
+        match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
             Err(refusal) if refusal.error.is_frame_wide() => return Err(refusal.error),
             Err(Refusal {
@@ -621,7 +568,19 @@ fn rebuild_without_named_records(
     }
     adapted.report.phases.probes += adapted.frame.records.len();
     drop_unusable_records(state, runtime, arena, adapted);
-    state.build(runtime, arena, &adapted.frame)
+    build_rest(state, runtime, arena, adapted)
+}
+
+/// Builds what is left of the frame once its unusable parts are out.
+fn build_rest(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &Adapted,
+) -> Result<OffscreenOperations, OffscreenError> {
+    state
+        .build(runtime, arena, &adapted.frame)
+        .map_err(|refusal| refusal.error)
 }
 
 /// Builds the record at `index` alone, with the globals in force for it. When the state refuses
@@ -654,7 +613,7 @@ fn drop_record_refused_alone(
     };
     let kind = format!("record:{}", record_names::kind(record));
     let note = record_names::drawn_with(record, &adapted.frame, state);
-    adapted.report.fail_with(&kind, note.as_deref(), &error);
+    adapted.report.fail(&kind, note.as_deref(), &error);
     adapted.report.built = adapted.report.built.saturating_sub(1);
     adapted.frame.records.remove(index);
     true
@@ -677,6 +636,7 @@ fn part(
         render_textures: textures.to_vec(),
         records,
         later_reads: Vec::new(),
+        taps: Vec::new(),
         ..frame.clone()
     }
 }
@@ -692,7 +652,7 @@ fn drop_unusable_textures(
     for spec in &adapted.frame.render_textures {
         let alone = part(&adapted.frame, std::slice::from_ref(spec), Vec::new());
         if let Err(error) = state.check(runtime, arena, &alone) {
-            adapted.report.fail("rendertexture", &error);
+            adapted.report.fail("rendertexture", None, &error);
             unusable.insert(spec.id);
         }
     }
@@ -750,7 +710,7 @@ fn drop_unusable_records(
             Err(error) => {
                 let kind = format!("record:{}", record_names::kind(&record));
                 let note = record_names::drawn_with(&record, &adapted.frame, state);
-                adapted.report.fail_with(&kind, note.as_deref(), &error);
+                adapted.report.fail(&kind, note.as_deref(), &error);
                 adapted.report.built = adapted.report.built.saturating_sub(1);
             }
         }

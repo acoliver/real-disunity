@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{
     SceneAtlasSampling, SceneImpostor, SceneImpostorLayout, TexelFormat,
 };
@@ -7,7 +8,7 @@ use worldrunner_render_plan::{
 fn octahedral_flat_mask_matches_forward_prepass_metadata_and_shadow() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     for sampling in [SceneAtlasSampling::MipZero, SceneAtlasSampling::Implicit] {
         let gpu = upload(&context, &layouts, &source(false, false, sampling));
         let mut reference = None;
@@ -158,7 +159,7 @@ fn source(constant: bool, relief: bool, sampling: SceneAtlasSampling) -> RenderS
 }
 
 fn upload(context: &GpuContext, layouts: &ScenePipelines, source: &RenderScene) -> SceneGpu {
-    let gpu = SceneGpu::upload(context.device(), context.submission(), source, layouts).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), source, layouts).unwrap();
     let mut frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],
         target_millimeters: [0, 0, 1000],
@@ -190,7 +191,7 @@ fn count(bytes: &[u8]) -> usize {
 fn octahedral_flat_mask_preserves_varying_alpha_coverage_without_relief() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut reference = None;
     for sampling in [SceneAtlasSampling::MipZero, SceneAtlasSampling::Implicit] {
         let control = coverage(&context, &layouts, &source(true, false, sampling));

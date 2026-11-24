@@ -3,12 +3,16 @@
 #[path = "presentation_ui_tests.rs"]
 mod tests;
 
+use crate::canvas_geometry::texture_kind;
 use crate::{
     DisunityResult,
     callbacks::mutate,
     presentation::{DisunityCoverage, DisunityQuad},
 };
-use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind};
+use worldrunner_world_simulation::ui::{
+    UiTexture,
+    presentation::{UiDraw, UiDrawKind},
+};
 
 fn draw_order(draw: &UiDraw) -> (i32, i32, usize, UiDrawKind) {
     (
@@ -31,7 +35,7 @@ fn validate_draw(draw: &UiDraw, previous: Option<&UiDraw>) -> Result<(), crate::
     }) {
         return Err("presentation UI corner_colors must be finite channels in 0..=1".into());
     }
-    draw.validate_distance()
+    draw.validate()
         .map_err(|error| crate::errors::AbiError::from(error.to_string()))?;
     let [x, y, width, height] = draw.clip_rect;
     if x.checked_add(width).is_none() || y.checked_add(height).is_none() {
@@ -83,6 +87,15 @@ pub struct DisunityUiDraw {
     pub effect_g: f32,
     pub effect_b: f32,
     pub effect_a: f32,
+    /// 0 when `DisunityQuad::texture` is a stored image identity (graphics) or a coverage index
+    /// (text); 1 when it is a render texture id (`RenderTextureId::to_bits`).
+    pub texture_kind: u32,
+    pub padding: u32,
+    /// The world material of a graphic the game draws with its own shader, from
+    /// `MaterialId::to_bits`; zero for the engine's look and for text.
+    pub material: u64,
+    /// The generation of that material's state; zero when `material` is zero.
+    pub material_generation: u64,
 }
 
 /// # Safety
@@ -196,6 +209,11 @@ fn encode_metadata(draw: &UiDraw) -> DisunityUiDraw {
         effect_g,
         effect_b,
         effect_a,
+        texture_kind: match draw.texture {
+            Some(UiTexture::Target(_)) => texture_kind::TARGET,
+            _ => texture_kind::IMAGE,
+        },
+        padding: 0,
         kind: (if draw.triangle_uv.is_some() {
             2
         } else {
@@ -232,13 +250,19 @@ fn encode_metadata(draw: &UiDraw) -> DisunityUiDraw {
         corner_3_g,
         corner_3_b,
         corner_3_a,
+        material: draw.material.map_or(0, |m| m.id.to_bits()),
+        material_generation: draw.material.map_or(0, |m| m.generation),
     }
 }
 
 fn encode(draw: &UiDraw) -> DisunityQuad {
     let c = draw.corners;
     DisunityQuad {
-        texture: draw.texture.unwrap_or(0),
+        texture: match draw.texture {
+            None => 0,
+            Some(UiTexture::Image(id) | UiTexture::Coverage(id)) => id,
+            Some(UiTexture::Target(id)) => id.to_bits(),
+        },
         textured: u32::from(draw.texture.is_some()),
         overlay: 1,
         sorting_layer: draw.sorting_layer,

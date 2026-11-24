@@ -7,7 +7,7 @@ use crate::geometry::{instance_attributes, vertex_attributes};
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::shader::ENVIRONMENT_WGSL;
-use crate::upload::upload_buffer;
+use worldrunner_render_gpu::resource::upload_buffer;
 use worldrunner_render_gpu::submission::{FrameOwner, Publications};
 #[cfg(test)]
 use worldrunner_render_shadow::{DepthFragmentState, DepthPipelineDescriptor};

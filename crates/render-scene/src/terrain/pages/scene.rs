@@ -94,7 +94,11 @@ impl ScenePages {
             statistics: std::rc::Rc::default(),
             identity: capture::identity(),
             generation: 1,
-            writer: PageWriter::new(device, settings),
+            writer: if layered.is_some() {
+                PageWriter::new_layered(device, settings)
+            } else {
+                PageWriter::new(device, settings)
+            },
             sample,
             layered,
             selection: None,
@@ -151,6 +155,9 @@ impl ScenePages {
         viewport: [u32; 2],
         draw_pending: bool,
     ) -> Result<(), FrameError> {
+        // Every frame that prepares pages takes part in the scratch turnover, including one that
+        // admits none.
+        self.cache.begin_frame(encoder).map_err(preparation_error)?;
         self.draw_pending = draw_pending;
         if let Some(uploads) = &mut self.capture_uploads {
             uploads.reset();
@@ -221,7 +228,7 @@ impl ScenePages {
             uploads.encode_layered(source, device, encoder, &self.cache, pending)
         } else {
             source
-                .encode_page(device, encoder, &self.cache, pending)
+                .encode_page(device, encoder, &self.writer, &self.cache, pending)
                 .map_err(preparation_error)
         }
     }

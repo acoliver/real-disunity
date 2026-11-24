@@ -14,8 +14,11 @@ mod shared_device;
 mod terrain;
 mod timers;
 mod timing;
+mod ui_layers;
+mod ui_target;
 mod watchdog;
 mod work;
+mod world;
 use watchdog::CaptureWatchdog;
 #[test]
 fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
@@ -35,7 +38,7 @@ fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
         1024 * 1024,
     )
     .unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let id = run
         .host_mut()
         .request_capture_recipe(0, recipe.clone())
@@ -72,7 +75,7 @@ fn wall_clock_captures_advance_without_a_fixed_override() {
     let events = driver.events.clone();
     let mut host = host(crate::renderer::retained_tests::source());
     host.set_render_clock(RenderClock::Wall);
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let first = capture(&mut run, &events).0;
     let second = capture(&mut run, &events).0;
     assert!(second > first);
@@ -98,7 +101,7 @@ fn driver_failure_cancels_captures_and_closes_windowless_execution() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let mut driver = Failing(events.clone());
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let request = run.host_mut().request_capture(0).unwrap();
     assert!(matches!(run.frame(), Err(ViewerError::Driver(message)) if message == "update failed"));
@@ -152,7 +155,7 @@ fn fixed_clock_repeats_water_flow_and_records_the_rendered_time() {
     .unwrap();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let first = capture(&mut run, &events);
     assert_eq!(first, capture(&mut run, &events));
     run.host_mut()
@@ -169,7 +172,7 @@ fn dropping_windowless_cancels_submitted_and_waiting_captures() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let submitted = run.host_mut().request_capture(0).unwrap();
     assert!(run.frame().unwrap());
@@ -300,7 +303,7 @@ fn fixed_clock_captures_are_identical_and_wind_changes_in_both_residents() {
         let events = driver.events.clone();
         let mut host = host(windy());
         host.options.shadows = shadows;
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         let first = capture(&mut run, &events);
         assert_eq!(first.0, Duration::ZERO);
         assert_eq!(first, capture(&mut run, &events));
@@ -320,7 +323,7 @@ fn lifecycle_resize_readiness_pressure_and_shutdown_use_the_retained_session() {
     let host = host(crate::renderer::retained_tests::source())
         .with_capture_limit(1)
         .unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let object = run.host().object(crate::ObjectId(0)).unwrap();
     run.host_mut()
         .apply(RetainedUpdate::Replace {
@@ -365,7 +368,7 @@ fn wall_clock_is_the_default_and_driver_can_override_it() {
     }
     assert_eq!(RenderClock::default(), RenderClock::Wall);
     let mut driver = Fixed;
-    let mut run = host(windy()).windowless(&mut driver).unwrap();
+    let mut run = host(windy()).windowless(&mut driver, None).unwrap();
     assert!(run.frame().unwrap());
     assert_eq!(run.renderer.frame_time, Duration::from_secs(7));
     run.shutdown().unwrap();
@@ -376,7 +379,7 @@ fn temporal_subframes_never_emit_presented_and_shutdown_cancels_accumulation() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let recipe = crate::RetainedCaptureRecipe::new(
         2,

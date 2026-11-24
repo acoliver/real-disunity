@@ -10,9 +10,9 @@ namespace UnityEngine;
 /// material is also sent to the world, which draws every slot with it. One set for a single material index below
 /// 64 is sent too and applies to the draws of that slot only; where a slot's own block and the all-material block
 /// set the same property, the slot's block wins, and both sit above the material. A block for an index at or above
-/// 64 is stored and reads back, but no slot can draw with it. Setting the shared materials also sends the host each slot's colour and texture
-/// identity (see <see cref="SendDrawnMaterials"/>); the host draws a slot with a world material from the material's
-/// current values and uses that identity only for a slot without one.
+/// 64 is stored and reads back, but no slot can draw with it. Setting the shared materials also sends the host each slot's world material
+/// (see <see cref="SendSlotMaterials"/>); the host draws a slot from the material's current values, and a slot
+/// without one white with no texture.
 /// </summary>
 public abstract partial class Renderer
 {
@@ -27,7 +27,7 @@ public abstract partial class Renderer
     internal virtual void WriteShared(IReadOnlyList<Material?> materials)
     {
         Update(r => { r.material_count = (uint)materials.Count; return r; });
-        SendDrawnMaterials(materials);
+        SendSlotMaterials(materials);
         _shared = [.. materials];
     }
 

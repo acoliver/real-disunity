@@ -16,9 +16,9 @@ internal static class WhiteRendererTests
             TextureKindsAreNamed();
             Console.WriteLine("PASS: a Texture2DArray, RenderTexture, Cubemap and Texture3D property is reported with its kind, and a 0x0 mainTexture reads as empty");
             SameShaderCountsEachRendererOnce();
-            Console.WriteLine("PASS: two renderers with one shader count 2, and a renderer evaluated again at send counts once");
-            LaterMaterialChangeIsReflectedAtUnload();
-            Console.WriteLine("PASS: a mainTexture set after assignment leaves the renderer out of the unload report, and the send-time count keeps it");
+            Console.WriteLine("PASS: two renderers with one shader count 2, and a renderer whose materials are set again counts once");
+            LaterMaterialChangeIsReflected();
+            Console.WriteLine("PASS: a mainTexture set after assignment leaves the renderer out of the report");
             RenderersWithoutMaterialAreCounted();
             Console.WriteLine("PASS: a renderer without a material is counted apart from the shaders");
             SummaryOrdersAndCutsAtTwelve();
@@ -109,22 +109,20 @@ internal static class WhiteRendererTests
         var first = Renderer(MaterialOf("Test/White/Pair", "_BaseMap", new Texture2D(4, 4)));
         Renderer(MaterialOf("Test/White/Pair", "_BaseMap", new Texture2D(4, 4)));
         first.sharedMaterial = first.sharedMaterial;
-        Expect.Equal(2, Only(WhiteRenderers.Survey()).Count, "two renderers of one shader at unload");
-        var sent = WhiteRenderers.SentSurvey();
-        Expect.Equal(2, sent.Total, "two renderers at send, the reassigned one once");
-        Expect.Equal(2, Only(sent).Count, "two renderers of one shader at send");
+        var report = WhiteRenderers.Survey();
+        Expect.Equal(2, report.Total, "two renderers, the reassigned one once");
+        Expect.Equal(2, Only(report).Count, "two renderers of one shader");
     }
 
-    private static void LaterMaterialChangeIsReflectedAtUnload()
+    private static void LaterMaterialChangeIsReflected()
     {
         FreshWorld();
         var material = MaterialOf("Test/White/Late", "_BaseMap", new Texture2D(4, 4));
         Renderer(material);
-        Expect.Equal(1, WhiteRenderers.SentSurvey().Total, "white when sent");
+        Expect.Equal(1, WhiteRenderers.Survey().Total, "white while the material has no pixels");
         material.mainTexture = new Texture2D(4, 4);
-        Expect.Equal(0, WhiteRenderers.Survey().Total, "not white at unload");
+        Expect.Equal(0, WhiteRenderers.Survey().Total, "not white once the material has pixels");
         Expect.Equal(1, WhiteRenderers.Survey().Examined, "still examined");
-        Expect.Equal(1, WhiteRenderers.SentSurvey().Total, "the send-time count is what was sent");
     }
 
     private static void RenderersWithoutMaterialAreCounted()
@@ -163,9 +161,9 @@ internal static class WhiteRendererTests
     {
         FreshWorld();
         Renderer(MaterialOf("Test/White/Gone", "_BaseMap", new Texture2D(4, 4)));
-        Expect.Equal(1, WhiteRenderers.SentSurvey().Total, "noted in the first world");
+        Expect.Equal(1, WhiteRenderers.Survey().Total, "reported in the first world");
         FreshWorld();
-        Expect.Equal(0, WhiteRenderers.SentSurvey().Total, "the next world's send-time count starts empty");
+        Expect.Equal(0, WhiteRenderers.Survey().Total, "the next world reports nothing");
         Expect.Equal(0, WhiteRenderers.Survey().Examined, "and has no renderer");
     }
 

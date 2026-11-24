@@ -71,9 +71,7 @@ public static partial class DisunityHost
         _rendering = true;
         try
         {
-            RenderPipelineManager.RaiseBeginContext(context, cameras);
             pipeline.InvokeRender(context, cameras);
-            RenderPipelineManager.RaiseEndContext(context, cameras);
         }
         finally
         {

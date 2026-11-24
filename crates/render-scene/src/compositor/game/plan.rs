@@ -636,5 +636,13 @@ pub(crate) fn reconcile_loads(passes: &mut [PassDeclaration]) {
                 }
             }
         }
+        // A compute pass leaves what it writes through storage images stored, as an attachment
+        // that stores does, so a pass after it that attaches the subresource keeps it.
+        for write in pass.storage_writes() {
+            written.insert(write.resource);
+            if game {
+                written_by_game.insert(write.resource);
+            }
+        }
     }
 }

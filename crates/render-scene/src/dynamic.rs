@@ -11,14 +11,14 @@
 //!     frame::FrameUniform, offscreen::{OffscreenTarget, RgbaImage}, renderer::ScenePipelines, SceneView};
 //!
 //! fn capture(context: &GpuContext, view: &SceneView) -> Result<RgbaImage, Box<dyn std::error::Error>> {
-//!     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+//!     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1)?;
 //!     let mut gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines)?;
 //!     gpu.set_dynamic_quads(context.device(), context.submission(), &pipelines, &[DynamicQuad {
 //!         position: [1.0, 0.0, 0.0], tint: [1.0, 0.0, 0.0, 1.0], ..DynamicQuad::default()
 //!     }])?;
 //!     gpu.set_frame(context.queue(), FrameUniform::unlit(view));
 //!     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
-//!     Ok(target.render(context, &gpu, &pipelines)?)
+//!     Ok(target.render(context, &mut gpu, &pipelines)?)
 //! }
 //! ```
 
@@ -27,7 +27,8 @@ mod gpu;
 mod sampling;
 mod unlit;
 pub(crate) mod validation;
-pub(crate) use gpu::{DynamicBindings, DynamicGpu, QuadTarget, SceneStaging};
+pub(crate) use gpu::{DynamicBindings, DynamicGpu, ExternalTexture, QuadTarget, SceneStaging};
+pub(crate) use sampling::create_sampler;
 pub(crate) use unlit::UnlitRuntime;
 
 /// One unlit alpha-blended quad in canonical Z-up scene space.
@@ -57,7 +58,7 @@ pub struct DynamicQuad {
     /// None is white. Triangles use the first three colours; all channels are 0..=1.
     pub corner_colors: Option<[[f32; 4]; 4]>,
     /// Retained-overlay signed-distance sampling and effect parameters.
-    pub distance_field: Option<worldrunner_render_plan::ui::UiDistanceStyle>,
+    pub distance_field: Option<worldrunner_world_simulation::ui::presentation::UiDistanceStyle>,
     /// Index into the dynamic texture table; None uses opaque white.
     pub texture: Option<usize>,
     /// Ascending painter layer.

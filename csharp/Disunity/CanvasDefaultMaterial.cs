@@ -4,7 +4,6 @@ namespace UnityEngine;
 
 public sealed partial class Canvas
 {
-    private const int TransparentQueue = 3000;
     private static readonly object DefaultMaterialGate = new();
     private static Material? _defaultMaterial;
 
@@ -19,7 +18,7 @@ public sealed partial class Canvas
         lock (DefaultMaterialGate)
         {
             if (_defaultMaterial) return _defaultMaterial!;
-            var shader = DisunityHost.RegisterShader("UI/Default").Declare(TransparentQueue, 1, 1);
+            var shader = DisunityHost.DeclareShader("UI/Default", BuiltInShaders.CanvasDefault, _ => { });
             var material = new Material(shader) { name = "Default UI Material" };
             DeclareStencilProperties(material);
             return _defaultMaterial = material;

@@ -24,7 +24,7 @@ fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
 #[test]
 fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
     for profile in [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 4,
             tone_map: crate::ToneMap::Reinhard,
@@ -34,7 +34,7 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
         let events = driver.events.clone();
         let mut host = overlay_host();
         host.options.frame_profile = profile;
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         let baseline = capture(&mut run, &events).1;
         let [x, y] = geometry_pixel(&baseline);
         let mut ui = plan([1., 0., 0., 1.]);
@@ -70,8 +70,10 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
 }
 
 use super::*;
-use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
 use worldrunner_render_scene::simulation::UiOverlay;
+use worldrunner_world_simulation::ui::contribution::{
+    UiGlyphQuad, UiRenderPlan, UiTextContribution,
+};
 use worldrunner_world_simulation::{ObjectDesc, World, WorldSettings};
 
 pub(super) fn plan(color: [f32; 4]) -> UiRenderPlan {
@@ -159,7 +161,7 @@ fn assert_statistics(run: &WindowlessRetained<'_>, generation: u64, instances: u
 fn retained_overlay_pixels_follow_generations_after_tone_mapping_and_resize() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     apply(&mut run, plan([1., 0., 0., 1.]));
     let image = capture(&mut run, &events).1;
@@ -183,7 +185,7 @@ fn retained_overlay_pixels_follow_generations_after_tone_mapping_and_resize() {
 fn overlay_sorting_exposure_camera_replacement_and_clear_preserve_pixel_space() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     capture(&mut run, &events);
     let mut ui = plan([1., 0., 0., 1.]);
     let mut front = ui.texts[0].clone();
@@ -258,7 +260,7 @@ fn change_camera_and_exposure(run: &mut WindowlessRetained<'_>) {
 fn shutting_down_pending_overlay_capture_publishes_only_cancellation() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     apply(&mut run, plan([1.; 4]));
     let id = run.host_mut().request_capture(1).unwrap();
     assert!(run.frame().unwrap());

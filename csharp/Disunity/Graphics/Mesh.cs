@@ -2,8 +2,8 @@ namespace UnityEngine;
 
 /// <summary>
 /// A mesh asset. It holds the CPU-side vertex data a game builds at run time: positions, normals, tangents,
-/// colors, eight uv channels, and sub-meshes of indices with a topology and a base vertex. Nothing draws a mesh
-/// yet; the data is kept for the renderer, which reads it through <see cref="Snapshot"/>. A mesh that a
+/// colors, eight uv channels, bone weights and bind poses, and sub-meshes of indices with a topology and a base vertex.
+/// The data is kept for the renderer, which reads it through <see cref="Snapshot"/>. A mesh that a
 /// <see cref="MeshFilter"/> holds is also stored for the host under a renderer identity, again whenever the
 /// data changes, just before the frame is drawn.
 /// A channel is either empty or as long as <see cref="vertexCount"/>. Getters return copies, and the
@@ -19,6 +19,8 @@ public partial class Mesh : Object
     private Vector3[] _normals = [];
     private Vector4[] _tangents = [];
     private Color[] _colors = [];
+    private BoneWeight[] _boneWeights = [];
+    private Matrix4x4[] _bindPoses = [];
     private readonly Vector4[][] _uvs = NewUvChannels();
     private readonly int[] _uvDimensions = new int[UvChannelCount];
     private Bounds _bounds;
@@ -54,7 +56,9 @@ public partial class Mesh : Object
         Changed();
     }
 
-    /// <summary>The engine's choice: the data stays as it is, because reordering has no effect without a GPU upload.</summary>
+    /// <summary>Optimizing for vertex cache order reorders vertices and indices without changing the triangles. The mesh keeps
+    /// its vertex and index order as they are, so it describes the same triangles in the order they were set; the same holds
+    /// for <see cref="OptimizeIndexBuffers"/> and <see cref="OptimizeReorderVertexBuffer"/>.</summary>
     public void Optimize()
     {
     }
@@ -77,6 +81,8 @@ public partial class Mesh : Object
         _normals = [];
         _tangents = [];
         _colors = [];
+        _boneWeights = [];
+        _bindPoses = [];
         for (var channel = 0; channel < UvChannelCount; channel++)
         {
             _uvs[channel] = [];

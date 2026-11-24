@@ -9,15 +9,12 @@ fn public_stock_prefix_rejects_changed_load_before_caller_preparation() {
 }
 
 use super::{Products, Refusal, Scene, fixture};
+use worldrunner_render_post::{
+    AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, FrameError, FramePlan,
+    PassDeclaration, PassSlot, ResourceRef, color_texture,
+};
 use worldrunner_render_scene::{
-    compositor::prepare_stock_scene,
-    device::GpuContext,
-    executor::{
-        AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, FrameError,
-        FramePlan, PassDeclaration, PassSlot, ResourceRef, color_texture,
-    },
-    test_support::SceneTestSession,
-    wgpu,
+    compositor::prepare_stock_scene, device::GpuContext, test_support::SceneTestSession, wgpu,
 };
 
 #[derive(Clone, Copy)]
@@ -89,7 +86,7 @@ fn encode_suffix(
     views.push(substitution.replacement.clone());
     let (declaration, frame) = (stock.declaration(), stock.frame());
     let offscreen = stock.take_offscreen_operations();
-    scene.frame.encode_frame_with(
+    scene.frame.encode_frame(
         context.device(),
         encoder,
         (&passes, &views),

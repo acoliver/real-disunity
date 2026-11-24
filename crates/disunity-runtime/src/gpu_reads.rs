@@ -213,21 +213,6 @@ impl GpuFlush<'_> {
         })
     }
 
-    /// `length` bytes of a compute buffer's contents from `offset`, as the CPU and earlier
-    /// writes of the handler left them.
-    pub fn read_compute_buffer(
-        &self,
-        id: u64,
-        offset: u64,
-        length: u32,
-    ) -> Result<Vec<u8>, HostError> {
-        let mut bytes = vec![0_u8; length as usize];
-        let read =
-            unsafe { (self.calls.buffer_read)(self.world, id, offset, bytes.as_mut_ptr(), length) };
-        self.check(read)?;
-        Ok(bytes)
-    }
-
     /// Writes bytes into a compute buffer at `offset`, which the managed `GetData` reads once the
     /// flush returns. The range must lie inside the buffer.
     pub fn write_compute_buffer(

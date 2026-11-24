@@ -23,21 +23,26 @@ public static partial class DisunityHost
 
     /// <summary>
     /// Registers a player's shader with what its plan declares: the render queue, the names of the passes in its first
-    /// sub-shader (their number is its pass count) and the number of sub-shaders. A name that is registered already keeps
+    /// sub-shader (their number is its pass count), the number of sub-shaders and, when the plan carries them, the first
+    /// sub-shader's tags and the fallback shader's name. A name that is registered already keeps
     /// its shader and its first declaration, which another reference to the same shader meets. A later declaration that
-    /// disagrees with the first, in the queue, a count or a pass name, is reported to <paramref name="difference"/> and not
-    /// applied; one that adds a count or the names the first left unknown completes it. The serialized file and object the
+    /// disagrees with the first, in the queue, a count, a pass name, the tags or the fallback, is reported to <paramref name="difference"/> and not
+    /// applied; one that adds a count, the names, the tags or the fallback the first left unknown completes it. A shader the engine defines
+    /// itself (the sprite and UI shaders, see <see cref="BuiltInShaders"/>) is the exception: a plan's declaration of its name replaces the
+    /// engine's without a difference, and the engine's declaration made after the plan's changes nothing. The serialized file and object the
     /// shader's programs are in, when the plan names them, go to the world with the shader; the first source stays.
     /// </summary>
-    internal static Shader DeclareShader(string name, int renderQueue, IReadOnlyList<string> passNames, int subshaderCount, Action<string> difference,
+    internal static Shader DeclareShader(string name, ShaderDeclaration declaration, Action<string> difference,
         string? file = null, long pathId = 0)
     {
         lock (Shaders)
         {
             var shader = RegisterShader(name);
             if (file is not null && shader.SourceFile is null) shader.SetSource(file, pathId);
-            if (shader.Agrees(renderQueue, passNames, subshaderCount)) return shader.Declare(renderQueue, passNames, subshaderCount);
-            difference($"shader {name}: declared again as queue {renderQueue}, {passNames.Count} passes ({string.Join(", ", passNames)}) and {subshaderCount} sub-shaders, which differs from its first declaration; the first stays");
+            if (shader.Agrees(declaration)) return shader.Declare(declaration);
+            difference($"shader {name}: declared again as queue {declaration.RenderQueue}, {declaration.PassCount?.ToString() ?? "unknown"} passes "
+                + $"({string.Join(", ", declaration.PassNames ?? [])}), {declaration.SubshaderCount?.ToString() ?? "unknown"} sub-shaders, tags ({Shader.FormatTags(declaration.Tags)}) "
+                + $"and fallback '{declaration.Fallback ?? "unknown"}', which differs from its first declaration (tags {shader.DescribeTags()}); the first stays");
             return shader;
         }
     }

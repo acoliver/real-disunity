@@ -3,6 +3,10 @@
 use super::common::{self, texture_binding};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -13,11 +17,8 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots,
         GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget,
-        PostWaterDepth, SnapshotImage, SnapshotReads, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+        PostWaterDepth, SnapshotImage, SnapshotReads, StockReplacement, TargetDeclaration,
+        TargetExtent,
     },
     wgpu,
 };
@@ -144,6 +145,8 @@ pub struct Plan {
     pub early_reader: bool,
     /// Samples the depths at [`READER`] into [`PROBE`].
     pub reader: Option<Reading>,
+    /// The stock surfaces the game draws.
+    pub replaces: StockReplacement,
 }
 
 #[derive(Clone)]
@@ -178,6 +181,10 @@ impl GameFeatureFactory for PostWaterGame {
 
     fn snapshot_reads(&self) -> SnapshotReads {
         self.declared
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.plan.replaces
     }
 
     fn targets(&self) -> Vec<TargetDeclaration> {

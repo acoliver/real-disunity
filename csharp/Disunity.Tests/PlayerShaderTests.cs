@@ -41,8 +41,14 @@ internal static class PlayerShaderTests
     private static JsonObject Declared(string name, int queue, string[] passNames, int subshaders) => new()
     {
         ["type"] = "Shader", ["name"] = name, ["render_queue"] = queue, ["pass_count"] = passNames.Length,
-        ["pass_names"] = new JsonArray(passNames.Select(pass => (JsonNode)pass).ToArray()), ["subshader_count"] = subshaders,
+        ["pass_names"] = new JsonArray(passNames.Select(pass => (JsonNode)pass).ToArray()), ["subshader_count"] = subshaders, ["tags"] = new JsonArray(), ["fallback"] = "",
     };
+
+    private static JsonObject WithTag(JsonObject shader, string tag, string value)
+    {
+        shader["tags"] = new JsonArray(new JsonArray(tag, value));
+        return shader;
+    }
 
     private static JsonObject Inconsistent()
     {
@@ -64,7 +70,7 @@ internal static class PlayerShaderTests
                 ["name"] = "holder", ["fields"] = "holder.json",
             },
             Declared(Lit, 2000, [""], 1),
-            Declared("Sprites/Default", 3000, [""], 1),
+            WithTag(Declared("Sprites/Default", 3000, [""], 1), "PlannedSpriteTag", "Sprite"),
             Declared(Lit, 3500, ["Forward", "Shadow"], 1),
             Declared(Lit, 3000, ["Forward", "Shadow", "Meta"], 1),
             Declared(Lit, 3000, ["Forward", "Shadow"], 1),
@@ -94,8 +100,10 @@ internal static class PlayerShaderTests
         Expect.That(ReferenceEquals(loaded, Shader.Find(Lit)), "Resources.Load<Shader> returns the registered shader");
         var material = new Material(loaded!);
         Expect.That(ReferenceEquals(material.shader, loaded), "a material accepts a planned shader");
+        var builtIn = Material.SpriteUnlit;
         var sprites = Resources.Load<Shader>("shaders/sprites");
-        Expect.That(ReferenceEquals(sprites, Material.SpriteUnlit.shader), "a planned shader named like a built-in one is the built-in shader");
+        Expect.That(ReferenceEquals(sprites, builtIn.shader), "a planned shader named like a built-in one is the built-in shader");
+        Expect.Equal("Sprite", builtIn.GetTag("PlannedSpriteTag", false, "d"), "the plan's tag on the built-in Sprites/Default shader replaces the engine's empty declaration");
         Expect.That(Resources.Load<Texture2D>("shaders/lit") is null && Resources.Load<Holder>("shaders/lit") is null, "a shader is not any other type");
         Console.WriteLine("PASS: a planned shader loads through Resources, feeds new Material and joins a built-in of its name");
     }

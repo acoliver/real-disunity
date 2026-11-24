@@ -73,7 +73,9 @@ impl Rig {
         frame: &OffscreenFrame,
     ) -> Result<worldrunner_render_program::unity::offscreen::OffscreenOperations, OffscreenError>
     {
-        self.state.build(&mut self.runtime, &self.arena, frame)
+        self.state
+            .build(&mut self.runtime, &self.arena, frame)
+            .map_err(|refusal| refusal.error)
     }
 
     /// Builds the frame, reads back `reads` after its operations, runs it as the one submission

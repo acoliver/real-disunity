@@ -42,7 +42,7 @@ impl SceneGpu {
     fn validate_raw(&self, owner: &Publications, pipelines: &ScenePipelines) {
         assert!(
             self.celestial.is_none(),
-            "celestial meshes require compositor::encode_scene or encode_resident"
+            "celestial meshes require FrameEncoding::encode_scene"
         );
         assert!(
             !self

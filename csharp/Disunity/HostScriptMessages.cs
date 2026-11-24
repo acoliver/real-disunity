@@ -14,4 +14,13 @@ public static partial class DisunityHost
         if (bits == 7) return;
         ThrowIfError(NativeBindings.disunity_script_messages(WorldHandle, identity, bits));
     }
+
+    /// <summary>Tells the native world the execution order of the script bound to <paramref name="identity"/>,
+    /// from its type. A script of order 0 needs no report, because a native script starts with order 0.</summary>
+    private static void ReportScriptExecutionOrder(ulong identity, Type type)
+    {
+        var order = ScriptExecutionOrders.Of(type);
+        if (order == 0) return;
+        ThrowIfError(NativeBindings.disunity_script_execution_order(WorldHandle, identity, order));
+    }
 }

@@ -1,8 +1,6 @@
 #[test]
 fn live_2d_text_append_includes_generated_underlines() {
-    use worldrunner_world_simulation::presentation::extraction::{
-        SpriteTextures, append_ui, extract_world,
-    };
+    use worldrunner_world_simulation::presentation::extraction::{append_ui, extract_world};
     let (mut world, router, fonts, _, _) = fixture();
     let camera = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -12,7 +10,7 @@ fn live_2d_text_append_includes_generated_underlines() {
         )
         .unwrap();
     let ui = plan(&world, &router, &fonts);
-    let mut frame = extract_world(&world, &SpriteTextures::default(), [100, 100]).unwrap();
+    let mut frame = extract_world(&world, [100, 100]).unwrap();
     append_ui(&mut frame, ui).unwrap();
     assert_eq!(frame.quads.len(), 6);
     assert_eq!(
@@ -222,6 +220,7 @@ fn rotated_pixel_snapped_links_use_the_extracted_glyph_rectangles() {
         canvas,
         ComponentDesc::Canvas(Canvas {
             pixel_perfect: true,
+            mode: CanvasMode::ScreenSpaceOverlay,
             ..Default::default()
         }),
     )

@@ -78,7 +78,7 @@ surface ordering regardless of triangle submission order. Original camera
 near-plane and front-half-space tests still apply; the far plane does not limit
 background geometry. The visibility image composites after the disc list,
 reading the corresponding sample for multisampled targets. Meshes do not cast
-shadows. Use `compositor::encode_scene`, `encode_resident` or `ShadowedScene`
+shadows. Use `FrameEncoding::encode_scene` or `ShadowedScene`
 to schedule this pass. The low-level single-pass `SceneGpu::draw` rejects scenes
 containing celestial meshes. Source mesh bounds must agree with the supplied bounding
 radius for that angular-size contract to hold.

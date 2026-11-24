@@ -1,5 +1,5 @@
 //! Captures of the celestial mesh draw: a whole frame is encoded through
-//! `compositor::encode_scene` with the scene's celestial meshes recording live and not at all,
+//! `FrameEncoding::encode_scene` with the scene's celestial meshes recording live and not at all,
 //! and the resolved colour of the frame has to differ.
 //!
 //! The celestial pass draws into its own mesh target and the composite brings its colour into
@@ -25,6 +25,7 @@
 
 use super::meshes::Recorder;
 use super::scene_tests::{atmosphere, material, read, textures};
+use crate::test_support::upload_scene;
 use crate::{
     device::GpuContext,
     draw::SceneGpu,
@@ -313,15 +314,16 @@ pub(super) fn render(
         .submission()
         .prepare(device, |encoder, _| {
             let mut renderer = crate::compositor::FrameRenderer::new(device);
-            crate::compositor::encode_scene(
-                &mut renderer,
-                device,
-                encoder,
-                (gpu, pipelines),
-                (&color_view, &depth_view),
-                *frame,
-            )
-            .unwrap();
+            renderer
+                .encoding()
+                .encode_scene(
+                    device,
+                    encoder,
+                    (gpu, pipelines),
+                    (&color_view, &depth_view),
+                    *frame,
+                )
+                .unwrap();
             for (index, texture) in [&color, &depth].into_iter().enumerate() {
                 encoder.copy_texture_to_buffer(
                     wgpu::TexelCopyTextureInfo {
@@ -360,8 +362,8 @@ pub(super) fn render(
 fn compare(context: &GpuContext, case: &Case) -> Image {
     let device = context.device();
     let source = scene(case);
-    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &source, &pipelines).unwrap();
     assert_eq!(
         gpu.celestial_meshes()
             .map(super::meshes::Meshes::draw_count),

@@ -112,8 +112,8 @@ fn a_culling_result_is_recorded_and_taken_in_call_order() {
         world.record_offscreen(record).unwrap();
     }
     assert_eq!(world.offscreen_work(), records.as_slice());
-    assert_eq!(world.take_offscreen(), records);
-    assert!(world.take_offscreen().is_empty());
+    assert_eq!(world.take_offscreen().0, records);
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -188,8 +188,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_seventeen_and_every_context_record_round_trips() {
-    assert_eq!(WIRE_VERSION, 17);
+fn the_wire_version_is_twenty_one_and_every_context_record_round_trips() {
+    assert_eq!(WIRE_VERSION, 21);
     let mut world = world();
     let camera = camera(&mut world);
     let id = texture(&mut world);
@@ -268,7 +268,7 @@ fn context_records_share_the_frame_with_other_work() {
     world
         .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 3 })
         .unwrap();
-    let work = world.take_offscreen();
+    let work = world.take_offscreen().0;
     assert!(matches!(work[0], OffscreenWork::SetRenderTarget { .. }));
     assert!(matches!(work[1], OffscreenWork::Cull { id: 1, .. }));
     assert!(matches!(work[2], OffscreenWork::ReleaseTemporary { .. }));

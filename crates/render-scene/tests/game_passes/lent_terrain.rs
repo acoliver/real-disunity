@@ -6,9 +6,9 @@ use super::lent::semantic;
 use super::lent_terrain_game::{
     Ask, CHANNELS, Clear, KEPT, Kept, assert_bands, last_arrays, layered_scene, run, shape,
 };
+use worldrunner_render_post::{FrameError, PrepareContext};
 use worldrunner_render_scene::{
     compositor::{FrameInputError, TerrainMaterialArrayError, TerrainMaterialChannel},
-    executor::{FrameError, PrepareContext},
     wgpu,
 };
 // ---------------------------------------------------------------------------------------

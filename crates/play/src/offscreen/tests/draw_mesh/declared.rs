@@ -153,11 +153,8 @@ fn assert_reads(default: &str, dimension: i32, colour: [f32; 4]) {
         "{default} at dimension {dimension}"
     );
     assert_eq!(
-        run.outcome.report.unresolved_textures,
-        std::collections::BTreeMap::from([(
-            "_MainTex: no texture set, the shader's default read".to_owned(),
-            1
-        )]),
+        run.outcome.report.stand_ins.by_property,
+        std::collections::BTreeMap::from([("_MainTex unset".to_owned(), 1)]),
         "{default} at dimension {dimension}"
     );
 }

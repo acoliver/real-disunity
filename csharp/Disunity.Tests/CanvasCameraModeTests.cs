@@ -22,7 +22,9 @@ internal static class CanvasCameraModeTests
     {
         var owner = DisunityHost.CreateGameObject();
         owner.AddComponent<RectTransform>();
-        return owner.AddComponent<Canvas>();
+        var canvas = owner.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        return canvas;
     }
 
     private static Camera NewCamera() => DisunityHost.CreateGameObject().AddComponent<Camera>();

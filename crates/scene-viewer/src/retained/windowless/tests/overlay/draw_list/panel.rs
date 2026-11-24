@@ -83,7 +83,12 @@ fn textures() -> BTreeMap<u64, SceneTexture> {
 fn replace(run: &mut WindowlessRetained<'_>, p: &UiPresentation) {
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-            UiOverlay::from_presentation(p, &textures()).unwrap(),
+            UiOverlay::from_presentation(
+                p,
+                &textures(),
+                &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+            )
+            .unwrap(),
         )))
         .unwrap();
 }
@@ -96,7 +101,7 @@ fn panel_frame_image_outline_golden() {
     text.font_size = 20.;
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     let outlined = panel(
         &fonts,

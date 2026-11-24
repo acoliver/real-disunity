@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod test_hooks;
+#[cfg(test)]
 #[path = "gpu_tests.rs"]
 mod tests;
 
@@ -19,7 +21,8 @@ use crate::geometry::{BILLBOARD_FIXED, pack_model_instance, push_f32, push_vec3}
 use crate::pipeline::MATERIAL_UNIFORM_BYTES;
 use crate::renderer::ScenePipelines;
 use crate::texture::prepare_texture;
-use crate::upload::{MATERIAL_GROUP, material_group, upload_buffer, upload_texture};
+use crate::upload::{MATERIAL_GROUP, material_group, upload_texture};
+use worldrunner_render_gpu::resource::upload_buffer;
 
 /// What staging quads needs besides the quads: the scene's placeholder texture and sampler, and
 /// where the quads are drawn.
@@ -55,6 +58,8 @@ struct QuadBindings<'a> {
     sampler: &'a Sampler,
     indices: &'a Buffer,
     overlay_layout: Option<&'a BindGroupLayout>,
+    /// The entry of `textures` that holds the host's layer atlas, whose colour is premultiplied.
+    layer: Option<usize>,
 }
 
 /// One instanced draw of adjacent compatible quads: what it draws with, and how many instances.
@@ -78,14 +83,25 @@ struct Prepared {
     draws: Vec<Vec<PreparedProgramDraw>>,
 }
 
+/// A texture the quads sample that the caller owns, as the host's render texture a UI draw reads.
+#[derive(Clone, Debug)]
+pub(crate) struct ExternalTexture {
+    pub texture: Texture,
+    pub sampler: Sampler,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DynamicGpu {
     textures: Vec<Texture>,
     samplers: Vec<Sampler>,
+    /// Sampled after `textures`: a quad's texture index counts past the owned ones.
+    external: Vec<ExternalTexture>,
     draws: Vec<QuadDraw>,
     indices: Option<Buffer>,
     frames: Vec<Buffer>,
     prepared: Vec<Prepared>,
+    /// The entry of `textures` that is a host's layer atlas.
+    layer: Option<usize>,
 }
 
 impl DynamicGpu {
@@ -117,9 +133,29 @@ impl DynamicGpu {
             .map(|t| super::sampling::create_sampler(device, t.sampler()))
             .collect();
         self.textures = uploaded;
+        self.layer = None;
         self.draws.clear();
         self.prepared.clear();
         Ok(())
+    }
+
+    /// Puts the layer atlas a host owns in the place of entry `index` of the table, which an upload
+    /// made as its stand-in. The atlas holds colour multiplied by its alpha, which the overlay
+    /// composites as such. The quads are staged again afterwards, as after `set_textures`.
+    pub(crate) fn replace_texture(&mut self, index: usize, texture: Texture) {
+        self.textures[index] = texture;
+        self.layer = Some(index);
+        self.draws.clear();
+        self.prepared.clear();
+    }
+
+    /// Sets the textures the quads sample beyond the ones the caller made with `set_textures`,
+    /// which come after them in the quads' texture indices. Call it after `set_textures` and
+    /// before `set_quads`.
+    pub(crate) fn set_external(&mut self, external: Vec<ExternalTexture>) {
+        self.external = external;
+        self.draws.clear();
+        self.prepared.clear();
     }
 
     pub(crate) fn set_quads(
@@ -133,11 +169,25 @@ impl DynamicGpu {
         let placeholder = bindings
             .placeholder
             .create_view(&TextureViewDescriptor::default());
-        let views: Vec<_> = self
+        let mut textures = self.textures.clone();
+        let mut samplers = self.samplers.clone();
+        let mut views: Vec<_> = self
             .textures
             .iter()
             .map(|texture| texture.create_view(&TextureViewDescriptor::default()))
             .collect();
+        for external in &self.external {
+            textures.push(external.texture.clone());
+            samplers.push(external.sampler.clone());
+            // Level 0 of one layer, whatever the host made: nothing generates the smaller levels
+            // of a render texture the UI shows.
+            views.push(external.texture.create_view(&TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                mip_level_count: Some(1),
+                array_layer_count: Some(1),
+                ..TextureViewDescriptor::default()
+            }));
+        }
         let indices = self.quad_indices(device, queue);
         let (stage, overlay_layout) = match bindings.target {
             QuadTarget::Scene(stage) => (Some(stage), None),
@@ -145,11 +195,12 @@ impl DynamicGpu {
         };
         let material_bindings = QuadBindings {
             placeholder: (bindings.placeholder, &placeholder),
-            textures: (&self.textures, &views),
-            samplers: &self.samplers,
+            textures: (&textures, &views),
+            samplers: &samplers,
             sampler: bindings.sampler,
             indices: &indices,
             overlay_layout,
+            layer: self.layer,
         };
         let draws: Vec<_> = ordered
             .chunk_by(|a, b| compatible(a, b))
@@ -178,7 +229,7 @@ impl DynamicGpu {
             return Err(DynamicError::DeviceLimit("instance buffer size"));
         }
         for (index, quad) in quads.iter().enumerate() {
-            validate_quad(quad, index, self.textures.len())?;
+            validate_quad(quad, index, self.textures.len() + self.external.len())?;
         }
         let mut ordered: Vec<_> = quads.iter().collect();
         ordered.sort_by_key(|quad| {
@@ -237,18 +288,6 @@ impl DynamicGpu {
         )?;
         self.prepared.push(set);
         Ok(())
-    }
-
-    /// Weak references to what the staged draws lend the runtime, for tests of its lifetime.
-    #[cfg(test)]
-    pub(crate) fn probes(&self) -> Vec<std::sync::Weak<dyn std::any::Any + Send + Sync>> {
-        self.draws
-            .iter()
-            .map(|draw| {
-                let owner: Arc<dyn std::any::Any + Send + Sync> = draw.resources.clone();
-                Arc::downgrade(&owner)
-            })
-            .collect()
     }
 
     fn prepared_for(&self, signature: TargetSignature) -> Option<&Prepared> {
@@ -508,9 +547,10 @@ impl QuadDraw {
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
             clip_rect: quad.clip_rect,
             material,
-            distance: bindings
-                .overlay_layout
-                .map(|_| super::distance::upload(device, queue, quad.distance_field)),
+            distance: bindings.overlay_layout.map(|_| {
+                let premultiplied = quad.texture.is_some() && quad.texture == bindings.layer;
+                super::distance::upload(device, queue, quad.distance_field, premultiplied)
+            }),
             depth_test: quad.depth_test,
         }
     }

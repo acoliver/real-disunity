@@ -29,6 +29,7 @@ use super::support::{camera, renderer_with, snapshot, texture_slot, world};
 const ARGB32: u32 = 8;
 /// The depth a caster's vertices have in clip space, and so what the shadow map holds under it.
 const CASTER_DEPTH: f32 = 0.5;
+/// The depth the shadow map is cleared to. Depth is reversed, so the map holds `1 - CLEARED_DEPTH`.
 const CLEARED_DEPTH: f32 = 1.0;
 /// An 8-bit channel holds a value to within a step.
 const STEP: f32 = 1.0 / 255.0;
@@ -67,7 +68,7 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
 }";
 
 /// The same pass reading the texture as a shadow map: the depth `REFERENCE` is compared with the
-/// stored depth by the sampler, which gives 1 where the stored depth is at least the reference.
+/// stored depth by the sampler, which gives 1 where the stored depth is at most the reference.
 const COMPARING: &str = "
 struct Material { tint: vec4<f32> }
 struct Draw { place: vec4<f32> }
@@ -83,7 +84,7 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
     return out;
 }
 @fragment fn fs_compare(in: VOut) -> @location(0) vec4<f32> {
-    let lit = textureSampleCompare(shadow_map, shadow_sampler, in.uv, 0.75);
+    let lit = textureSampleCompare(shadow_map, shadow_sampler, in.uv, 0.25);
     return vec4<f32>(lit, lit, lit, 1.0) * material.tint;
 }";
 
@@ -281,9 +282,9 @@ fn assert_clean(report: &Report) {
         report.missing_textures
     );
     assert!(
-        report.undeclared_defaults.is_empty(),
+        report.stand_ins.by_property.is_empty(),
         "{:?}",
-        report.undeclared_defaults
+        report.stand_ins
     );
 }
 
@@ -306,13 +307,14 @@ fn assert_columns(read: &[f32], (left, right): (f32, f32)) {
 fn a_shadow_list_writes_a_depth_texture_that_a_later_forward_draw_reads() {
     let (report, read) = shadowed_scene("receiver");
     assert_clean(&report);
-    assert_columns(&read, (CASTER_DEPTH, CLEARED_DEPTH));
+    assert_columns(&read, (CASTER_DEPTH, 1.0 - CLEARED_DEPTH));
 }
 
 #[test]
 fn a_forward_draw_compares_the_shadow_map_with_a_depth_through_a_comparison_sampler() {
     let (report, read) = shadowed_scene("comparing");
     assert_clean(&report);
-    // The reference 0.75 is behind the caster (stored 0.5) and in front of the cleared depth.
+    // The reference 0.25 is behind the caster (stored 0.5, and nearer is larger) and in front of the
+    // cleared depth 0.
     assert_columns(&read, (0.0, 1.0));
 }

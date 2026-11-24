@@ -52,9 +52,8 @@ fn assert_lost_and_outdated_recovery(renderer: &mut Renderer, device: &wgpu::Dev
             .presenter
             .configuration_generation();
         renderer.resize([0, 480]).unwrap();
-        let mut update: crate::SceneUpdate = Box::new(|_| panic!("suspended recovery update"));
         for _ in 0..3 {
-            assert!(!renderer.render(&previous_view, &mut update).unwrap());
+            assert!(!renderer.render(&previous_view).unwrap());
             renderer.poll().unwrap();
         }
         assert_eq!(

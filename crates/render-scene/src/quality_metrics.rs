@@ -1,6 +1,4 @@
-//! Image metrics for the temporal upscaler qualification matrix. The same module and the same
-//! pinned fixture live in `worldrunner-render-post` and `worldrunner-render-scene` (one copy per
-//! crate, no shared test crate); the fixture test pins identical results in both.
+//! Image metrics for the temporal upscaler qualification matrix.
 //!
 //! Images are `[r, g, b, a]` linear HDR pixels in row-major order. Alpha is ignored. An optional
 //! mask selects the pixels of a region of interest.
@@ -216,9 +214,9 @@ mod tests {
         assert!((got - want).abs() < 1e-6, "{got} vs {want}");
     }
 
-    /// The numbers below are pinned in `worldrunner-render-post` and `worldrunner-render-scene`.
+    /// The numbers below are pinned by this fixture.
     #[test]
-    fn the_pinned_fixture_gives_the_same_numbers_in_every_crate() {
+    fn the_pinned_fixture_gives_the_pinned_numbers() {
         close(linear_mae(&A, &B, None), 0.25);
         close(linear_rmse(&A, &B, None), 0.1875_f64.sqrt());
         let tone = |x: f64| x / (1.0 + x);

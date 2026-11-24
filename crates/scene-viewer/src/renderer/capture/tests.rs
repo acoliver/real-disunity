@@ -216,7 +216,7 @@ struct Harness {
 }
 impl Harness {
     fn new() -> Self {
-        Self::with_profile(FrameProfile::Legacy, crate::presentation::COLOR)
+        Self::with_profile(crate::tests::CLAMP, crate::presentation::COLOR)
     }
     fn with_profile(profile: FrameProfile, format: wgpu::TextureFormat) -> Self {
         let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
@@ -228,7 +228,7 @@ impl Harness {
             wgpu::Features::empty(),
         ))
         .unwrap();
-        Self::with_context(context, FrameProfile::Legacy, crate::presentation::COLOR)
+        Self::with_context(context, crate::tests::CLAMP, crate::presentation::COLOR)
     }
     fn with_context(
         context: GpuContext,
@@ -241,9 +241,14 @@ impl Harness {
             height: 64,
         };
         let resident = Resident::new(&context, &source, None, profile).unwrap();
-        let presentation =
-            Presentation::with_profile(&context, format, size, size, profile, source.effects())
-                .unwrap();
+        let presentation = crate::presentation::fixtures::presentation_with_profile(
+            &context,
+            format,
+            size,
+            profile,
+            source.effects(),
+        )
+        .unwrap();
         let output = worldrunner_render_post::color_texture(
             context.device(),
             "capture test output",

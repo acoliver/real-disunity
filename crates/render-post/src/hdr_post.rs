@@ -41,11 +41,6 @@ impl HdrPostSettings {
     ///
     /// `UpscaleMode::Temporal` has its own rows, see the Temporal rows in `upscale_temporal.rs`.
     pub fn validate_frame(self, config: crate::FrameConfig) -> Result<(), PostError> {
-        self.validate_frame_inner(config)?;
-        self.validate_temporal(config, None)
-    }
-
-    fn validate_frame_inner(self, config: crate::FrameConfig) -> Result<(), PostError> {
         self.validate()?;
         if config.size != config.output_extent() && self.upscale.is_none() {
             return Err(PostError::UnsupportedProfile(
@@ -56,25 +51,13 @@ impl HdrPostSettings {
         if let (Some(bloom), crate::BloomKernel::SeparablePyramid(_)) =
             (self.bloom, self.bloom_kernel)
         {
-            crate::gaussian_extents_with_terminal(
+            crate::gaussian_extents(
                 self.post_extent(config),
                 bloom.levels,
                 bloom.policies.terminal,
             )?;
         }
-        Ok(())
-    }
-
-    /// [`Self::validate_frame`] for a renderer whose scene passes use `explicit` jitter.
-    ///
-    /// `None` means the sequence the renderer derives itself, which is long enough.
-    pub fn validate_frame_with_jitter(
-        self,
-        config: crate::FrameConfig,
-        explicit: Option<crate::ProjectionJitter>,
-    ) -> Result<(), PostError> {
-        self.validate_frame_inner(config)?;
-        self.validate_temporal(config, explicit)
+        self.validate_temporal(config)
     }
 
     pub fn validate(self) -> Result<(), PostError> {
@@ -491,7 +474,8 @@ pub fn histogram_bin(luminance: f32, range: [f32; 2]) -> usize {
         .find(|&bin| t < f32::from(u16::try_from(bin + 1).unwrap()) / 256.0)
         .unwrap_or(255)
 }
-pub fn target_exposure(bins: &[u32; 256], a: AdaptiveExposure) -> f64 {
+#[cfg(test)]
+pub(crate) fn target_exposure(bins: &[u32; 256], a: AdaptiveExposure) -> f64 {
     if let crate::ExposureMetering::InterpolatedPercentile(p) = a.metering {
         let l = crate::percentile_luminance(bins, a.log_range, p.percentile);
         let key = (1.03 - 2.0 / (2.0 + (l + 1.0).log10())) * f64::from(p.key_bias);
@@ -520,7 +504,8 @@ pub fn target_exposure(bins: &[u32; 256], a: AdaptiveExposure) -> f64 {
         f64::from(a.exposure_range[1]),
     )
 }
-pub fn adapt_exposure(previous: f32, target: f32, delta: f32, speeds: [f32; 2]) -> f32 {
+#[cfg(test)]
+pub(crate) fn adapt_exposure(previous: f32, target: f32, delta: f32, speeds: [f32; 2]) -> f32 {
     let speed = if target > previous {
         speeds[0]
     } else {

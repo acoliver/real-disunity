@@ -12,6 +12,10 @@ use super::shadowed;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
@@ -22,11 +26,6 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
     },
     wgpu,
 };
@@ -546,6 +545,28 @@ fn frames_that_rewrite_some_mips_leave_the_others_as_they_were() {
         &knobs,
         &FRAMES,
     );
+}
+
+#[test]
+fn a_pyramid_frame_makes_each_view_of_the_chain_once() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let knobs = knobs(false);
+    let mut rig = rig(&knobs);
+    next(&knobs, &[0, 1, 2, 3], 1.0, Reduce::Minimum, true);
+    rig.render().unwrap();
+    let views = rig.renderer.game_targets().views_created();
+    assert!(
+        views > 0,
+        "the first frame made the views it attaches and samples"
+    );
+    for frame in 0..4 {
+        rig.render().unwrap();
+        assert_eq!(
+            rig.renderer.game_targets().views_created(),
+            views,
+            "frame {frame} after the first made a view of a target"
+        );
+    }
 }
 
 #[test]

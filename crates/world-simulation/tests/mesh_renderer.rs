@@ -2,9 +2,9 @@
 //! and destruction.
 use worldrunner_world_simulation::graphics::ShaderProperties;
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, DrawnMaterial,
-    MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind,
-    World, WorldError, WorldSettings,
+    ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, MAX_RENDERER_MATERIALS,
+    MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind, SkinBinding, SkinRoot, World,
+    WorldError, WorldSettings,
 };
 
 fn world_with(desc: ComponentDesc) -> (World, ObjectHandle) {
@@ -130,27 +130,12 @@ fn a_mesh_identity_is_stored() {
 fn modes_and_counts_out_of_range_are_rejected() {
     let (mut world, object) = world_with(ComponentDesc::MeshRenderer(MeshRenderer::default()));
     let handle = find(&world, object, false).unwrap();
-    let bad: [fn(&mut MeshRenderer); 8] = [
+    let bad: [fn(&mut MeshRenderer); 5] = [
         |r| r.shadow_casting_mode = 4,
         |r| r.motion_vector_mode = 3,
         |r| r.light_probe_usage = 3,
         |r| r.reflection_probe_usage = 4,
         |r| r.material_count = MAX_RENDERER_MATERIALS + 1,
-        |r| r.drawn = vec![DrawnMaterial::default()],
-        |r| {
-            r.material_count = 1;
-            r.drawn = vec![DrawnMaterial {
-                color: [f32::NAN, 1.0, 1.0, 1.0],
-                texture: 0,
-            }];
-        },
-        |r| {
-            r.material_count = 1;
-            r.drawn = vec![DrawnMaterial {
-                color: [1.0, -0.5, 1.0, 1.0],
-                texture: 0,
-            }];
-        },
     ];
     for change in bad {
         let mut renderer = MeshRenderer::default();
@@ -280,4 +265,67 @@ fn a_slot_block_is_kept_below_the_slot_bound_and_refused_at_it() {
         ))
     );
     assert_eq!(renderer_of(&world, object), renderer);
+}
+
+fn invalid(result: &Result<ComponentHandle, WorldError>) -> bool {
+    matches!(
+        result,
+        Err(WorldError::InvalidComponent(
+            ComponentError::InvalidMeshRenderer
+        ))
+    )
+}
+
+#[test]
+fn a_skinned_renderer_stores_its_drawn_mesh_and_root_bone_with_its_bind_pose() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let object = world.create_object(ObjectDesc::default()).unwrap();
+    let bone = world.create_object(ObjectDesc::default()).unwrap();
+    let mut renderer = MeshRenderer::of_kind(RendererKind::Skinned);
+    renderer.skin = SkinBinding {
+        drawn_mesh: 5,
+        root: Some(SkinRoot {
+            bone,
+            bind_pose: std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap())),
+        }),
+    };
+    world
+        .add_component(object, ComponentDesc::MeshRenderer(renderer.clone()))
+        .unwrap();
+    assert_eq!(renderer_of(&world, object), renderer);
+}
+
+#[test]
+fn a_skin_with_a_bind_pose_that_is_not_finite_or_on_another_kind_is_rejected() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let object = world.create_object(ObjectDesc::default()).unwrap();
+    let skin = |value: f32| SkinBinding {
+        drawn_mesh: 0,
+        root: Some(SkinRoot {
+            bone: object,
+            bind_pose: [value; 16],
+        }),
+    };
+    let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
+    for value in [f32::NAN, f32::INFINITY] {
+        skinned.skin = skin(value);
+        assert!(invalid(&world.add_component(
+            object,
+            ComponentDesc::MeshRenderer(skinned.clone())
+        )));
+    }
+    skinned.skin = skin(1.0);
+    assert!(
+        world
+            .add_component(object, ComponentDesc::MeshRenderer(skinned))
+            .is_ok()
+    );
+    let other = world.create_object(ObjectDesc::default()).unwrap();
+    for kind in [RendererKind::Mesh, RendererKind::Particle] {
+        let mut plain = MeshRenderer::of_kind(kind);
+        plain.skin = skin(1.0);
+        assert!(invalid(
+            &world.add_component(other, ComponentDesc::MeshRenderer(plain))
+        ));
+    }
 }

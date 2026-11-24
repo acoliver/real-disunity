@@ -30,150 +30,341 @@ mod limits;
 pub mod picking;
 mod plan;
 mod plan_closure;
-pub use picking::{ObjectId, PickHit};
+pub use picking::ObjectId;
+pub use picking::PickHit;
 mod plan_scene;
 pub mod post;
 mod scene;
 pub mod world_schema;
 
-pub use adapter::{CpuRenderPayload, RenderPayload, RenderPayloadAdapter};
-pub use capability::{
-    CapabilityConfigError, ElementPolicy, ExactBytes, ExactCapabilityRoute, GridShape,
-    MaterialPayload, PackagePayload, StaticMeshPayload, TexturePayload, U8Grid, U16LeGrid,
-    exact_bytes_handler, material_handler, package_handler, static_mesh_handler, texture_handler,
-    u8_grid_handler, u16_le_grid_handler,
-};
-pub use contract::{ContractRegistration, RenderWorldContract, RenderWorldContractBuilder};
-pub use discovery::{
-    DiscoveredRenderContract, RENDER_CONTRACT_CAPABILITY_URI, RenderContractDiscoveryError,
-    RenderContractDiscoveryLimits, discover_render_contract,
-};
-pub use error::{
-    RenderAdapterError, RenderContractError, RenderImplementationError, RenderPlanError,
-};
-pub use implementation_registry::{
-    ActivatedRenderPayloadContract, ActivatedRenderWorldContract, CapabilityImplementation,
-    CapabilityImplementationFactory, ComponentImplementation, ComponentImplementationFactory,
-    DocumentImplementation, DocumentImplementationFactory, RenderFactoryError,
-    RenderImplementationRegistry, RenderImplementationRegistryBuilder, RenderRouteKind,
-    activate_render_payload_contract, activate_render_world_contract,
-};
+pub use adapter::CpuRenderPayload;
+pub use adapter::RenderPayload;
+pub use adapter::RenderPayloadAdapter;
+pub use capability::CapabilityConfigError;
+pub use capability::ElementPolicy;
+pub use capability::ExactBytes;
+pub use capability::ExactCapabilityRoute;
+pub use capability::GridShape;
+pub use capability::MaterialPayload;
+pub use capability::PackagePayload;
+pub use capability::StaticMeshPayload;
+pub use capability::TexturePayload;
+pub use capability::U8Grid;
+pub use capability::U16LeGrid;
+pub use capability::exact_bytes_handler;
+pub use capability::material_handler;
+pub use capability::package_handler;
+pub use capability::static_mesh_handler;
+pub use capability::texture_handler;
+pub use capability::u8_grid_handler;
+pub use capability::u16_le_grid_handler;
+pub use contract::ContractRegistration;
+pub use contract::RenderWorldContract;
+pub use contract::RenderWorldContractBuilder;
+pub use discovery::DiscoveredRenderContract;
+pub use discovery::RENDER_CONTRACT_CAPABILITY_URI;
+pub use discovery::RenderContractDiscoveryError;
+pub use discovery::RenderContractDiscoveryLimits;
+pub use discovery::discover_render_contract;
+pub use error::RenderAdapterError;
+pub use error::RenderContractError;
+pub use error::RenderImplementationError;
+pub use error::RenderPlanError;
+pub use implementation_registry::ActivatedRenderPayloadContract;
+pub use implementation_registry::ActivatedRenderWorldContract;
+pub use implementation_registry::CapabilityImplementation;
+pub use implementation_registry::CapabilityImplementationFactory;
+pub use implementation_registry::ComponentImplementation;
+pub use implementation_registry::ComponentImplementationFactory;
+pub use implementation_registry::DocumentImplementation;
+pub use implementation_registry::DocumentImplementationFactory;
+pub use implementation_registry::RenderFactoryError;
+pub use implementation_registry::RenderImplementationRegistry;
+pub use implementation_registry::RenderImplementationRegistryBuilder;
+pub use implementation_registry::RenderRouteKind;
+pub use implementation_registry::activate_render_payload_contract;
+pub use implementation_registry::activate_render_world_contract;
 pub use limits::RenderWorldLimits;
-pub use plan::{
-    PreparedRenderWorldPayloads, RenderContribution, RenderWorldPlan,
-    build_discovered_render_world_plan, build_render_world_plan, compose_render_world_plan,
-    prepare_discovered_render_world_payloads, prepare_render_world_payloads,
-};
+pub use plan::PreparedRenderWorldPayloads;
+pub use plan::RenderContribution;
+pub use plan::RenderWorldPlan;
+pub use plan::build_discovered_render_world_plan;
+pub use plan::build_render_world_plan;
+pub use plan::compose_render_world_plan;
+pub use plan::prepare_discovered_render_world_payloads;
+pub use plan::prepare_render_world_payloads;
+pub use scene::BillboardPolicy;
+pub use scene::DEFAULT_TAA_CLIP_SCALE_MICRO;
+pub use scene::DIRECTION_MICRO_SCALE;
+pub use scene::DocumentSceneInput;
+pub use scene::EFFECTS_MICRO_SCALE;
+pub use scene::MATERIAL_MICRO_SCALE;
+pub use scene::MAXIMUM_SUN_IRRADIANCE_MICRO;
+pub use scene::MAXIMUM_TAA_CLIP_SCALE_MICRO;
+pub use scene::MINIMUM_TAA_CLIP_SCALE_MICRO;
+pub use scene::MaterialHandle;
+pub use scene::MeshHandle;
+pub use scene::ProvenSceneContribution;
+pub use scene::ROTATION_MICRO_SCALE;
+pub use scene::RenderScene;
+pub use scene::RouteDeclarationRef;
+pub use scene::RouteSceneFactory;
+pub use scene::RouteSceneInput;
+pub use scene::SceneAffineMatrix;
+pub use scene::SceneAlphaMode;
+pub use scene::SceneAmbient;
+pub use scene::SceneAntiAlias;
 pub use scene::SceneAppend;
+pub use scene::SceneCamera;
+pub use scene::SceneColor;
+pub use scene::SceneColorGrading;
+pub use scene::SceneCompositionFactory;
+pub use scene::SceneContourBlend;
+pub use scene::SceneContourFill;
+pub use scene::SceneContourStyle;
+pub use scene::SceneContours;
+pub use scene::SceneContribution;
+pub use scene::SceneCubeDescriptor;
+pub use scene::SceneDdsDescriptor;
+pub use scene::SceneDdsFormat;
+pub use scene::SceneDirection;
+pub use scene::SceneDownsampleRounding;
+pub use scene::SceneEffects;
+pub use scene::SceneEffectsParts;
+pub use scene::SceneGeometry;
+pub use scene::SceneMaterial;
+pub use scene::SceneMaterialChannels;
+pub use scene::SceneMaterialParts;
+pub use scene::SceneMesh;
+pub use scene::SceneMeshLod;
+pub use scene::SceneObject;
+pub use scene::SceneParts;
+pub use scene::ScenePlacement;
+pub use scene::ScenePostStage;
+pub use scene::SceneResources;
+pub use scene::SceneRotation;
+pub use scene::SceneShadowCascades;
+pub use scene::SceneShadowFilter;
+pub use scene::SceneShadowSampling;
+pub use scene::SceneSkeleton;
+pub use scene::SceneSkinInfluence;
+pub use scene::SceneSkinPose;
+pub use scene::SceneSky;
+pub use scene::SceneSsao;
+pub use scene::SceneSsaoDepthFootprint;
+pub use scene::SceneSsaoFilter;
+pub use scene::SceneSsaoKernel;
+pub use scene::SceneSsaoReceiver;
+pub use scene::SceneSsr;
+pub use scene::SceneSsrComposition;
+pub use scene::SceneSsrGridDomain;
+pub use scene::SceneSsrHitFacing;
+pub use scene::SceneSsrLodMapping;
+pub use scene::SceneSsrPassBehind;
+pub use scene::SceneSsrPyramid;
+pub use scene::SceneSsrTraversal;
+pub use scene::SceneSun;
+pub use scene::SceneTerrain;
+pub use scene::SceneTerrainAppearance;
+pub use scene::SceneTerrainParts;
+pub use scene::SceneTerrainSurface;
+pub use scene::SceneTexelDescriptor;
+pub use scene::SceneTexture;
+pub use scene::SceneTextureDescriptor;
+pub use scene::SceneTransform;
+pub use scene::SceneValidationError;
+pub use scene::SceneVertex;
+pub use scene::SceneWaterBody;
+pub use scene::SceneWaterSurface;
+pub use scene::SkeletonHandle;
+pub use scene::SkinPoseHandle;
+pub use scene::TerrainLodPolicy;
+pub use scene::TerrainPagePolicy;
+pub use scene::TerrainPageSettings;
+pub use scene::TerrainPageSettingsError;
+pub use scene::TerrainPageSettingsParts;
+pub use scene::TerrainStreamingPolicy;
+pub use scene::TexelFormat;
 pub use scene::TextureAnisotropy;
-pub use scene::{
-    BillboardPolicy, DEFAULT_TAA_CLIP_SCALE_MICRO, DIRECTION_MICRO_SCALE, DocumentSceneInput,
-    EFFECTS_MICRO_SCALE, MATERIAL_MICRO_SCALE, MAXIMUM_SUN_IRRADIANCE_MICRO,
-    MAXIMUM_TAA_CLIP_SCALE_MICRO, MINIMUM_TAA_CLIP_SCALE_MICRO, MaterialHandle, MeshHandle,
-    ProvenSceneContribution, ROTATION_MICRO_SCALE, RenderScene, RouteDeclarationRef,
-    RouteSceneFactory, RouteSceneInput, SceneAffineMatrix, SceneAlphaMode, SceneAmbient,
-    SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneCompositionFactory,
-    SceneContribution, SceneDirection, SceneDownsampleRounding, SceneEffects, SceneEffectsParts,
-    SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod, SceneObject,
-    SceneOpaqueExperiment, SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage,
-    SceneOpaqueVisibility, SceneParts, ScenePlacement, ScenePostStage, SceneResources,
-    SceneRotation, SceneShadowCascades, SceneShadowFilter, SceneShadowSampling, SceneSkeleton,
-    SceneSkinInfluence, SceneSkinPose, SceneSky, SceneSsao, SceneSsaoDepthFootprint,
-    SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver, SceneSsr, SceneSsrComposition,
-    SceneSsrGridDomain, SceneSsrHitFacing, SceneSsrLodMapping, SceneSsrPassBehind, SceneSsrPyramid,
-    SceneSsrTraversal, SceneSun, SceneTerrain, SceneTerrainAppearance, SceneTerrainParts,
-    SceneTerrainSurface, SceneTexture, SceneTransform, SceneValidationError, SceneVertex,
-    SceneWaterBody, SceneWaterSurface, SkeletonHandle, SkinPoseHandle, TerrainLodPolicy,
-    TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
-    TextureWrap,
-};
-pub use scene::{SceneContourBlend, SceneContourFill, SceneContourStyle, SceneContours};
-pub use scene::{
-    SceneCubeDescriptor, SceneCubeFace, SceneDdsDescriptor, SceneDdsFormat, SceneTexelDescriptor,
-    SceneTextureDescriptor,
-};
-pub use scene::{SceneMaterialChannels, TextureChannel};
-pub use scene::{
-    TerrainPagePolicy, TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts,
-    TerrainStreamingPolicy,
-};
+pub use scene::TextureChannel;
+pub use scene::TextureColorSpace;
+pub use scene::TextureEncoding;
+pub use scene::TextureFilter;
+pub use scene::TextureHandle;
+pub use scene::TextureSampler;
+pub use scene::TextureWrap;
 
-pub use document::{
-    AmbientLightMicro, AssetBinding, AssetResolutionPolicy, AxisDirection, BindingElementPolicy,
-    CameraIntrinsics, CapabilityRouteDeclaration, ComponentRouteDeclaration, ContractDocument,
-    ContractDocumentError, ContractDocumentHeader, ContractDocumentParts, ContractLimits,
-    CoordinateBasis, DirectionalLightMicro, DocumentRouteDeclaration, EffectsRecipe,
-    EffectsRecipeParts, EnvironmentRecipe, Handedness, LodLevel, LodPolicy, MICRO_SCALE,
-    MeshComponent, MicroFixed, PositionMillimeters, RENDER_CONTRACT_SCHEMA,
-    RENDER_CONTRACT_SCHEMA_VERSION, RotationQuaternion, RouteCardinality, RouteDeclarations,
-    RouteIdentity, SceneDescription, ShadowCascade, ShadowCascadesRecipe, SkyRecipe, SsaoRecipe,
-    StreamLimits, TerrainMaterialSlot, TerrainRecipe, TransformMillimeters, UniformScaleMillionths,
-    WaterPlaneRecipe, WindRecipe,
-};
-pub use scene::{SceneSmaaEdgeDetection, SceneSmaaPreset, SceneSmaaSettings};
+pub use document::AmbientLightMicro;
+pub use document::AssetBinding;
+pub use document::AssetResolutionPolicy;
+pub use document::AxisDirection;
+pub use document::BindingElementPolicy;
+pub use document::CameraIntrinsics;
+pub use document::CapabilityRouteDeclaration;
+pub use document::ComponentRouteDeclaration;
+pub use document::ContractDocument;
+pub use document::ContractDocumentError;
+pub use document::ContractDocumentHeader;
+pub use document::ContractDocumentParts;
+pub use document::ContractLimits;
+pub use document::CoordinateBasis;
+pub use document::DirectionalLightMicro;
+pub use document::DocumentRouteDeclaration;
+pub use document::EffectsRecipe;
+pub use document::EffectsRecipeParts;
+pub use document::EnvironmentRecipe;
+pub use document::Handedness;
+pub use document::LodLevel;
+pub use document::LodPolicy;
+pub use document::MICRO_SCALE;
+pub use document::MeshComponent;
+pub use document::MicroFixed;
+pub use document::PositionMillimeters;
+pub use document::RENDER_CONTRACT_SCHEMA;
+pub use document::RENDER_CONTRACT_SCHEMA_VERSION;
+pub use document::RotationQuaternion;
+pub use document::RouteCardinality;
+pub use document::RouteDeclarations;
+pub use document::RouteIdentity;
+pub use document::SceneDescription;
+pub use document::ShadowCascade;
+pub use document::ShadowCascadesRecipe;
+pub use document::SkyRecipe;
+pub use document::SsaoRecipe;
+pub use document::StreamLimits;
+pub use document::TerrainMaterialSlot;
+pub use document::TerrainRecipe;
+pub use document::TransformMillimeters;
+pub use document::UniformScaleMillionths;
+pub use document::WaterPlaneRecipe;
+pub use document::WindRecipe;
+pub use scene::SceneSmaaEdgeDetection;
+pub use scene::SceneSmaaPreset;
+pub use scene::SceneSmaaSettings;
 
-pub use scene::{
-    SceneAdaptiveExposure, SceneBloom, SceneBloomLevelSelection, SceneBloomRecipe,
-    SceneBloomReduction, SceneBloomTerminal, SceneBloomTintPass, SceneBrightCurve,
-    SceneBrightExtraction, SceneDisplayGrading, SceneExposureAdaptation, SceneFxaaKernel,
-    SceneFxaaLuminance, SceneFxaaQuality, SceneGaussianKernelRule, SceneGaussianLevel,
-    SceneHdrPost, ScenePercentileExposure, SceneToneCurveBright, SceneToneMap, SceneVignette,
-};
+pub use scene::SceneAdaptiveExposure;
+pub use scene::SceneBloom;
+pub use scene::SceneBloomLevelSelection;
+pub use scene::SceneBloomRecipe;
+pub use scene::SceneBloomReduction;
+pub use scene::SceneBloomTerminal;
+pub use scene::SceneBloomTintPass;
+pub use scene::SceneBrightCurve;
+pub use scene::SceneBrightExtraction;
+pub use scene::SceneDisplayGrading;
+pub use scene::SceneExposureAdaptation;
+pub use scene::SceneFxaaKernel;
+pub use scene::SceneFxaaLuminance;
+pub use scene::SceneFxaaQuality;
+pub use scene::SceneGaussianKernelRule;
+pub use scene::SceneGaussianLevel;
+pub use scene::SceneHdrPost;
+pub use scene::ScenePercentileExposure;
+pub use scene::SceneToneCurveBright;
+pub use scene::SceneToneMap;
+pub use scene::SceneVignette;
 
-pub use scene::{
-    SceneAmbientOcclusion, SceneAtlasSampling, SceneCard, SceneFadeBand, SceneFadeCoverage,
-    SceneFadeDirection, SceneFadeQuantization, SceneFadeReference, SceneFoldSampling,
-    SceneFoliageWind, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout, SceneLayerBlend,
-    SceneLayerMode, SceneMaterialFeatures, SceneNormalEncoding, SceneNormalY, SceneTerrainContact,
-    SceneTint, SceneTranslucency, SceneTranslucencyParts, SceneWind, SceneWindArc, SceneWindBand,
-    SceneWindPhase, threshold_texels,
-};
+pub use scene::SceneAmbientOcclusion;
+pub use scene::SceneAtlasSampling;
+pub use scene::SceneCard;
+pub use scene::SceneFadeBand;
+pub use scene::SceneFadeCoverage;
+pub use scene::SceneFadeDirection;
+pub use scene::SceneFadeQuantization;
+pub use scene::SceneFadeReference;
+pub use scene::SceneFoldSampling;
+pub use scene::SceneFoliageWind;
+pub use scene::SceneImpostor;
+pub use scene::SceneImpostorChannels;
+pub use scene::SceneImpostorLayout;
+pub use scene::SceneLayerBlend;
+pub use scene::SceneLayerMode;
+pub use scene::SceneMaterialFeatures;
+pub use scene::SceneNormalEncoding;
+pub use scene::SceneNormalY;
+pub use scene::SceneTerrainContact;
+pub use scene::SceneTint;
+pub use scene::SceneTranslucency;
+pub use scene::SceneTranslucencyParts;
+pub use scene::SceneWind;
+pub use scene::SceneWindArc;
+pub use scene::SceneWindBand;
+pub use scene::SceneWindPhase;
+pub use scene::threshold_texels;
 
-pub use scene::{
-    SceneWaterEnvironment, SceneWaterFlowCoordinates, SceneWaterOptics, SceneWaterSeedCoordinates,
-    SceneWaterSeedSampling, SceneWaterSettings, SceneWaterShadowFilter, SceneWaterShadowOffset,
-    SceneWaterShadowResponse, SceneWaterShoreline, SceneWaterSunDisk, SceneWaterTint,
-    SceneWaterWind, SceneWaterZeroFrequency,
-};
-
-#[cfg(feature = "ui")]
-pub mod ui;
+pub use scene::SceneWaterEnvironment;
+pub use scene::SceneWaterFlowCoordinates;
+pub use scene::SceneWaterOptics;
+pub use scene::SceneWaterSeedCoordinates;
+pub use scene::SceneWaterSeedSampling;
+pub use scene::SceneWaterSettings;
+pub use scene::SceneWaterShadowFilter;
+pub use scene::SceneWaterShadowOffset;
+pub use scene::SceneWaterShadowResponse;
+pub use scene::SceneWaterShoreline;
+pub use scene::SceneWaterSunDisk;
+pub use scene::SceneWaterTint;
+pub use scene::SceneWaterWind;
+pub use scene::SceneWaterZeroFrequency;
 
 #[cfg(feature = "simulation")]
 pub mod simulation;
 
-pub use scene::{
-    SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition, SceneCelestialDisc,
-    SceneCelestialLighting, SceneCelestialMesh, SceneFogDensity, SceneFogDensityPolicy,
-    SceneHeightFog, SceneScattering, SceneScatteringFormat, SceneScatteringModel,
-    SceneSpecularCube,
-};
+pub use scene::SceneAtmosphere;
+pub use scene::SceneBackgroundDepthPolicy;
+pub use scene::SceneCelestialComposition;
+pub use scene::SceneCelestialDisc;
+pub use scene::SceneCelestialLighting;
+pub use scene::SceneCelestialMesh;
+pub use scene::SceneFogDensity;
+pub use scene::SceneFogDensityPolicy;
+pub use scene::SceneHeightFog;
+pub use scene::SceneScattering;
+pub use scene::SceneScatteringFormat;
+pub use scene::SceneScatteringModel;
+pub use scene::SceneSpecularCube;
 pub use worldrunner_material::BuiltinMaterial;
 
-pub use scene::{
-    SceneDiffuseEnvironment, SceneDirectDiffuse, SceneRoughnessRemap, SceneSh9,
-    SceneSpecularConvention, SceneSpecularOcclusion, SceneSpecularVisibility, SceneSurfaceDisk,
-};
+pub use scene::SceneDiffuseEnvironment;
+pub use scene::SceneDirectDiffuse;
+pub use scene::SceneRoughnessRemap;
+pub use scene::SceneSh9;
+pub use scene::SceneSpecularConvention;
+pub use scene::SceneSpecularOcclusion;
+pub use scene::SceneSpecularVisibility;
+pub use scene::SceneSurfaceDisk;
 
-pub use scene::{
-    SceneDepthAdoption, SceneDepthFitting, SceneDepthMinimumSpan, SceneDepthSplits,
-    SceneLodMaterialSlot,
-};
+pub use scene::SceneDepthAdoption;
+pub use scene::SceneDepthFitting;
+pub use scene::SceneDepthMinimumSpan;
+pub use scene::SceneDepthSplits;
+pub use scene::SceneLodMaterialSlot;
 
-pub use scene::{
-    TerrainColorization, TerrainColorizationChannels, TerrainLayer, TerrainLayeredSource,
-    TerrainSplatFilter, TerrainTypeGrid,
-};
+pub use scene::TerrainColorization;
+pub use scene::TerrainColorizationChannels;
+pub use scene::TerrainLayer;
+pub use scene::TerrainLayeredSource;
+pub use scene::TerrainSplatFilter;
+pub use scene::TerrainTypeGrid;
 
-pub use scene::{ScenePlanarWindField, SceneStaticWindModifier};
+pub use scene::ScenePlanarWindField;
+pub use scene::SceneStaticWindModifier;
 
-pub use scene::{TerrainLayerChannel, TerrainLayerChannelMap, TerrainLayerTexture};
+pub use scene::TerrainLayerChannel;
+pub use scene::TerrainLayerChannelMap;
+pub use scene::TerrainLayerTexture;
 
-pub use scene::{
-    SceneDecal, SceneDecalAlphaMode, SceneDecalAngle, SceneDecalAxis, SceneDecalColorModifier,
-    SceneDecalMapping, SceneDecalNormalFrame, SceneDecalReceivers, SceneDecalWriteMask,
-};
+pub use scene::SceneDecal;
+pub use scene::SceneDecalAlphaMode;
+pub use scene::SceneDecalAngle;
+pub use scene::SceneDecalAxis;
+pub use scene::SceneDecalColorModifier;
+pub use scene::SceneDecalMapping;
+pub use scene::SceneDecalNormalFrame;
+pub use scene::SceneDecalReceivers;
+pub use scene::SceneDecalWriteMask;
 
-pub use scene::{
-    SceneEnvironment, SceneEnvironmentConsumers, SceneSpecularCubeFormat, SceneSpecularPreparation,
-};
+pub use scene::SceneEnvironment;
+pub use scene::SceneEnvironmentConsumers;
+pub use scene::SceneSpecularCubeFormat;
+pub use scene::SceneSpecularPreparation;

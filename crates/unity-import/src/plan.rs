@@ -218,12 +218,17 @@ pub enum PlanComponent {
         #[serde(flatten)]
         renderer: crate::renderers::PlanRenderer,
     },
-    /// A skinned mesh renderer of a player scene. It has no mesh.
+    /// A skinned mesh renderer of a player scene or prefab: the asset index of its mesh, and
+    /// the object index of each bone and of the root bone. A mesh or a bone the plan does not
+    /// hold, and a bone slot left empty, is `None`.
     SkinnedMeshRenderer {
         #[serde(flatten)]
         renderer: crate::renderers::PlanRenderer,
         quality: i32,
         update_when_offscreen: bool,
+        mesh: Option<usize>,
+        bones: Vec<Option<usize>>,
+        root_bone: Option<usize>,
     },
     /// A 3D light of a player scene.
     Light {
@@ -238,6 +243,12 @@ pub enum PlanComponent {
         class: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         assembly: Option<String>,
+        /// The class's execution order. A player scene always carries the order the player
+        /// stores with the class's script, 0 included, and it replaces the class's
+        /// `DefaultExecutionOrder` attribute. A source-project scene carries none, and the
+        /// attribute applies.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        execution_order: Option<i32>,
         enabled: bool,
         fields: serde_json::Value,
     },
@@ -279,6 +290,8 @@ pub enum PlanAsset {
         pass_count: usize,
         pass_names: Vec<String>,
         subshader_count: usize,
+        tags: Vec<(String, String)>,
+        fallback: String,
         file: String,
         path_id: i64,
     },

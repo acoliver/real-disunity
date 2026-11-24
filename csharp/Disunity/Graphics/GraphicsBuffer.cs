@@ -6,14 +6,15 @@ using Unity.Collections.LowLevel.Unsafe;
 namespace UnityEngine;
 
 /// <summary>
-/// A buffer of GPU data. The engine has no GPU buffers yet, so the contents live in managed memory
-/// (count times stride bytes, zeroed) where a renderer can read them. Each live buffer has its own
-/// <see cref="bufferHandle"/>, which <c>BatchRendererGroup.AddBatch</c> resolves back to the buffer.
+/// A buffer of GPU data whose contents the world holds, in the same compute buffer a <see cref="ComputeBuffer"/> uses (count
+/// times stride bytes, zeroed). The world buffer is made when the contents are first written or read, or when a batch draw names
+/// it, and is destroyed by <see cref="Release"/>. Each live buffer has its own <see cref="bufferHandle"/>, which
+/// <c>BatchRendererGroup.AddBatch</c> resolves back to the buffer and from there to its world buffer.
 /// </summary>
 public sealed class GraphicsBuffer : IDisposable
 {
-    /// <summary>What the buffer is used for. The contents are managed memory whatever the target, so every
-    /// target is accepted; the targets matter once a renderer reads the buffer.</summary>
+    /// <summary>What the buffer is used for. Every combination of the defined targets is accepted; the world's buffer
+    /// records the type the target maps to.</summary>
     [Flags]
     public enum Target
     {
@@ -29,7 +30,7 @@ public sealed class GraphicsBuffer : IDisposable
         Constant = 512,
     }
 
-    /// <summary>How the buffer's contents are updated. Stored; the managed contents behave the same either way.</summary>
+    /// <summary>How the buffer's contents are updated. Stored; the contents behave the same either way.</summary>
     [Flags]
     public enum UsageFlags
     {
@@ -47,7 +48,7 @@ public sealed class GraphicsBuffer : IDisposable
     private readonly int _count;
     private readonly int _stride;
     private readonly GraphicsBufferHandle _handle;
-    private byte[]? _contents;
+    private ComputeBuffer? _compute;
 
     public GraphicsBuffer(Target target, int count, int stride)
         : this(target, UsageFlags.None, count, stride)
@@ -69,12 +70,14 @@ public sealed class GraphicsBuffer : IDisposable
             throw new ArgumentException($"GraphicsBuffer of {count} elements of {stride} bytes is {bytes} bytes, more than the engine's limit of {int.MaxValue}", nameof(count));
         _count = count;
         _stride = stride;
-        _contents = new byte[bytes];
+        _compute = new ComputeBuffer(count, stride, ComputeTypeOf(target));
         _handle = new GraphicsBufferHandle { value = NextHandle() };
         Live[_handle.value] = new WeakReference<GraphicsBuffer>(this);
     }
 
-    ~GraphicsBuffer() => Release();
+    /// <summary>A buffer that was never released leaves its world buffer to the world's unload, like a compute buffer; the
+    /// finalizer only forgets the handle, because it runs on a thread that has no business calling into the world.</summary>
+    ~GraphicsBuffer() => Live.TryRemove(_handle.value, out _);
 
     public int count => WhileLive(_count);
     public int stride => WhileLive(_stride);
@@ -86,14 +89,20 @@ public sealed class GraphicsBuffer : IDisposable
     public string name { get; set; } = "";
 
     /// <summary>True until the buffer is released.</summary>
-    public bool IsValid() => _contents != null;
+    public bool IsValid() => _compute != null;
 
-    /// <summary>The buffer's bytes, for a renderer. Throws once the buffer is released.</summary>
-    internal ReadOnlySpan<byte> Contents => Storage();
+    /// <summary>The buffer's resource in the loaded world, made on first use. Throws once the buffer is released.</summary>
+    internal WorldGraphics.Link WorldLink => Storage().WorldLink;
+
+    /// <summary>The live buffer the handle names, or null when the handle names none.</summary>
+    internal static GraphicsBuffer? Find(GraphicsBufferHandle handle) =>
+        Live.TryGetValue(handle.value, out var buffer) && buffer.TryGetTarget(out var target) && target._compute != null ? target : null;
+
+    /// <summary>The size of the buffer in bytes: count times stride.</summary>
+    internal int ByteSize => _count * _stride;
 
     /// <summary>True when the handle belongs to a buffer that has not been released.</summary>
-    internal static bool IsLive(GraphicsBufferHandle handle) =>
-        Live.TryGetValue(handle.value, out var buffer) && buffer.TryGetTarget(out var target) && target._contents != null;
+    internal static bool IsLive(GraphicsBufferHandle handle) => Find(handle) is not null;
 
     /// <summary>
     /// Copies <paramref name="count"/> elements of <paramref name="data"/> into the buffer. The element size must
@@ -102,12 +111,12 @@ public sealed class GraphicsBuffer : IDisposable
     /// </summary>
     public void SetData(Array data, int managedBufferStartIndex, int graphicsBufferStartIndex, int count)
     {
-        var contents = Storage();
+        var link = WorldLink;
         ArgumentNullException.ThrowIfNull(data);
         var size = ElementSize(data.GetType().GetElementType()!);
-        CheckRange(data.Length, contents.Length, size, managedBufferStartIndex, graphicsBufferStartIndex, count);
+        CheckRange(data.Length, ByteSize, size, managedBufferStartIndex, graphicsBufferStartIndex, count);
         if (count == 0) return;
-        ArrayBytes(data, size).Slice(managedBufferStartIndex * size, count * size).CopyTo(contents.AsSpan(graphicsBufferStartIndex * size, count * size));
+        WorldCompute.WriteBuffer(link, (long)graphicsBufferStartIndex * size, ArrayBytes(data, size).Slice(managedBufferStartIndex * size, count * size));
     }
 
     /// <summary>Copies the whole array to the start of the buffer.</summary>
@@ -146,21 +155,22 @@ public sealed class GraphicsBuffer : IDisposable
     /// index counts elements of the array's own type, as <see cref="SetData(Array, int, int, int)"/> does.</summary>
     public void GetData(Array data, int managedBufferStartIndex, int computeBufferStartIndex, int count)
     {
-        var contents = Storage();
+        var link = WorldLink;
         ArgumentNullException.ThrowIfNull(data);
         var size = ElementSize(data.GetType().GetElementType()!);
-        CheckRange(data.Length, contents.Length, size, managedBufferStartIndex, computeBufferStartIndex, count);
+        CheckRange(data.Length, ByteSize, size, managedBufferStartIndex, computeBufferStartIndex, count);
         if (count == 0) return;
-        contents.AsSpan(computeBufferStartIndex * size, count * size).CopyTo(ArrayBytes(data, size).Slice(managedBufferStartIndex * size, count * size));
+        WorldCompute.Flush();
+        WorldCompute.ReadBuffer(link, (long)computeBufferStartIndex * size, ArrayBytes(data, size).Slice(managedBufferStartIndex * size, count * size));
     }
 
     private void CopyIn<T>(ReadOnlySpan<T> data, int managedStart, int bufferStart, int count) where T : struct
     {
-        var contents = Storage();
+        var link = WorldLink;
         var size = ElementSize(typeof(T));
-        CheckRange(data.Length, contents.Length, size, managedStart, bufferStart, count);
+        CheckRange(data.Length, ByteSize, size, managedStart, bufferStart, count);
         if (count == 0) return;
-        MemoryMarshal.AsBytes(data.Slice(managedStart, count)).CopyTo(contents.AsSpan(bufferStart * size, count * size));
+        WorldCompute.WriteBuffer(link, (long)bufferStart * size, MemoryMarshal.AsBytes(data.Slice(managedStart, count)));
     }
 
     private static Span<byte> ArrayBytes(Array data, int size) =>
@@ -168,15 +178,29 @@ public sealed class GraphicsBuffer : IDisposable
 
     public void Release()
     {
-        var contents = Interlocked.Exchange(ref _contents, null);
-        if (contents == null) return;
+        var compute = Interlocked.Exchange(ref _compute, null);
+        if (compute == null) return;
+        compute.Release();
         Live.TryRemove(_handle.value, out _);
         GC.SuppressFinalize(this);
     }
 
     public void Dispose() => Release();
 
-    private byte[] Storage() => _contents ?? throw new ObjectDisposedException(nameof(GraphicsBuffer), "the GraphicsBuffer has been released");
+    private ComputeBuffer Storage() => _compute ?? throw new ObjectDisposedException(nameof(GraphicsBuffer), "the GraphicsBuffer has been released");
+
+    /// <summary>The compute buffer type the world records for a target: the bits the two enums share by meaning.</summary>
+    private static ComputeBufferType ComputeTypeOf(Target target)
+    {
+        var type = ComputeBufferType.Default;
+        if (target.HasFlag(Target.Raw)) type |= ComputeBufferType.Raw;
+        if (target.HasFlag(Target.Append)) type |= ComputeBufferType.Append;
+        if (target.HasFlag(Target.Counter)) type |= ComputeBufferType.Counter;
+        if (target.HasFlag(Target.Constant)) type |= ComputeBufferType.Constant;
+        if (target.HasFlag(Target.Structured)) type |= ComputeBufferType.Structured;
+        if (target.HasFlag(Target.IndirectArguments)) type |= ComputeBufferType.IndirectArguments;
+        return type;
+    }
 
     private T WhileLive<T>(T value)
     {

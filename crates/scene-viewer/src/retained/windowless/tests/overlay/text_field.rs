@@ -10,7 +10,13 @@ fn field_plan() -> UiRenderPlan {
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -63,7 +69,7 @@ fn field_plan() -> UiRenderPlan {
 fn windowless_text_field_draws_caret_selection_and_delivers_scale_changes() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     apply(&mut run, field_plan());
     let image = capture(&mut run, &events).1;
     assert_eq!(pixel(&image, 28, 25), [255, 0, 0, 255]);
@@ -156,8 +162,16 @@ fn text_field_and_annotations_share_overlay_contributions_without_a_gpu() {
         .filter(|d| d.kind == UiDrawKind::Text)
         .map(|d| d.texture.unwrap())
         .collect();
-    assert_eq!(text_ids, [0, 1].into());
+    assert_eq!(
+        text_ids,
+        [UiTexture::Coverage(0), UiTexture::Coverage(1)].into()
+    );
     assert!(
-        UiOverlay::from_presentation(&presentation, &std::collections::BTreeMap::new()).is_ok()
+        UiOverlay::from_presentation(
+            &presentation,
+            &std::collections::BTreeMap::new(),
+            &worldrunner_world_simulation::ui::presentation::UiLayers::default()
+        )
+        .is_ok()
     );
 }

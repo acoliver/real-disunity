@@ -3,7 +3,8 @@ using Disunity.Native;
 using UnityEngine;
 
 /// <summary>The host draws a slot with the colour and texture its world material holds when it prepares a frame, so a
-/// material changed after the renderer took it shows without the renderer's materials being set again.</summary>
+/// material changed after the renderer took it shows without the renderer's materials being set again, and a slot with
+/// no material draws white with no texture.</summary>
 internal static class PlayerMeshLiveMaterialTests
 {
     public static void Run()
@@ -17,11 +18,14 @@ internal static class PlayerMeshLiveMaterialTests
             ShowsBaseColorWhenThereIsNoColor();
             ShowsTheChangeOnEveryRendererThatSharesTheMaterial();
             DrawsAColourThatIsNotUsableAsZero();
+            DrawsAMaterialWithoutDrawableTexturesUntextured();
+            DrawsOnlyTheSlotsTheMaterialsHold();
         }
         finally { DisunityHost.UnloadWorld(); }
     }
 
-    private static MeshRenderer NewRenderer()
+    /// <summary>A mesh renderer on an object whose filter holds a mesh, so a prepared frame lists it.</summary>
+    internal static MeshRenderer NewRenderer()
     {
         var shown = new GameObject("live material");
         shown.AddComponent<MeshFilter>().sharedMesh = new Mesh { vertices = [Vector3.zero, Vector3.right, Vector3.up], triangles = [0, 1, 2] };
@@ -31,7 +35,7 @@ internal static class PlayerMeshLiveMaterialTests
     private static Material NewMaterial() => new(DisunityHost.RegisterShader("Test/PlayerMesh/Plain"));
 
     /// <summary>The slots of the mesh object the next presented frame lists for <paramref name="renderer"/>.</summary>
-    private static unsafe DisunityDrawnMaterial[] Prepared(Renderer renderer)
+    internal static unsafe DisunityDrawnMaterial[] Prepared(Renderer renderer)
     {
         var world = DisunityHost.WorldHandle;
         var header = new DisunityPresentation();
@@ -139,5 +143,45 @@ internal static class PlayerMeshLiveMaterialTests
         var slot = Prepared(renderer)[0];
         Expect.That(slot.r == 0 && slot.g == 0 && slot.b == 2 && slot.a == 1, "a negative channel and one that is not a number are drawn as 0 after a later change");
         Console.WriteLine("PASS: a later colour change with unusable channels draws them as 0");
+    }
+
+    private static void DrawsAMaterialWithoutDrawableTexturesUntextured()
+    {
+        var renderer = NewRenderer();
+        var wide = NewMaterial();
+        wide.mainTexture = new Texture2D(2, 0);
+        var tall = NewMaterial();
+        tall.mainTexture = new Texture2D(0, 2);
+        var target = NewMaterial();
+        target.mainTexture = new RenderTexture(4, 4, 0);
+        var whole = NewMaterial();
+        var one = new Texture2D(1, 1);
+        whole.mainTexture = one;
+        renderer.sharedMaterials = [wide, tall, target, whole];
+        var slots = Prepared(renderer);
+        Expect.That(slots[0].texture == 0 && slots[1].texture == 0, "a texture with no width or no height has no pixels to draw");
+        Expect.That(slots[2].texture == 0, "a render texture is not a texture with pixels");
+        Expect.That(slots[3].texture == one.RendererIdentity, "a one pixel texture is drawn");
+        Console.WriteLine("PASS: only a Texture2D with pixels is drawn as a slot's texture");
+    }
+
+    private static void DrawsOnlyTheSlotsTheMaterialsHold()
+    {
+        var renderer = NewRenderer();
+        var red = NewMaterial();
+        red.color = Color.red;
+        var blue = NewMaterial();
+        blue.color = Color.blue;
+        renderer.sharedMaterials = [red, null, blue];
+        var slots = Prepared(renderer);
+        Expect.That(slots.Length == 3, "one slot per material");
+        Expect.That(Shows(slots[0], Color.red, 0) && Shows(slots[2], Color.blue, 0), "a slot draws its material's colour");
+        Expect.That(Shows(slots[1], Color.white, 0), "an empty slot draws white and untextured");
+        renderer.sharedMaterials = [blue];
+        var fewer = Prepared(renderer);
+        Expect.That(fewer.Length == 1 && Shows(fewer[0], Color.blue, 0), "setting fewer materials replaces the slots");
+        renderer.sharedMaterials = [];
+        Expect.That(Prepared(renderer).Length == 0, "no materials, no slots");
+        Console.WriteLine("PASS: a slot draws from its world material and an empty slot draws white");
     }
 }

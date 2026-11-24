@@ -196,6 +196,11 @@ impl World {
         })
     }
 
+    /// The layer of a live object.
+    pub(crate) fn object_layer(&self, handle: ObjectHandle) -> Result<u8, WorldError> {
+        Ok(self.live_object(handle)?.layer)
+    }
+
     /// Moves the object to `layer`, one of Unity's 32 layers.
     pub fn set_layer(&mut self, handle: ObjectHandle, layer: u8) -> Result<(), WorldError> {
         self.live_object(handle)?;
@@ -206,6 +211,7 @@ impl World {
             .get_mut(handle.0)
             .expect("validated object")
             .layer = layer;
+        self.note_drawables_changed();
         self.record_change(Change::Properties(handle));
         Ok(())
     }
@@ -316,6 +322,7 @@ impl World {
                 .mesh_instance = Some(handle);
         }
         let script = matches!(desc, ComponentDesc::Script { .. });
+        self.note_drawable_edit(None, desc.draw_input());
         self.physics_population.note_stored(&desc);
         self.objects
             .get_mut(object.0)
@@ -377,6 +384,8 @@ impl World {
             .get_mut(handle.0)
             .expect("validated component");
         let previous = std::mem::replace(&mut slot.desc, desc);
+        let (before, after) = (previous.draw_input(), slot.desc.draw_input());
+        self.note_drawable_edit(before, after);
         self.note_component_replaced(handle, previous);
     }
 

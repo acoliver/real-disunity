@@ -187,7 +187,7 @@ fn a_clip_with_nothing_of_the_target_in_it_has_no_rectangle() {
 
 #[test]
 fn distance_mode_radius_spread_and_colour_split_adjacent_groups() {
-    use worldrunner_render_plan::ui::{UiDistanceMode, UiDistanceStyle};
+    use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
     let plain = DynamicQuad {
         overlay: true,
         ..DynamicQuad::default()

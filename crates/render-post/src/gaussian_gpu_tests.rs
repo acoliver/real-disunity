@@ -269,7 +269,7 @@ fn gpu_disabled_gaussian_kernel_preserves_other_effects_output() {
         let policy = HdrPostSettings {
             bloom: None,
             bloom_kernel,
-            resolve: crate::PostResolve::fxaa(0.0),
+            resolve: crate::PostResolve::fxaa(0.0, crate::FxaaQuality::default()),
             ..HdrPostSettings::default()
         };
         let c = chain(&device, &policy, [9, 7]);

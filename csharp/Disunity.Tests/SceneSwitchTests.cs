@@ -202,7 +202,7 @@ internal static class SceneSwitchTests
             {
                 var canvas = DisunityHost.CreateGameObject();
                 canvas.AddComponent<RectTransform>();
-                canvas.AddComponent<Canvas>();
+                canvas.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
                 var panel = DisunityHost.CreateGameObject().AddComponent<RectTransform>();
                 panel.SetParent(canvas.GetComponent<RectTransform>(), false);
                 Tooltip.Panel = panel;

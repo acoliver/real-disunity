@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use glam::Vec3;
 use worldrunner_render_plan::{SceneDecal, SceneDecalAxis, SceneDecalReceivers, TexelFormat};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
@@ -89,9 +90,8 @@ pub(crate) fn source(slope: bool, terrain_receiver: bool) -> RenderScene {
     .unwrap()
 }
 pub(super) fn capture(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
-    let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, samples).unwrap();
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, samples).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), scene, &pipelines).unwrap();
     capture_gpu(
         context,
         &mut gpu,
@@ -135,16 +135,17 @@ pub(super) fn capture_with_renderer(
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut frame = frame_from(pose());
     frame.unlit = unlit;
-    crate::compositor::encode_scene(
-        renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        frame,
-    )
-    .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            frame,
+        )
+        .unwrap();
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     Readback::new(
         context.device(),
@@ -416,10 +417,9 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, true).with_decals(vec![decal()]).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
-    let mesh = gpu.meshes[0].lods[0].vertices.clone();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let mesh = gpu.meshes[0].lods[0].vertices.buffer().clone();
     let material = gpu.retained.material_uniforms[0].clone();
     let texture = (*gpu.retained.textures[0]).clone();
     let terrain = gpu.terrain.as_ref().unwrap().resources.uniform.clone();
@@ -435,7 +435,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     let removed = capture_gpu(&context, &mut gpu, &pipelines, 1, true);
     assert_ne!(removed, edited);
     assert_eq!(removed, capture(&context, &source(false, true), 1));
-    assert_eq!(mesh, gpu.meshes[0].lods[0].vertices);
+    assert_eq!(mesh, *gpu.meshes[0].lods[0].vertices.buffer());
     assert_eq!(material, gpu.retained.material_uniforms[0]);
     assert_eq!(texture, *gpu.retained.textures[0]);
     assert_eq!(terrain, gpu.terrain.as_ref().unwrap().resources.uniform);
@@ -448,9 +448,8 @@ fn decal_edits_preserve_resident_terrain_pages() {
     let scene = super::layered_terrain::layered_scene(
         worldrunner_render_plan::TerrainSplatFilter::Bilinear,
     );
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     gpu.enable_terrain_pages(
         context.device(),
         context.submission(),
@@ -516,9 +515,8 @@ fn bounded_uploads_and_shared_palettes_survive_camera_edits_and_cancelled_frames
         })
         .collect();
     let scene = source(false, false).with_decals(placements).unwrap();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(context.device(), context.submission(), &scene, &pipelines).unwrap();
     let frame = frame_from(pose());
     let bytes = gpu.decals.prepare(&frame, &gpu.frame_buffer);
     assert_eq!(bytes.len(), super::super::decals::BYTES);

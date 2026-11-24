@@ -45,9 +45,11 @@ const OTHER_MESH: u64 = (1 << 41) + 6;
 mod block;
 mod buffers;
 mod declared;
+mod dots;
 mod persistent;
 mod raster;
 mod screen;
+mod ui_frame;
 
 /// A vertex stage that places its position by the draw's matrices and negates clip Y as every
 /// compiled player stage does, a fragment stage that writes the material's `_Tint` and one that
@@ -121,6 +123,9 @@ fn synthetic(file: &str) -> SyntheticShader {
         }
         "sampled" => block::sampled_passes(),
         "instanced" => buffers::instanced_passes(),
+        "dots" => dots::passes(),
+        "lit_dots" => dots::lit_passes(),
+        "ambient_dots" => dots::ambient_passes(),
         name if name.starts_with("declared_") => declared::passes(name),
         other => panic!("no synthetic shader {other}"),
     }
@@ -130,6 +135,9 @@ struct Shaders;
 
 impl ShaderSupply for Shaders {
     fn load(&mut self, source: &ShaderSource) -> Result<LoadedShader, ShaderLoadError> {
+        if source.file.as_str() == "no-such-shader" {
+            return Err(ShaderLoadError::NoVulkanPlatform);
+        }
         let synthetic = synthetic(source.file.as_str());
         let texture_defaults = declared(&synthetic.shader);
         let program = ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap();

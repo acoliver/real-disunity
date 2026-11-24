@@ -32,8 +32,6 @@ impl Renderer {
             errors: parts.errors,
             clock: crate::clock::Clock::new(),
             frame_time: std::time::Duration::ZERO,
-            live_upload: None,
-            live_pending: None,
             game_screen: super::game_screen::Frames::default(),
             streaming: parts.streaming,
         };
@@ -91,5 +89,5 @@ pub(super) fn configured_presentation(
     effects: Option<&worldrunner_render_plan::SceneEffects>,
     policy: &crate::presentation::PresentationPolicy,
 ) -> Result<Presentation, ViewerError> {
-    Presentation::with_settings(context, format, sizes, profile, effects, policy)
+    Presentation::new(context, format, sizes, profile, effects, policy)
 }

@@ -4,24 +4,26 @@
 //! whose world lives in another image can fill the same fields. [`GraphicsSnapshot::take`] reads
 //! them from a world in this process and drains the frame's records.
 //!
-//! The renderers are listed without the presented camera's culling. The presentation's own list
-//! of mesh objects leaves out the layers the screen camera does not draw, and an offscreen camera
-//! draws layers of its own. Each renderer here is still tested against the offscreen cameras'
-//! culling masks, here for the ones the frame has and again, camera by camera, when the frame is
-//! built.
+//! The renderers are the ones the frame's camera renders and culls drew when the script called
+//! them (see `render_sets`), listed without the presented camera's culling: the presentation's own
+//! list of mesh objects leaves out the layers the screen camera does not draw, and an offscreen
+//! camera draws layers of its own.
 //!
 //! A frame with a camera also copies every enabled light on an active object, in component order,
 //! so the host can give the camera's shaders the light it draws with.
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use glam::Mat4;
+
+use super::render_sets::index_of;
 use super::{
     CameraBuffers, ComputeBufferId, ComputeShaderId, Environment, GlobalShaderState, MaterialId,
     OffscreenWork, RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer,
     WorldComputeShader, WorldMaterial, WorldRenderTexture, WorldShader,
 };
 use crate::presentation::{Camera, LightSettings};
-use crate::{ComponentDesc, ComponentHandle, RendererKind, World, WorldError};
+use crate::{ComponentDesc, ComponentHandle, MeshRenderer, World, WorldError};
 
 /// A camera a record names: its settings and its object's pose in the world, column-major.
 #[derive(Clone, Debug, PartialEq)]
@@ -76,6 +78,9 @@ pub struct GraphicsSnapshot {
     /// Every live render texture, and each one destroyed after a record of the frame named it,
     /// in every snapshot, including one with no work.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
+    /// The global state the frame's records replay from: the state as it was before the frame's
+    /// first change to it, which the records after that carry on in order. `None` for a frame with
+    /// no work.
     pub global: Option<GlobalShaderState>,
     /// The scene's ambient light and default reflection, copied with the global state.
     pub environment: Environment,
@@ -86,7 +91,20 @@ pub struct GraphicsSnapshot {
     /// The enabled lights on active objects, in component order, when the frame has a camera;
     /// none otherwise.
     pub lights: Vec<WorldLight>,
+    /// The renderers the frame's camera renders and culls drew, each once, in the order the
+    /// frame's sets first name them. A renderer is read as it is when the snapshot is taken.
     pub renderers: Vec<RendererView>,
+    /// The sets of renderers that camera renders and culls drew when the script called them, each
+    /// as indices into `renderers`. A set is listed once however many records share it.
+    pub renderer_sets: Vec<Vec<u32>>,
+    /// For the index of a camera render or a cull in `work`, the index in `renderer_sets` of the
+    /// renderers that were drawable when the record was made. The world makes one for every cull
+    /// and for every camera render whose camera it can read; a record with no entry draws nothing.
+    pub record_sets: BTreeMap<u32, u32>,
+    /// How many skinned renderers the frame's sets name that no view lists, each counted once
+    /// however many sets name it: the renderer's skin names no root bone that is in the world, so
+    /// nothing says where its mesh goes.
+    pub skinned_not_drawn: u32,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
     /// The live compute buffers that the frame's dispatches and the materials it draws with bind,
@@ -95,6 +113,15 @@ pub struct GraphicsSnapshot {
 }
 
 impl GraphicsSnapshot {
+    /// The indices into `renderers` of the renderers the camera render or cull at `record` in
+    /// `work` draws, or `None` when the world made no set for the record.
+    pub fn record_renderers(&self, record: usize) -> Option<&[u32]> {
+        let set = self.record_sets.get(&u32::try_from(record).ok()?)?;
+        self.renderer_sets
+            .get(usize::try_from(*set).ok()?)
+            .map(Vec::as_slice)
+    }
+
     /// Drains the world's offscreen work and copies what that work can reach: the cameras it
     /// names, the renderers they may draw, the materials and shaders of those renderers and of
     /// the blits, the buffers those materials bind, and the compute shaders and buffers of the
@@ -105,7 +132,8 @@ impl GraphicsSnapshot {
     /// Fails when the world refuses to describe an object it listed.
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
         let retired = world.take_retired_render_textures();
-        let work = world.take_offscreen();
+        let captured = world.take_render_sets();
+        let (work, copies, start) = world.take_offscreen();
         // The list is whole for every snapshot: a host drops the render textures a snapshot
         // omits, so a frame with no work must not look like a world with none.
         let render_textures = world
@@ -121,36 +149,64 @@ impl GraphicsSnapshot {
         if snapshot.work.is_empty() {
             return Ok(snapshot);
         }
-        snapshot.global = Some(world.global_shader_state().clone());
+        snapshot.global = Some(start.unwrap_or_else(|| world.global_shader_state().clone()));
         snapshot.environment = world.live_environment();
         snapshot.cameras = camera_views(world, &snapshot.work);
         if !snapshot.cameras.is_empty() {
             snapshot.lights = light_views(world)?;
         }
-        let mask = snapshot
-            .cameras
-            .values()
-            .fold(cull_masks(&snapshot.work), |mask, camera| {
-                mask | camera.settings.culling_mask
-            });
-        if mask != 0 {
-            snapshot.renderers = renderer_views(world, mask)?;
-        }
-        snapshot.copy_materials(world);
+        let drawn = renderer_views(world, &captured.sets)?;
+        snapshot.renderers = drawn.views;
+        snapshot.renderer_sets = drawn.sets;
+        snapshot.skinned_not_drawn = index_of(drawn.unplaced.len());
+        snapshot.record_sets = captured.records;
+        snapshot.copy_materials(world, copies);
         snapshot.copy_material_buffers(world);
         snapshot.copy_compute(world);
         Ok(snapshot)
     }
 
-    /// The materials the blits, mesh draws and renderers name, and their shaders. A destroyed material
-    /// or shader is left out.
-    fn copy_materials(&mut self, world: &World) {
+    /// Adds the materials `ids` name, their shaders and the buffers they bind to a snapshot, for a
+    /// host that draws with them in a frame whose records do not name them, such as the UI's own
+    /// draws. A material a record of the snapshot already copied keeps that copy. A destroyed
+    /// material or shader is left out. When something is added to a snapshot of a frame with no
+    /// work, the global state and the environment are the world's now.
+    pub fn include_materials(&mut self, world: &World, ids: impl IntoIterator<Item = MaterialId>) {
+        let mut added = false;
+        for id in ids {
+            if self.materials.contains_key(&id) {
+                continue;
+            }
+            let Ok(material) = world.material(id) else {
+                continue;
+            };
+            if let Ok(shader) = world.shader(material.shader) {
+                self.shaders.insert(material.shader, shader.clone());
+            }
+            self.materials.insert(id, material.clone());
+            added = true;
+        }
+        if !added {
+            return;
+        }
+        if self.global.is_none() {
+            self.global = Some(world.global_shader_state().clone());
+            self.environment = world.live_environment();
+        }
+        self.copy_material_buffers(world);
+    }
+
+    /// The materials the blits, mesh draws and renderers name, and their shaders. A material that
+    /// changed after a draw recorded it is the draw's copy of it (`copies`, which the draw names by
+    /// the copy's id). A destroyed material or shader is left out.
+    fn copy_materials(&mut self, world: &World, mut copies: BTreeMap<MaterialId, WorldMaterial>) {
         let named: BTreeSet<MaterialId> = self
             .work
             .iter()
             .filter_map(|work| match work {
                 OffscreenWork::Blit { material, .. } => *material,
                 OffscreenWork::DrawMesh { material, .. }
+                | OffscreenWork::DrawMeshBatch { material, .. }
                 | OffscreenWork::DrawProcedural { material, .. } => Some(*material),
                 _ => None,
             })
@@ -161,13 +217,16 @@ impl GraphicsSnapshot {
             )
             .collect();
         for id in named {
-            let Ok(material) = world.material(id) else {
+            let Some(material) = copies
+                .remove(&id)
+                .or_else(|| world.material(id).ok().cloned())
+            else {
                 continue;
             };
             if let Ok(shader) = world.shader(material.shader) {
                 self.shaders.insert(material.shader, shader.clone());
             }
-            self.materials.insert(id, material.clone());
+            self.materials.insert(id, material);
         }
     }
 
@@ -175,6 +234,10 @@ impl GraphicsSnapshot {
     /// buffer is left out, and the record that names it stays in `work`.
     fn copy_compute(&mut self, world: &World) {
         for record in &self.work {
+            if let OffscreenWork::DrawMeshBatch { batch, .. } = record {
+                copy_buffer(&mut self.compute_buffers, world, batch.buffer);
+                continue;
+            }
             let OffscreenWork::Dispatch {
                 shader, bindings, ..
             } = record
@@ -217,14 +280,6 @@ fn copy_buffer(
     if let Ok(held) = world.compute_buffer(id) {
         copied.insert(id, held.clone());
     }
-}
-
-/// The layers the frame's culls admit, as their own masks give them.
-fn cull_masks(work: &[OffscreenWork]) -> u32 {
-    work.iter().fold(0, |mask, record| match record {
-        OffscreenWork::Cull { culling_mask, .. } => mask | culling_mask,
-        _ => mask,
-    })
 }
 
 /// The live cameras that camera renders, camera setups and culls name.
@@ -275,49 +330,93 @@ fn light_views(world: &World) -> Result<Vec<WorldLight>, WorldError> {
     Ok(lights)
 }
 
-/// The enabled mesh renderers on active objects whose layer `mask` admits.
-fn renderer_views(world: &World, mask: u32) -> Result<Vec<RendererView>, WorldError> {
-    let mut meshes = BTreeMap::new();
-    for component in world.published_components() {
-        if let ComponentDesc::MeshFilter(filter) = &component.desc
-            && filter.drawn_mesh != 0
-        {
-            meshes.insert(component.object, filter.drawn_mesh);
-        }
+/// The renderers a snapshot lists, and the sets of its records as indices into them.
+struct RendererViews {
+    views: Vec<RendererView>,
+    sets: Vec<Vec<u32>>,
+    /// The skinned renderers of the sets that have no placement, so no view.
+    unplaced: BTreeSet<ComponentHandle>,
+}
+
+/// The renderers of the `captured` sets, each listed once, and the sets as indices into them. A
+/// renderer the world no longer holds, or that no longer has a mesh, is left out of its set, and
+/// so is a skinned renderer with no placement, which is noted in `unplaced`. The renderer is read
+/// as it is now: the set fixes which renderers draw, and the view says what they draw.
+fn renderer_views(
+    world: &World,
+    captured: &[Vec<ComponentHandle>],
+) -> Result<RendererViews, WorldError> {
+    let mut listing = RendererViews {
+        views: Vec::new(),
+        sets: Vec::with_capacity(captured.len()),
+        unplaced: BTreeSet::new(),
+    };
+    let mut index = BTreeMap::new();
+    for set in captured {
+        let indices = set_indices(world, set, &mut listing, &mut index)?;
+        listing.sets.push(indices);
     }
-    let mut views = Vec::new();
-    for component in world.published_components() {
+    Ok(listing)
+}
+
+/// The indices in `listing.views` of the renderers of `set`, listing those that it lacks.
+fn set_indices(
+    world: &World,
+    set: &[ComponentHandle],
+    listing: &mut RendererViews,
+    index: &mut BTreeMap<ComponentHandle, u32>,
+) -> Result<Vec<u32>, WorldError> {
+    let mut indices = Vec::with_capacity(set.len());
+    for handle in set {
+        if let Some(known) = index.get(handle) {
+            indices.push(*known);
+            continue;
+        }
+        let Ok(component) = world.component(*handle) else {
+            continue;
+        };
         let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
             continue;
         };
-        let shown = renderer.kind == RendererKind::Mesh
-            && renderer.switches.enabled
-            && !renderer.switches.force_rendering_off;
-        let Some(mesh) = meshes.get(&component.object).copied().filter(|_| shown) else {
+        let Some(mesh) = world.renderer_mesh(component.object, renderer) else {
             continue;
         };
-        let layer = u32::from(world.object(component.object)?.layer);
-        if mask.checked_shr(layer).is_none_or(|bits| bits & 1 == 0)
-            || !world.active_in_hierarchy(component.object)?
-        {
+        let Some(placement) = world.renderer_placement(component.object, renderer)? else {
+            listing.unplaced.insert(*handle);
             continue;
-        }
-        let slots = renderer.material_count as usize;
-        views.push(RendererView {
-            local_to_world: world.presented_matrix(component.object)?.to_cols_array(),
-            mesh,
-            layer,
-            shadow_casting_mode: renderer.shadow_casting_mode,
-            materials: (0..slots)
-                .map(|slot| {
-                    let held = renderer.slot_materials.get(slot).copied().flatten();
-                    held.filter(|id| world.material(*id).is_ok())
-                })
-                .collect(),
-            render_queue: renderer.render_queue,
-            property_block: renderer.property_block.clone(),
-            slot_blocks: renderer.slot_blocks.clone(),
-        });
+        };
+        let layer = u32::from(world.object_layer(component.object)?);
+        let at = index_of(listing.views.len());
+        listing
+            .views
+            .push(renderer_view(renderer, placement, (mesh, layer), world));
+        index.insert(*handle, at);
+        indices.push(at);
     }
-    Ok(views)
+    Ok(indices)
+}
+
+/// What a camera needs of `renderer`, which draws `mesh` on `layer` at `placement`.
+fn renderer_view(
+    renderer: &MeshRenderer,
+    placement: Mat4,
+    (mesh, layer): (u64, u32),
+    world: &World,
+) -> RendererView {
+    let slots = renderer.material_count as usize;
+    RendererView {
+        local_to_world: placement.to_cols_array(),
+        mesh,
+        layer,
+        shadow_casting_mode: renderer.shadow_casting_mode,
+        materials: (0..slots)
+            .map(|slot| {
+                let held = renderer.slot_materials.get(slot).copied().flatten();
+                held.filter(|id| world.material(*id).is_ok())
+            })
+            .collect(),
+        render_queue: renderer.render_queue,
+        property_block: renderer.property_block.clone(),
+        slot_blocks: renderer.slot_blocks.clone(),
+    }
 }

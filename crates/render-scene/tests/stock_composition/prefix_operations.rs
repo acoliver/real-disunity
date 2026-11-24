@@ -11,12 +11,12 @@ use std::{
     rc::Rc,
     sync::mpsc,
 };
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FrameError, FrameOperations, FramePlan, OperationsGroup,
+    OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture,
+};
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
-    executor::{
-        AttachmentView, BorrowedFeature, FrameError, FrameOperations, FramePlan, OperationsGroup,
-        OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture,
-    },
     frame::FrameUniform,
     wgpu,
 };
@@ -35,7 +35,7 @@ impl FrameOperations for ClearRetained {
         &self,
         _: Option<&TimingState>,
         encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<(), worldrunner_render_scene::executor::FrameError> {
+    ) -> Result<(), worldrunner_render_post::FrameError> {
         self.calls.set(self.calls.get() + 1);
         let view = self
             .texture
@@ -63,7 +63,7 @@ fn encode_suffix(
     uniform: &FrameUniform,
     sampler: &mut Sampler,
     retained: &AttachmentView,
-) -> Result<(), worldrunner_render_scene::executor::FrameError> {
+) -> Result<(), worldrunner_render_post::FrameError> {
     let device = frame.context.device();
     let mut stock = prepare_stock_scene(
         &mut frame.renderer,
@@ -80,7 +80,7 @@ fn encode_suffix(
     views.extend([sampler_view, retained.clone()]);
     let (declaration, stock_frame) = (stock.declaration(), stock.frame());
     let offscreen = stock.take_offscreen_operations();
-    frame.renderer.encode_frame_with(
+    frame.renderer.encode_frame(
         device,
         encoder,
         (&passes, &views),
@@ -111,7 +111,7 @@ fn encode_composed(
         &AttachmentView,
         &FrameUniform,
     ),
-) -> Result<(), worldrunner_render_scene::executor::FrameError> {
+) -> Result<(), worldrunner_render_post::FrameError> {
     let (prefix, contribution, operation, sampler, retained, uniform) = inputs;
     let device = frame.context.device();
     prefix.encode(

@@ -56,7 +56,8 @@ impl ExposureMetering {
 }
 
 /// CPU reference with the same finite-input policy as the existing histogram.
-pub fn metering_bin(luminance: f32, a: AdaptiveExposure) -> usize {
+#[cfg(test)]
+pub(crate) fn metering_bin(luminance: f32, a: AdaptiveExposure) -> usize {
     let ExposureMetering::InterpolatedPercentile(p) = a.metering else {
         return crate::histogram_bin(luminance, a.log_range);
     };
@@ -97,7 +98,8 @@ fn count_float(v: u32) -> f32 {
 }
 /// Published automatic key fit: Krawczyk, Myszkowski and Seidel (2005),
 /// “Perceptual effects in real-time tone mapping”.
-pub fn luminance_key(luminance: f32, bias: f32) -> f32 {
+#[cfg(test)]
+pub(crate) fn luminance_key(luminance: f32, bias: f32) -> f32 {
     (1.03 - 2.0 / (2.0 + (luminance + 1.0).log10())) * bias
 }
 

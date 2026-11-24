@@ -1,5 +1,6 @@
 //! Helpers the test games share: program construction and what a game reports to its test.
 use std::sync::Arc;
+use worldrunner_render_post::{FrameError, PassEntry};
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind,
 };
@@ -8,10 +9,7 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{GraphicsProgram, ProgramRuntime};
-use worldrunner_render_scene::{
-    executor::{FrameError, PassEntry},
-    wgpu::{self, util::DeviceExt},
-};
+use worldrunner_render_scene::wgpu::{self, util::DeviceExt};
 
 /// Counts a game keeps for its test.
 #[derive(Default)]

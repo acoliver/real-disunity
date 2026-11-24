@@ -34,7 +34,7 @@ internal static class GraphicsBlitTests
 
     private sealed record BlitCall(string Member, bool TakesMaterial, Action<Material?, int> Run);
 
-    private static Material TwoPassMaterial() => new(DisunityHost.DeclareShader("Test/Blit", 2000, Unnamed(2), 1, _ => { }));
+    private static Material TwoPassMaterial() => new(DisunityHost.DeclareShader("Test/Blit", new ShaderDeclaration(2000, 2, 1, Unnamed(2)), _ => { }));
 
     private static List<BlitCall> Calls()
     {

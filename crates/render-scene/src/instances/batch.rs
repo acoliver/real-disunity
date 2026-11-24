@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod test_hooks;
 use std::collections::BTreeSet;
 use std::ops::Range;
 
@@ -248,17 +250,6 @@ impl InstanceBatch {
                 .ready(&self.bytes, in_frame, self.previous.is_some())
     }
 
-    #[cfg(test)]
-    pub fn visible_ranges(&self) -> Vec<Range<u32>> {
-        ranges(
-            self.placements
-                .iter()
-                .enumerate()
-                .filter(|(_, placement)| placement.is_some_and(|(_, visible)| visible))
-                .map(|(position, _)| position),
-        )
-    }
-
     pub fn has_instances(&self) -> bool {
         self.free.len() != self.placements.len()
     }
@@ -286,11 +277,22 @@ impl InstanceBatch {
     /// Whether `flush_prepared` would find nothing to write, copy or allocate: no slot is
     /// waiting for upload, the buffers are current and hold every slot, and the history has
     /// nothing pending.
-    fn is_settled(&self, track_previous: bool) -> bool {
+    pub(super) fn is_settled(&self, track_previous: bool) -> bool {
         self.dirty.is_empty()
             && self.buffer_valid.get()
             && !self.history.has_pending()
             && self.buffers_fit(track_previous || self.previous.is_some())
+    }
+
+    /// Whether a gather can read this batch: its instance buffer exists, its previous-transform
+    /// buffer when `previous`, and its skin buffer when it has a skin stream.
+    pub fn is_flushed(&self, previous: bool) -> bool {
+        self.buffer.is_some()
+            && (!previous || self.previous.is_some())
+            && self
+                .skin
+                .as_ref()
+                .is_none_or(|stream| stream.buffer.is_some())
     }
 
     /// Keeps copies needed by this encoder and edits still owed if its transaction cancels.
@@ -306,11 +308,6 @@ impl InstanceBatch {
         self.dirty = pending;
     }
 
-    #[cfg(test)]
-    pub fn pending_ranges(&self) -> Vec<Range<u32>> {
-        self.pending_ranges_for(Publications::current().as_ref())
-    }
-
     fn pending_ranges_for(&self, owner: Option<&Publications>) -> Vec<Range<u32>> {
         ranges(
             self.dirty
@@ -318,11 +315,6 @@ impl InstanceBatch {
                 .copied()
                 .filter(|position| self.slot_pending(*position, owner)),
         )
-    }
-
-    #[cfg(test)]
-    pub fn dirty_count(&self) -> usize {
-        self.dirty.len()
     }
 
     #[cfg(test)]
@@ -365,9 +357,6 @@ pub(crate) fn flush_prepared(
     census: &MemoryCensus,
     track_previous: bool,
 ) -> (Vec<Range<u32>>, Option<super::history::Candidate>) {
-    if batch.is_settled(track_previous) {
-        return (Vec::new(), None);
-    }
     let owner = context.publications();
     batch.prune_published(&owner);
     let writes = batch.pending_ranges_for(Some(&owner));

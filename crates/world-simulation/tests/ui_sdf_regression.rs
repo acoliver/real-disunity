@@ -109,7 +109,7 @@ fn distance_effects_emit_exact_padded_quads_uvs_parameters_and_order() {
             (2, 3, 7 + i)
         );
         assert_eq!(draw.kind, UiDrawKind::Text);
-        assert_eq!(draw.texture, Some(0));
+        assert_eq!(draw.texture, Some(UiTexture::Coverage(0)));
         assert_eq!(draw.clip_rect, [0, 0, 100, 100]);
         assert!(draw.corner_colors.is_none() && draw.triangle_uv.is_none());
         assert!(!draw.depth_test);
@@ -195,7 +195,7 @@ fn coverage_and_shadow_match_baseline_bytes_and_geometry() {
             );
             assert_eq!(draw.hierarchy_order, i);
             assert_eq!(draw.clip_rect, [0, 0, 100, 100]);
-            assert_eq!(draw.texture, Some(0));
+            assert_eq!(draw.texture, Some(UiTexture::Coverage(0)));
             assert!(draw.distance_field.is_none());
         }
     }

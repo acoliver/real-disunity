@@ -15,15 +15,15 @@ use worldrunner_render_plan::{
     SceneTexture, SkeletonHandle, TextureHandle,
 };
 
-use super::resources::{
-    GroupInputs, material_imports, table_index, upload_meshes, upload_textures,
-};
+use super::resources::{GroupInputs, material_imports, table_index, upload_textures};
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
 use crate::instances::skin::{SkinNeed, skin_needs};
+use crate::object::prepared::LentMaterial;
 use crate::renderer::ScenePipelines;
 use crate::texture::{OwnedPreparedTexture, prepare_texture};
-use crate::upload::{upload_buffer, upload_texture};
+use crate::upload::upload_texture;
+use worldrunner_render_gpu::resource::upload_buffer;
 
 /// The table sizes of the resident scene an append was prepared against.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -528,7 +528,6 @@ impl SceneGpu {
         let queue = authority.queue();
         let (textures, new_views) = upload_textures(device, authority, &prepared.textures)?;
         let old_count = self.retained.textures.len();
-        let mut records = self.lighting_records.table().clone();
         let (uniforms, tables) = {
             let resident = &self.retained.textures;
             let lookup = |handle: TextureHandle| -> TextureView {
@@ -547,9 +546,11 @@ impl SceneGpu {
                 heights: &self.retained.contact_heights,
                 view: &lookup,
             };
-            new_material_uploads(device, queue, (&inputs, &mut records), &prepared.materials)
+            new_material_uploads(device, queue, &inputs, &prepared.materials)
         };
-        let meshes = upload_meshes(device, queue, authority.census(), &prepared.meshes);
+        let meshes = self
+            .arena
+            .upload(device, authority.census(), &prepared.meshes);
         self.decals.append(source)?;
         self.resource_counters
             .append(&prepared.texture_bytes(), &prepared.mesh_bytes());
@@ -559,7 +560,6 @@ impl SceneGpu {
         self.retained.textures.extend(textures);
         self.retained.lent_textures.get_mut().take();
         self.retained.material_uniforms.extend(uniforms);
-        self.lighting_records.replace(records);
         self.objects.extend(tables);
         self.objects.warm(pipelines.object_context());
         self.meshes.extend(meshes);
@@ -654,7 +654,6 @@ impl SceneGpu {
     pub fn replace_mesh_prepared(
         &mut self,
         device: &Device,
-        queue: &wgpu::Queue,
         replacement: PreparedMeshReplacement,
     ) -> Result<(), DrawError> {
         let index = replacement.index;
@@ -671,14 +670,15 @@ impl SceneGpu {
         }
         self.admit_replacement(&replacement)?;
         let bytes = mesh_payload_bytes(&replacement.mesh);
-        let uploaded = upload_meshes(
-            device,
-            queue,
-            &self.instances.census,
-            std::slice::from_ref(&replacement.mesh),
-        )
-        .pop()
-        .expect("one mesh uploaded");
+        let uploaded = self
+            .arena
+            .upload(
+                device,
+                &self.instances.census,
+                std::slice::from_ref(&replacement.mesh),
+            )
+            .pop()
+            .expect("one mesh uploaded");
         self.resource_counters.replace_mesh(index, bytes);
         self.meshes[index] = uploaded;
         self.retained.lent_meshes.get_mut().take();
@@ -696,24 +696,20 @@ impl SceneGpu {
 fn new_material_uploads(
     device: &Device,
     queue: &wgpu::Queue,
-    (inputs, records): (
-        &GroupInputs<'_>,
-        &mut crate::gbuffer::records::LightingRecordTable,
-    ),
+    inputs: &GroupInputs<'_>,
     materials: &[worldrunner_render_plan::SceneMaterial],
-) -> (
-    Vec<wgpu::Buffer>,
-    Vec<worldrunner_render_program::runtime::ImportTable>,
-) {
+) -> (Vec<wgpu::Buffer>, Vec<LentMaterial>) {
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut uniforms = Vec::with_capacity(materials.len());
     let mut tables = Vec::with_capacity(materials.len());
     for material in materials {
-        let mut bytes = crate::pipeline::MaterialUniform::from_material(material).to_bytes();
-        records.assign(&mut bytes);
+        let bytes = crate::pipeline::MaterialUniform::from_material(material).to_bytes();
         let uniform = upload_buffer(device, queue, "material", BufferUsages::UNIFORM, &bytes);
         let sampler = samplers.get(device, material);
-        tables.push(material_imports(inputs, material, &uniform, sampler));
+        tables.push(LentMaterial {
+            table: material_imports(inputs, material, &uniform, sampler),
+            uniform: bytes,
+        });
         uniforms.push(uniform);
     }
     (uniforms, tables)

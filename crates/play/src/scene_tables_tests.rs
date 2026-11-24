@@ -6,7 +6,6 @@ use worldrunner_render_plan::{
 };
 use worldrunner_scene_viewer::{ObjectId, SceneObjectEdit};
 
-use crate::GpuWork;
 use crate::retained_driver::{PlayerWindow, viewer_options};
 use crate::scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables};
 
@@ -466,6 +465,21 @@ fn a_texture_that_has_no_texels_yet_draws_white_until_it_arrives() {
 }
 
 #[test]
+fn the_slots_after_the_first_are_not_drawn_and_the_census_counts_them() {
+    let mut tables = SceneTables::new().unwrap();
+    let mut view = object(1, 100, at(0., 0., 0.));
+    view.slots = vec![slot([1., 0., 0., 1.], 0), slot([0., 0., 1., 1.], 5)];
+    let first = update(&mut tables, &[view], &content(&[100]));
+    let id = adds(&first)[0];
+    assert_eq!(
+        tint_of(&first, id),
+        [1_000_000, 0, 0],
+        "slot 0 tints the object"
+    );
+    assert_eq!(tables.census().slots_not_drawn, 1);
+}
+
+#[test]
 fn an_object_without_material_slots_draws_white_and_untinted() {
     let mut tables = SceneTables::new().unwrap();
     let mut view = object(1, 100, at(0., 0., 0.));
@@ -680,8 +694,8 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
         fixed_dt: None,
         max_frames: None,
         capture_frames: BTreeSet::new(),
+        capture_files: Vec::new(),
         keys: Vec::new(),
-        gpu_work: GpuWork::Off,
     };
     let options: ViewerOptions = viewer_options(&window);
     let mut viewer = RetainedHost::new(SceneTables::initial_scene(None).unwrap(), options).unwrap();

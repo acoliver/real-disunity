@@ -3,8 +3,7 @@ namespace UnityEngine.Rendering;
 /// <summary>
 /// The events a render pipeline raises, and the live pipeline. The host creates the pipeline from the active asset
 /// and raises <see cref="activeRenderPipelineCreated"/> and <see cref="activeRenderPipelineDisposed"/> around it. The
-/// host raises <see cref="beginContextRendering"/> and <see cref="endContextRendering"/> around each call of the pipeline's
-/// Render; the camera and frame events are raised by the pipeline's own calls of the matching RenderPipeline helpers.
+/// context, camera and frame events are all raised by the pipeline's own calls of the matching RenderPipeline helpers.
 /// </summary>
 public static class RenderPipelineManager
 {

@@ -15,13 +15,16 @@ internal static class PipelineRenderTests
         public readonly List<List<Camera>> Calls = new();
         public Func<int, Exception?> Fail = _ => null;
         public Action<List<Camera>>? During;
+        public bool RaisesContextEvents = true;
 
         protected override void Render(ScriptableRenderContext context, List<Camera> cameras)
         {
+            if (RaisesContextEvents) BeginContextRendering(context, cameras);
             Events.Add("render");
             Calls.Add(new List<Camera>(cameras));
             During?.Invoke(cameras);
             if (Fail(Calls.Count) is { } error) throw error;
+            if (RaisesContextEvents) EndContextRendering(context, cameras);
         }
     }
 
@@ -40,7 +43,9 @@ internal static class PipelineRenderTests
             RendersOncePerStepInDepthOrder();
             Console.WriteLine("PASS: a step calls the pipeline's Render once with the enabled, active cameras by depth and creation order");
             ContextEventsSurroundRender();
-            Console.WriteLine("PASS: beginContextRendering and endContextRendering fire around Render with its cameras");
+            Console.WriteLine("PASS: beginContextRendering and endContextRendering fire where the pipeline calls BeginContextRendering and EndContextRendering, with its cameras");
+            APipelineThatRaisesNoContextEventsFiresNone();
+            Console.WriteLine("PASS: a pipeline that never calls BeginContextRendering or EndContextRendering fires neither event, and each event fires once per call");
             NoPipelineMeansNoRender();
             Console.WriteLine("PASS: a step without a pipeline renders nothing and Camera.Render still records a CameraRender");
             CameraRenderGoesThroughThePipeline();
@@ -138,6 +143,28 @@ internal static class PipelineRenderTests
         DestroyCameras(camera);
     }
 
+    private static void APipelineThatRaisesNoContextEventsFiresNone()
+    {
+        var camera = NewCamera(0);
+        var pipeline = Install();
+        pipeline.RaisesContextEvents = false;
+        Events.Clear();
+        var seen = 0;
+        Action<ScriptableRenderContext, List<Camera>> count = (_, _) => seen++;
+        RenderPipelineManager.beginContextRendering += count;
+        RenderPipelineManager.endContextRendering += count;
+        try { DisunityHost.Step(0.016f); }
+        finally
+        {
+            RenderPipelineManager.beginContextRendering -= count;
+            RenderPipelineManager.endContextRendering -= count;
+        }
+        Expect.Sequence(new[] { "render" }, Events, "the pipeline rendered");
+        Expect.Equal(0, seen, "the host raises no context event for a pipeline that does not call the helpers");
+        Remove();
+        DestroyCameras(camera);
+    }
+
     private static void NoPipelineMeansNoRender()
     {
         var camera = NewCamera(0);
@@ -146,7 +173,8 @@ internal static class PipelineRenderTests
         CommandWireReader.Take();
         DisunityHost.Step(0.016f);
         camera.Render();
-        Expect.Sequence(new[] { "Flat0" }, CommandWireReader.Take(), "without a pipeline Camera.Render records a CameraRender");
+        var recorded = CommandWireReader.Work(DisunityHost.WorldHandle);
+        Expect.That(recorded.Length == 1 && recorded[0].Tag == 0 && recorded[0].Target == target.WorldId, "without a pipeline Camera.Render records a CameraRender");
         DestroyCameras(camera);
     }
 

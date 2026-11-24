@@ -4,7 +4,6 @@ use glam::{Mat4, Quat, Vec3};
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 
 use super::super::builtins::{VIEW_PROJECTION, camera_layer};
-use super::super::depth_range::DepthRange;
 use super::support::{IDENTITY, assert_close, matrix, transform};
 use worldrunner_world_simulation::graphics::CameraView;
 
@@ -27,13 +26,8 @@ fn perspective_90() -> Camera {
 }
 
 /// A world point in clip coordinates through the view-projection a camera supplies.
-fn clip(view: &CameraView, aspect: f32, point: [f32; 3]) -> [f32; 4] {
-    clip_in(view, aspect, point, DepthRange::Forward)
-}
-
-/// As `clip`, with depth running as `depth` says.
-fn clip_in(view: &CameraView, aspect: f32, point: [f32; 3], depth: DepthRange) -> [f32; 4] {
-    let layer = camera_layer(view, aspect, depth);
+fn clip(view: &CameraView, size: [u32; 2], point: [f32; 3]) -> [f32; 4] {
+    let layer = camera_layer(view, size);
     transform(
         &matrix(&layer, VIEW_PROJECTION),
         [point[0], point[1], point[2], 1.0],
@@ -47,20 +41,11 @@ fn a_perspective_camera_clips_a_point_as_worked_out_by_hand() {
     //   x = f / aspect * 0.5 = 0.25,  y = f * 0.5 = 0.5,  w = 2,
     //   z (OpenGL) = -(far + near) / (far - near) * -2 - 2 * far * near / (far - near)
     //              = 202 / 99 - 200 / 99 = 2 / 99,
-    // and the Vulkan depth is (z + w) / 2 = 1 + 1 / 99. The matrix negates Y ahead of the
+    // and the reversed depth is (w - z) / 2 = 1 - 1 / 99. The matrix negates Y ahead of the
     // player's stages, which negate it again, so the clip Y is -0.5.
     let view = view(perspective_90(), Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
-    let found = clip(&view, 2.0, [1.5, 2.5, 5.0]);
-    assert_close(&found, &[0.25, -0.5, 1.0 + 1.0 / 99.0, 2.0]);
-}
-
-#[test]
-fn depth_runs_from_0_at_the_near_plane_to_w_at_the_far_plane() {
-    let view = view(perspective_90(), Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
-    let near = clip(&view, 1.0, [1.0, 2.0, 4.0]);
-    let far = clip(&view, 1.0, [1.0, 2.0, 103.0]);
-    assert_close(&[near[2] / near[3]], &[0.0]);
-    assert_close(&[far[2] / far[3]], &[1.0]);
+    let found = clip(&view, [2, 1], [1.5, 2.5, 5.0]);
+    assert_close(&found, &[0.25, -0.5, 1.0 - 1.0 / 99.0, 2.0]);
 }
 
 #[test]
@@ -68,10 +53,10 @@ fn a_camera_turned_a_quarter_looks_along_x_and_its_right_is_negative_z() {
     // Turning +Z to +X about the up axis leaves a left handed camera's right at -Z.
     let rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
     let view = view(perspective_90(), Vec3::new(1.0, 2.0, 3.0), rotation);
-    let ahead = clip(&view, 1.0, [6.0, 2.0, 3.0]);
+    let ahead = clip(&view, [1, 1], [6.0, 2.0, 3.0]);
     assert_close(&ahead[..2], &[0.0, 0.0]);
     assert_close(&ahead[3..], &[5.0]);
-    let right = clip(&view, 1.0, [6.0, 2.0, 2.0]);
+    let right = clip(&view, [1, 1], [6.0, 2.0, 2.0]);
     assert_close(&[right[0] / right[3]], &[0.2]);
 }
 
@@ -87,7 +72,7 @@ fn an_orthographic_camera_maps_its_half_height_and_aspect_to_the_clip_edges() {
     let view = view(settings, Vec3::ZERO, Quat::IDENTITY);
     // Half the width is 4 at an aspect of 2. The edge at x = 4, y = 2 is clip (1, -1), the Y
     // negated for the player's stages, and w stays 1.
-    let found = clip(&view, 2.0, [4.0, 2.0, 10.5]);
+    let found = clip(&view, [2, 1], [4.0, 2.0, 10.5]);
     // z = 10.5 is the middle of the box from 0.5 to 20.5: OpenGL z = -2 / 20 * -10.5 - 21 / 20 = 0,
     // and Vulkan (z + 1) / 2 = 0.5.
     assert_close(&found, &[1.0, -1.0, 0.5, 1.0]);
@@ -102,9 +87,9 @@ fn matrices_a_script_set_replace_the_derived_ones() {
     };
     let view = view(settings, Vec3::new(9.0, 9.0, 9.0), Quat::IDENTITY);
     // The view and the projection are the identity, so only the Y negation and the depth remap
-    // are left: (z + 1) / 2.
-    let found = clip(&view, 1.0, [0.5, 0.25, 0.5]);
-    assert_close(&found, &[0.5, -0.25, 0.75, 1.0]);
+    // are left: (1 - z) / 2.
+    let found = clip(&view, [1, 1], [0.5, 0.25, 0.5]);
+    assert_close(&found, &[0.5, -0.25, 0.25, 1.0]);
 }
 
 #[test]
@@ -122,28 +107,16 @@ fn the_scale_of_the_camera_object_does_not_change_the_view() {
         target_buffers: None,
     };
     let point = [4.0, 1.0, 9.0];
-    assert_close(&clip(&scaled, 1.5, point), &clip(&plain, 1.5, point));
+    assert_close(&clip(&scaled, [3, 2], point), &clip(&plain, [3, 2], point));
 }
 
 #[test]
-fn reversed_depth_runs_from_w_at_the_near_plane_to_0_at_the_far_plane() {
+fn depth_runs_from_w_at_the_near_plane_to_0_at_the_far_plane() {
     let view = view(perspective_90(), Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
     let depth = |point: [f32; 3]| {
-        let clip = clip_in(&view, 1.0, point, DepthRange::Reversed);
+        let clip = clip(&view, [1, 1], point);
         clip[2] / clip[3]
     };
     assert_close(&[depth([1.0, 2.0, 4.0])], &[1.0]);
     assert_close(&[depth([1.0, 2.0, 103.0])], &[0.0]);
-}
-
-#[test]
-fn reversing_depth_changes_only_the_depth_of_the_clip_position() {
-    let view = view(perspective_90(), Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
-    let point = [1.5, 2.5, 5.0];
-    let reversed = clip_in(&view, 1.5, point, DepthRange::Reversed);
-    let forward = clip_in(&view, 1.5, point, DepthRange::Forward);
-    assert_close(&reversed[..2], &forward[..2]);
-    assert_close(&[reversed[3]], &[forward[3]]);
-    // z' = (w - z) / 2 against z' = (z + w) / 2, from the same OpenGL z.
-    assert_close(&[reversed[2] + forward[2]], &[forward[3]]);
 }

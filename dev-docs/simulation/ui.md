@@ -1,12 +1,14 @@
 # Native UI layout and text
 
-Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation` and `worldrunner-render-plan`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, and extraction and `UiRenderPlan` from `worldrunner::ui::plan::ui`. `worldrunner_world_simulation::ui::contribution` owns the contribution types and extraction function; `render_plan::ui` re-exports them. Text contributions carry `worldrunner_world_simulation::presentation::CoverageTexture`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
+Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, and extraction and `UiRenderPlan` from `worldrunner::ui::contribution`. `worldrunner_world_simulation::ui::contribution` owns the contribution types and extraction function. Text contributions carry `worldrunner_world_simulation::presentation::CoverageTexture`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
 
 ## Layout contract
 
 `World::ui_layout(viewport)` returns detached rectangle observations. Viewport dimensions must each be in 1..16384. Rectangle local coordinates are X-right and Y-up. Anchors and pivots are normalized to 0..1. The resolved size is the parent rectangle's size multiplied by the anchor span, plus `size_delta`. The pivot's position is the interpolated anchor point plus `anchored_position`. `RectTransform::with_offsets` converts offset pairs into these fields.
 
 RectTransform owns local X/Y translation through its anchored position. LocalTransform supplies depth, rotation and scale. Ancestor matrices multiply in full, including shear produced by rotated nonuniform scale. A non-rectangle ancestor contributes its transform without supplying an anchor rectangle.
+
+`Canvas::default()` is a world-space Canvas, the engine's choice for a Canvas that a script adds at run time without ever setting a mode: a game that adds a Canvas to a widget it placed in the world gets that widget drawn at its place. Canvases loaded from scene or prefab data carry their serialized mode, and cloning copies it. Code that wants an overlay or camera Canvas states the mode.
 
 Screen-space overlay Canvas must be an object root. Layout derives its size, translation, rotation and scale from viewport, pivot and Canvas scale settings. Camera-space Canvas also must be a root. Its effective matrix is derived from a referenced camera object's rigid world transform, explicit orthographic half-height and positive plane distance. Camera scale and a camera inside a Canvas are unsupported and return an error. The camera's local +X/+Y axes span the plane and +Z points toward the Canvas plane; rotate this basis into the native world frame as needed.
 
@@ -426,7 +428,7 @@ Keep a `FontBook` across frames. `FontBook::layout` returns an immutable `Arc<Te
 ## Immediate overlay lists and atlas-free measurement
 
 `ui::draw_list` owns the immediate CPU API, re-exported through `ui` and
-`render_plan::ui::draw_list`. Its `UiRect` uses top-left physical pixels, unlike
+`worldrunner_world_simulation::ui::draw_list`. Its `UiRect` uses top-left physical pixels, unlike
 layout-local Y-up text coordinates. `UiDrawList` converts once into the existing
 `UiDraw` BL/BR/TR/TL lower-left geometry. It borrows the existing `FontBook`;
 finished presentations retain only owned/shared resources. See the
@@ -548,7 +550,7 @@ the existing overlay graphics path. A real-window reading check remains pending.
 
 ## UI contributions
 
-`render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
+`worldrunner_world_simulation::ui::contribution::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
 
 Retained 3D hosts accept overlay text and screen-space graphics through
 `render_scene::simulation::UiOverlay` and `scene_viewer::RetainedUpdate::Ui`.
@@ -556,6 +558,32 @@ Retained 3D hosts accept overlay text and screen-space graphics through
 hierarchy key and clip bounds. Solid and translucent quads and triangles need no texture;
 `UiOverlay::with_textures` resolves image texture identities from an explicitly
 supplied `SceneTexture` map. Unresolved identities return an error.
+
+What a graphic or text draw samples is a `ui::UiTexture`: `Image` is the renderer
+identity of a stored texture, `Coverage` keys `UiPresentation::coverage` and belongs to text
+only, and `Target` is a world `RenderTextureId`. `CanvasRenderer::graphic_texture` is an
+`Image` or a `Target` (`disunity_canvas_renderer_texture_write` takes the kind and refuses a
+render texture the world does not hold), and `UiDraw::validate` states the pairing once: a
+graphic names an image or a target, text names coverage. `extract_graphics` keeps a
+graphic whose target was destroyed since the write, with the target id, so the player decides
+what it shows. Sprite quads (`append_graphics`) sample stored images only and leave a target
+graphic to the overlay.
+
+A draw over `UiTexture::Target` takes a slot in `UiOverlay` (`UiOverlay::targets` lists the
+render textures in slot order, numbered after the overlay's own textures) and samples with `v`
+turned over, because a render texture's first row is its bottom. The player answers for each
+target the draws read: `OffscreenHost::render_texture_for_ui` gives the device texture and
+whether a frame it built wrote it, `PlayerGpu::ui_offers` pairs that with the sampler the world
+holds, and `PlayerUi::offer_targets` keeps the draws it can show (a texture not yet written
+stays, drawing transparent) and leaves out the rest once each with the reason (`destroyed`, or
+the `UiTargetRefusal` name). `RetainedHost::show_ui_textures` takes the resulting `UiTarget`s and
+the renderer stages the overlay again when a texture it reads changes. The overlay samples the
+texture after the frame's own offscreen operations in the same submission. A read also counts as
+naming the texture for storage reclaiming, so a texture the UI shows is the last one given back.
+`render-scene/src/compositor/overlay_target_gpu_tests.rs` checks orientation and sRGB against a
+stored image on a real adapter, `retained::windowless::tests::ui_target` the viewer, and
+`play`'s `retained_driver::screen_tests` plays a script that clears a render texture under a
+canvas quad.
 
 `SceneGpu` owns the dynamic resources. The existing compositor blends text and
 graphics together over the display output after all scene post-processing, in
@@ -600,6 +628,37 @@ a world or accessing versioned records, managed startup compares the native
 revision with its generated revision. A mismatch throws
 `DisunityAbiRevisionException` with both expected and actual revisions.
 
+ABI revision 23 adds the material of a graphic. `disunity_canvas_renderer_material_write`
+takes the world material of the slot (0 for none); only main slot 0 holds one, a
+non-zero value for another slot is rejected, and lowering `material_count` to 0
+clears it. The extraction resolves it once per renderer. A draw names a `UiMaterial`
+(the world material and its generation) only when the material is live and its
+shader is the game's own; `draws_natively(shader)` is the one rule: a shader with no
+source, or the engine's `UI/Default`, is drawn with the engine's look and the draw
+names no material. `DisunityUiDraw` carries `material` and `material_generation`
+(0 for none), 168 bytes. The host reads each named material's shader name through the
+existing material and shader reads into `UiPresentation::shaders`, because the draw
+record carries identities only.
+
+UI draws with a game shader are drawn by that shader. `UiPresentation::layers(viewport,
+atlas)` groups the consecutive draws that name a material and share a clip rectangle into
+runs, each with the bounding rectangle that shows (viewport and clip applied) and a place in
+the layer atlas by next-fit shelf packing. A run that has no visible pixel is dropped, and a
+run that does not fit the atlas is listed in `too_large`. A run holds spans of consecutive
+draws of one material and one image. The player (`offscreen::UiFrame`) turns the runs into
+offscreen work after the game's own records: the atlas is cleared to transparent, and for each
+run one view maps the run's rectangle of the viewport to its rectangle of the atlas and each
+span is a `DrawMesh` of the run's mesh (position, colour and first coordinate set of the draws)
+with the span's material, whose `_MainTex` is the span's image. The materials and shaders come
+from the graphics snapshot, which also copies those of the session's last UI draws
+(`GraphicsSnapshot::include_materials`). `UiOverlay::from_presentation` replaces the draws of
+a run by one quad at the sort key of the run's first draw that samples the atlas. The atlas
+holds colour multiplied by alpha, because a pass that blends by source alpha writes its alpha
+as coverage (`DrawRaster::coverage_alpha`); the overlay divides the colour by the alpha before
+its own alpha blend. The live 2D path (`append_graphics`) still leaves a draw that names a
+material out, because a 2D frame has no offscreen frame. The player names a run that does not
+fit through `UiMaterial::refusal` and counts the draws by shader name in the run report.
+
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes
 its generated underline graphics through `append_graphics` before glyph quads;
@@ -626,7 +685,7 @@ The optional rasterizer is `ab_glyph` 0.2.32, licensed Apache-2.0. Its font stac
 ## Scene annotations
 
 `worldrunner_world_simulation::ui::annotations` (also re-exported through
-`worldrunner_render_plan::ui::annotations`) supplies
+`worldrunner_world_simulation::ui::annotations`) supplies
 `AnnotationPrimitive::{Line, Arrow, Circle, Label}`. Each `Annotation` carries the
 same ascending `(layer, order, hierarchy)` tuple as ordinary UI and an optional
 lower-left physical-pixel `[x, y, width, height]` scissor. `Circle` uses `None`

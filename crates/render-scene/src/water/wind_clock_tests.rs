@@ -68,15 +68,6 @@ fn check_clock(actual: &[f32], clock: u32) {
 }
 
 #[test]
-fn default_water_frame_descriptor_is_fragment_only() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let entries = receivers::environment_entries();
-    let frame = entries.iter().find(|entry| entry.binding == 3).unwrap();
-    assert_eq!(frame.visibility, wgpu::ShaderStages::FRAGMENT);
-    assert!(matches!(frame.ty, wgpu::BindingType::Buffer { .. }));
-}
-
-#[test]
 fn water_vertex_clock_uses_the_scene_integer_lane() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut frame = FrameUniform::new(&fixture_view(), None).unwrap();

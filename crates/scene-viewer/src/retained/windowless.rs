@@ -16,33 +16,24 @@ pub struct WindowlessRetained<'a> {
     activity: Option<crate::activity::ActivityGuard>,
 }
 impl RetainedHost {
+    /// Starts a session with no window. With `gpu`, it runs on the device `gpu` made, which another
+    /// user such as a player's offscreen work may share, and a `gpu` with no device yet has one
+    /// made for the viewer's needs. With `None` the session makes a device of its own.
+    ///
+    /// # Errors
+    /// Fails when the device cannot be made or lacks a feature the scene needs.
     pub fn windowless(
         self,
         driver: &mut impl RetainedDriver,
+        gpu: Option<crate::SharedGpu>,
     ) -> Result<WindowlessRetained<'_>, ViewerError> {
-        self.windowless_with(driver, None)
-    }
-
-    /// As [`Self::windowless`], on the device `gpu` made, which another user such as a player's
-    /// offscreen work may share. A `gpu` with no device yet has one made for the viewer's needs.
-    ///
-    /// # Errors
-    /// As [`Self::windowless`], and when the device cannot be made or lacks a feature the scene
-    /// needs.
-    pub fn windowless_on(
-        self,
-        driver: &mut impl RetainedDriver,
-        mut gpu: crate::SharedGpu,
-    ) -> Result<WindowlessRetained<'_>, ViewerError> {
-        gpu.device(&self.options, &DeviceRequirements::default())?;
-        self.windowless_with(driver, gpu.into_shared())
-    }
-
-    fn windowless_with(
-        self,
-        driver: &mut impl RetainedDriver,
-        shared: Option<Shared>,
-    ) -> Result<WindowlessRetained<'_>, ViewerError> {
+        let shared = match gpu {
+            Some(mut gpu) => {
+                gpu.device(&self.options, &DeviceRequirements::default())?;
+                gpu.into_shared()
+            }
+            None => None,
+        };
         let ((session, renderer), activity) = self.start_windowless_with_activity(
             driver,
             crate::activity::ActivityGuard::begin,
@@ -81,7 +72,7 @@ fn initialize(
     host.picking.windowless = true;
     host.timers.freeze();
     host.audio.null_device();
-    let renderer = pollster::block_on(Renderer::windowless_with(&mut host, shared));
+    let renderer = pollster::block_on(Renderer::windowless(&mut host, shared));
     let mut session = Session::new(host, driver);
     match renderer {
         Ok(mut renderer) => {
@@ -97,6 +88,13 @@ fn initialize(
 impl WindowlessRetained<'_> {
     pub fn host(&self) -> &RetainedHost {
         &self.session.host
+    }
+
+    /// Whether the session has ended: the driver asked to exit, a call failed or `shutdown` ran.
+    /// `frame` and `poll` fail after that.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.closed
     }
     pub fn host_mut(&mut self) -> &mut RetainedHost {
         &mut self.session.host

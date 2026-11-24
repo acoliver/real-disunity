@@ -95,11 +95,7 @@ impl SceneGpu {
                 .values()
                 .map(crate::instances::batch::InstanceBatch::publication_key),
         );
-        if let Some(pages) = self
-            .terrain
-            .as_ref()
-            .and_then(|terrain| terrain.pages.as_ref())
-        {
+        if let Some(pages) = self.camera_pages() {
             let mut pages = pages.borrow_mut();
             pages.prepare_capture(device)?;
             keys.extend(pages.capture_write_keys());
@@ -262,24 +258,9 @@ impl SceneGpu {
         &mut self,
         context: &mut worldrunner_render_post::PrepareContext<'_>,
     ) -> Vec<InstanceWrite> {
-        let mut writes = Vec::new();
-        let track = self.instances.track_previous;
-        let census = &self.instances.census;
         let mut candidates = self.instance_history.borrow_mut();
         candidates.clear();
-        for (&(_, mesh, material), batch) in &mut self.instances.batches {
-            let (ranges, candidate) =
-                crate::instances::batch::flush_prepared(batch, context, census, track);
-            candidates.extend(candidate);
-            for instances in ranges {
-                writes.push(InstanceWrite {
-                    mesh,
-                    material,
-                    instances,
-                });
-            }
-        }
-        writes
+        self.instances.flush_all(context, &mut candidates)
     }
 }
 

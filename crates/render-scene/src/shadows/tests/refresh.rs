@@ -1,4 +1,9 @@
+use super::shadowed_capture::scheduler;
 use super::*;
+use crate::compositor::StockReplacement;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 fn policy() -> worldrunner_render_shadow::CascadeRefreshPolicy {
     worldrunner_render_shadow::CascadeRefreshPolicy {
@@ -20,20 +25,22 @@ fn gpu_static_refresh_policy_reuses_maps_and_visibility() {
     );
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let fresh = target.read_rgba8(&context).unwrap();
     let maps = depth_layers(&context, &renderer);
     let before = crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(std::mem::take);
     assert!(before.contains(&PassSlot::ShadowCasters(3)));
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let reused = target.read_rgba8(&context).unwrap();
     let passes = crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(std::mem::take);
     assert!(
@@ -68,16 +75,18 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
     let source = scene(&[[0, 0, 1_000], [500, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let last = |renderer: &ShadowedScene| renderer.cascade_refresh_states()[0].last_frame();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let handles: Vec<_> = renderer.scene_mut().instance_handles().collect();
     let (moved, hidden) = (handles[1], handles[2]);
     let (object, _) = renderer.scene_mut().instance(moved).unwrap();
@@ -85,7 +94,7 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
         .scene_mut()
         .set_instance_transform(moved, *object.transform())
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         last(&renderer),
         Some(0),
@@ -99,7 +108,7 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
         .scene_mut()
         .set_instance_transform(moved, shifted)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(last(&renderer), Some(2));
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
@@ -109,7 +118,7 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
         .scene_mut()
         .set_instance_visible(hidden, false)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         last(&renderer),
         Some(3),
@@ -126,7 +135,7 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
             }),
         )
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         last(&renderer),
         Some(3),
@@ -146,9 +155,10 @@ fn gpu_a_moved_caster_refreshes_only_the_cascades_it_reaches() {
         refresh_policy: policy(),
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut renderer = shadowed(&context, &source, settings).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let frames =
         |renderer: &ShadowedScene| renderer.cascade_refresh_states().map(|s| s.last_frame());
     assert_eq!(frames(&renderer), [Some(0); 4]);
@@ -166,7 +176,7 @@ fn gpu_a_moved_caster_refreshes_only_the_cascades_it_reaches() {
                 },
             )
             .unwrap();
-        render_target(&mut renderer, &context, &view(), &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
         let frame = Some(step as u64 + 1);
         moves.push(frames(&renderer).map(|last| last == frame));
     }
@@ -174,7 +184,7 @@ fn gpu_a_moved_caster_refreshes_only_the_cascades_it_reaches() {
     assert_eq!(moves, vec![[false, false, true, true]; 3]);
     let retained = target.read_rgba8(&context).unwrap();
     renderer.invalidate_shadows();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(frames(&renderer), [Some(4); 4]);
     assert_eq!(target.read_rgba8(&context).unwrap(), retained);
 }
@@ -236,30 +246,32 @@ fn gpu_refresh_invalidation_capture_and_abandonment() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(renderer.cascade_refresh_states()[0].last_frame(), Some(0));
     renderer.request_shadow_capture();
     let mut abandoned = context.submission().begin(context.device()).unwrap();
     renderer
-        .encode(
+        .encode_with(
             &context,
             &view(),
-            &target.color_attachment(),
-            &target.depth_attachment(),
+            (&target.color_attachment(), &target.depth_attachment()),
             &mut abandoned,
+            &mut scheduler,
         )
         .unwrap();
     drop(abandoned);
     assert_eq!(renderer.cascade_refresh_states()[0].last_frame(), Some(0));
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
         Some(worldrunner_render_shadow::RefreshReason::Capture)
@@ -271,16 +283,16 @@ fn gpu_refresh_invalidation_capture_and_abandonment() {
         .unwrap();
     let mut abandoned = context.submission().begin(context.device()).unwrap();
     renderer
-        .encode(
+        .encode_with(
             &context,
             &view(),
-            &target.color_attachment(),
-            &target.depth_attachment(),
+            (&target.color_attachment(), &target.depth_attachment()),
             &mut abandoned,
+            &mut scheduler,
         )
         .unwrap();
     drop(abandoned);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
         Some(worldrunner_render_shadow::RefreshReason::Invalidated),
@@ -296,10 +308,10 @@ fn gpu_refresh_invalidation_capture_and_abandonment() {
             },
         )
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(renderer.cascade_refresh_states()[0].last_frame(), Some(3));
     renderer.invalidate_shadows();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(renderer.cascade_refresh_states()[0].last_frame(), Some(4));
 }
 
@@ -313,19 +325,21 @@ fn gpu_camera_motion_refreshes_and_uploads_map_consistent_matrices() {
     );
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let initial = renderer.cascade_refresh_states();
     for (frame, shift) in [(1, 100), (2, 2_000)] {
         let moved = translated_view(shift, view().viewport());
-        render_target(&mut renderer, &context, &moved, &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &moved, &target).unwrap();
         let states = renderer.cascade_refresh_states();
         if frame == 1 {
             assert_eq!(states[3].matrix(), initial[3].matrix());
@@ -359,9 +373,10 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
         refresh_policy: policy(),
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, configured).unwrap();
+    let mut renderer = shadowed(&context, &source, configured).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let (object, _) = renderer.scene_mut().instance(caster).unwrap();
     let mut transform = *object.transform();
@@ -370,14 +385,14 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
         .scene_mut()
         .set_instance_transform(caster, transform)
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
         Some(RefreshReason::Invalidated),
         "a moved caster refreshes before its depth range is compared"
     );
     renderer.set_effects(&fixture::effects(-600_000)).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
         Some(RefreshReason::Light)
@@ -391,7 +406,7 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
             },
         )
         .unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
         Some(RefreshReason::Invalidated)
@@ -404,7 +419,7 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
         },
     );
     let target = OffscreenTarget::new(context.device(), resized.viewport()).unwrap();
-    render_target(&mut renderer, &context, &resized, &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &resized, &target).unwrap();
     assert_eq!(renderer.cascade_refresh_states()[0].last_frame(), Some(4));
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
@@ -413,9 +428,7 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
 }
 
 #[test]
-fn gpu_switching_the_terrain_draws_refreshes_every_retained_cascade_on_the_next_frame() {
-    use crate::compositor::TerrainDraws;
-    use worldrunner_render_shadow::RefreshReason;
+fn gpu_a_game_that_draws_the_terrain_holds_the_retained_cascades() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
@@ -424,11 +437,12 @@ fn gpu_switching_the_terrain_draws_refreshes_every_retained_cascade_on_the_next_
     );
     let mut renderer = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy(),
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
@@ -437,94 +451,19 @@ fn gpu_switching_the_terrain_draws_refreshes_every_retained_cascade_on_the_next_
             .cascade_refresh_states()
             .map(|state| state.last_frame())
     };
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert_eq!(
-        refreshed(&renderer),
-        [Some(0); 4],
-        "the interval holds the maps"
-    );
-
-    // The same scene, size and light, with the terrain casters dropped from the cascades.
-    renderer
-        .scheduler
-        .force_terrain_draws(TerrainDraws::Suppressed);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(2); 4], "suppressing refreshes");
-    assert_eq!(
-        renderer.cascade_refresh_states()[3].last_reason(),
-        Some(RefreshReason::Invalidated)
-    );
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert_eq!(
-        refreshed(&renderer),
-        [Some(2); 4],
-        "and then the maps are held"
-    );
-
-    renderer.scheduler.force_terrain_draws(TerrainDraws::Stock);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert_eq!(
-        refreshed(&renderer),
-        [Some(4); 4],
-        "so does selecting them again"
-    );
-}
-
-#[test]
-fn gpu_casters_only_terrain_holds_the_retained_cascades_and_suppressing_it_refreshes_them() {
-    use crate::compositor::TerrainDraws;
-    use worldrunner_render_shadow::RefreshReason;
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let source = super::cascades::source_with(
-        &super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), true, false),
-        SceneShadowCascades::new(vec![1_000, 2_000, 3_000, 4_000], 0).unwrap(),
-    );
-    let mut renderer = ShadowedScene::new(
-        &context,
-        &source,
-        DirectionalShadowSettings {
-            refresh_policy: policy(),
-            ..settings()
-        },
-    )
-    .unwrap();
-    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let refreshed = |renderer: &ShadowedScene| {
-        renderer
-            .cascade_refresh_states()
-            .map(|state| state.last_frame())
-    };
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut stock = scheduler(&context, StockReplacement::NONE);
+    let mut declared = scheduler(&context, StockReplacement::TERRAIN_SURFACE);
+    render_target(&mut renderer, &mut stock, &context, &view(), &target).unwrap();
     let maps = depth_layers(&context, &renderer);
 
-    // The casters are the stock ones, so the retained maps stay.
-    renderer
-        .scheduler
-        .force_terrain_draws(TerrainDraws::CastersOnly);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(0); 4], "casters only holds");
+    // The casters are the stock ones whatever draws the camera terrain, so the retained maps
+    // stay in either direction.
+    render_target(&mut renderer, &mut declared, &context, &view(), &target).unwrap();
+    assert_eq!(refreshed(&renderer), [Some(0); 4], "a declaring game holds");
     assert_eq!(maps, depth_layers(&context, &renderer));
-
-    // Returning to the stock draws changes nothing either.
-    renderer.scheduler.force_terrain_draws(TerrainDraws::Stock);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(0); 4], "stock holds");
-
-    renderer
-        .scheduler
-        .force_terrain_draws(TerrainDraws::CastersOnly);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    renderer
-        .scheduler
-        .force_terrain_draws(TerrainDraws::Suppressed);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert_eq!(refreshed(&renderer), [Some(4); 4], "suppressing refreshes");
-    assert_eq!(
-        renderer.cascade_refresh_states()[0].last_reason(),
-        Some(RefreshReason::Invalidated)
-    );
+    render_target(&mut renderer, &mut stock, &context, &view(), &target).unwrap();
+    assert_eq!(refreshed(&renderer), [Some(0); 4], "the stock draws hold");
+    assert_eq!(maps, depth_layers(&context, &renderer));
 }
 
 fn translated_view(shift: i64, viewport: crate::Viewport) -> SceneView {

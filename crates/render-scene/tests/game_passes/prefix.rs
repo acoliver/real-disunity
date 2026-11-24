@@ -8,6 +8,10 @@ use super::shadowed::{capture_fit, effects_with, shadowed};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::SceneCamera;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
@@ -18,10 +22,6 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameOcclusionHandle, GameBuild, GameFeatureFactory,
         GamePassSpec, GamePasses, GameTargets, PassTarget, prepass_writes_frame_depth,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
     },
     frame::metadata::FrameProduct,
     shadows::sdsm::DepthRange,

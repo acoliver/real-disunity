@@ -110,6 +110,7 @@ fn prove_depth(device: &wgpu::Device, authority: &SubmissionAuthority, reverse: 
                     ResourceLifetime::FrameLocal,
                     Semantic::Unspecified,
                     None,
+                    &[],
                 )
                 .unwrap();
             registry

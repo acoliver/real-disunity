@@ -89,8 +89,8 @@ fn records_come_back_in_call_order_and_then_the_list_is_empty() {
     for record in work.clone() {
         world.record_offscreen(record).unwrap();
     }
-    assert_eq!(world.take_offscreen(), work);
-    assert!(world.take_offscreen().is_empty());
+    assert_eq!(world.take_offscreen().0, work);
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn a_camera_render_needs_a_live_camera_component() {
     world.remove_component(camera).unwrap();
     let stale = world.record_offscreen(OffscreenWork::CameraRender { camera, target });
     assert!(matches!(stale, Err(WorldError::StaleComponent(_))));
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn work_that_names_a_destroyed_render_texture_or_material_is_refused() {
     for (record, error) in refused {
         assert_eq!(graphics_error(world.record_offscreen(record)), error);
     }
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn a_blit_pass_is_minus_one_for_all_passes_or_an_index() {
         pass: -2,
     });
     assert_eq!(graphics_error(rejected), GraphicsError::InvalidOffscreen);
-    assert_eq!(world.take_offscreen().len(), 3);
+    assert_eq!(world.take_offscreen().0.len(), 3);
 }
 
 fn copy(
@@ -216,7 +216,7 @@ fn a_copy_addresses_mip_levels_the_render_textures_have() {
             GraphicsError::InvalidOffscreen
         );
     }
-    assert_eq!(world.take_offscreen().len(), 2);
+    assert_eq!(world.take_offscreen().0.len(), 2);
 }
 
 #[test]
@@ -229,7 +229,7 @@ fn work_nobody_took_is_dropped_when_the_next_frame_starts() {
     world
         .advance(TimeSpan::from_nanos(16_000_000).unwrap())
         .unwrap();
-    assert!(world.take_offscreen().is_empty());
+    assert!(world.take_offscreen().0.is_empty());
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn work_recorded_during_a_frame_survives_until_it_is_taken() {
     world
         .record_offscreen(blit(TextureRef::None, target))
         .unwrap();
-    assert_eq!(world.take_offscreen().len(), 1);
+    assert_eq!(world.take_offscreen().0.len(), 1);
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn one_take_holds_the_records_a_save_load_makes() {
         };
         world.record_offscreen(work).unwrap();
     }
-    assert_eq!(world.take_offscreen().len(), 106_943);
+    assert_eq!(world.take_offscreen().0.len(), 106_943);
 }
 
 #[test]
@@ -273,5 +273,5 @@ fn one_take_holds_at_most_1048576_records() {
     }
     let full = world.record_offscreen(blit(TextureRef::None, target));
     assert!(matches!(full, Err(WorldError::CapacityExceeded(_))));
-    assert_eq!(world.take_offscreen().len(), 1_048_576);
+    assert_eq!(world.take_offscreen().0.len(), 1_048_576);
 }

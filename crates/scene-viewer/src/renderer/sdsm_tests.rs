@@ -1,6 +1,7 @@
 use super::retained_tests::{shadow_settings, source};
 use super::*;
 use worldrunner_render_plan::{SceneDepthAdoption, SceneDepthFitting, SceneDepthSplits};
+use worldrunner_render_scene::device::DeviceRequest;
 use worldrunner_render_scene::shadows::sdsm::{AdoptedFit, AdoptionPolicy};
 
 fn finish_timed_output(context: &GpuContext, presentation: &Presentation) {
@@ -36,10 +37,13 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
     let supported = adapter.features() & wgpu::Features::TIMESTAMP_QUERY;
-    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        wgpu::Features::empty(),
-        worldrunner_render_post::TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: worldrunner_render_post::TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     assert_eq!(
@@ -64,11 +68,7 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
             });
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].frame_id, frame_id);
-        for name in [
-            "sdsm receiver initialize",
-            "sdsm receiver reduce",
-            "post copy output",
-        ] {
+        for name in ["sdsm receiver initialize", "sdsm receiver reduce", "tone"] {
             assert_eq!(
                 samples[0]
                     .passes
@@ -98,10 +98,13 @@ fn hdr_depth_fitting_alone_times_no_occlusion_stages() {
     if !adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
         return;
     }
-    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        wgpu::Features::empty(),
-        worldrunner_render_post::TimingMode::Optional,
+        &DeviceRequest {
+            features: wgpu::Features::empty(),
+            timing: worldrunner_render_post::TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     let scene = fitted_scene();
@@ -116,10 +119,9 @@ fn hdr_depth_fitting_alone_times_no_occlusion_stages() {
         width: 64,
         height: 64,
     };
-    let mut presentation = Presentation::with_profile(
+    let mut presentation = crate::presentation::fixtures::presentation_with_profile(
         &context,
         crate::presentation::COLOR,
-        size,
         size,
         profile,
         scene.effects(),
@@ -285,19 +287,23 @@ fn render_frame(
 
 fn fixture(context: &GpuContext) -> (Resident, Presentation) {
     let scene = fitted_scene();
-    assert!(Resident::new(context, &scene, None, crate::FrameProfile::Legacy).is_err());
+    assert!(Resident::new(context, &scene, None, crate::tests::CLAMP).is_err());
     let resident = Resident::new(
         context,
         &scene,
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
     let size = Viewport {
         width: 64,
         height: 64,
     };
-    let presentation = Presentation::new(context, wgpu::TextureFormat::Rgba8UnormSrgb, size);
+    let presentation = crate::presentation::fixtures::presentation(
+        context,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        size,
+    );
     (resident, presentation)
 }
 
@@ -338,10 +344,10 @@ fn retained_settings_enable_fitting_without_resetting_host_frame_identity() {
         &context,
         &base,
         Some(shadow_settings()),
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
     )
     .unwrap();
-    let mut presentation = Presentation::new(
+    let mut presentation = crate::presentation::fixtures::presentation(
         &context,
         crate::presentation::COLOR,
         Viewport {
@@ -432,10 +438,9 @@ fn sky_ssr_interactive_and_same_frame_capture() {
             width: 8,
             height: 8,
         };
-        let mut presentation = Presentation::with_profile(
+        let mut presentation = crate::presentation::fixtures::presentation_with_profile(
             &context,
             crate::presentation::COLOR,
-            size,
             size,
             profile,
             scene.effects(),
@@ -465,10 +470,9 @@ fn shadowed_ssr_parameters_change_in_place_and_toggling_is_rejected() {
         width: 8,
         height: 8,
     };
-    let mut presentation = Presentation::with_profile(
+    let mut presentation = crate::presentation::fixtures::presentation_with_profile(
         &context,
         crate::presentation::COLOR,
-        size,
         size,
         profile,
         scene.effects(),

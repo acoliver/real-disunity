@@ -203,19 +203,58 @@ fn a_material_is_set_only_inside_the_count() {
         pop_material_count: 1,
         ..CanvasRenderer::default()
     };
-    let set = renderer.clone().with_material(false, 1, 7).unwrap();
+    let set = renderer.clone().with_material(false, 1, 7, None).unwrap();
     assert_eq!(set.materials[1], 7);
     assert_eq!(set.pop_materials, [0; MAX_CANVAS_MATERIALS]);
-    let pop = renderer.clone().with_material(true, 0, 8).unwrap();
+    let pop = renderer.clone().with_material(true, 0, 8, None).unwrap();
     assert_eq!(pop.pop_materials[0], 8);
     assert_eq!(pop.materials, [0; MAX_CANVAS_MATERIALS]);
     assert_eq!(
-        renderer.clone().with_material(false, 2, 7),
+        renderer.clone().with_material(false, 2, 7, None),
         Err(UiError::InvalidCanvasRenderer)
     );
     assert_eq!(
-        renderer.clone().with_material(true, 1, 7),
+        renderer.clone().with_material(true, 1, 7, None),
         Err(UiError::InvalidCanvasRenderer)
+    );
+}
+
+#[test]
+fn the_world_material_belongs_to_main_slot_zero_and_goes_with_the_count() {
+    let id = worldrunner_world_simulation::graphics::MaterialId::from_bits(5);
+    let renderer = CanvasRenderer {
+        material_count: 2,
+        pop_material_count: 1,
+        ..CanvasRenderer::default()
+    };
+    let set = renderer
+        .clone()
+        .with_material(false, 0, 7, Some(id))
+        .unwrap();
+    assert_eq!(set.world_material, Some(id));
+    assert_eq!(
+        set.clone()
+            .with_material(false, 0, 0, None)
+            .unwrap()
+            .world_material,
+        None
+    );
+    for (pop, index) in [(false, 1), (true, 0)] {
+        assert_eq!(
+            renderer.clone().with_material(pop, index, 7, Some(id)),
+            Err(UiError::InvalidCanvasRenderer)
+        );
+    }
+    let emptied = CanvasRenderer {
+        material_count: 0,
+        ..set
+    };
+    assert_eq!(emptied.clone().normalized().unwrap().world_material, None);
+    let (mut world, object) = world_with(CanvasRenderer::default());
+    let handle = handle_of(&world, object).unwrap();
+    assert_eq!(
+        world.set_component(handle, ComponentDesc::CanvasRenderer(emptied)),
+        Err(WorldError::Ui(UiError::InvalidCanvasRenderer))
     );
 }
 

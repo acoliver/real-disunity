@@ -15,8 +15,6 @@ pub mod device;
 pub mod draw;
 pub mod dynamic;
 pub mod frame;
-pub mod gbuffer;
-mod gbuffer_writes;
 pub mod geometry;
 mod instances;
 mod object;
@@ -42,8 +40,6 @@ pub mod water;
 
 /// GPU API types used by scene construction and capture.
 pub use wgpu;
-/// Shared executor contracts for external frame features.
-pub use worldrunner_render_post as executor;
 
 pub use view::{CameraPose, OrthographicLens, SceneView, ViewError, Viewport};
 

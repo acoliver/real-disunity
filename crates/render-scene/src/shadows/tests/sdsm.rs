@@ -2,10 +2,12 @@ mod depth_reuse;
 mod game_targets;
 mod gaps;
 mod history;
-mod observation;
 mod ssr;
 mod velocity;
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::cascades::CascadeViews;
 use worldrunner_render_shadow::{DepthRange, RangeFit};
 pub(super) fn policy() -> RangeFit {
@@ -24,7 +26,7 @@ fn depth_fit_keeps_offscreen_casters_and_rescales_bias_with_extent() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000]], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let mut fits = Vec::new();
     for far in [10.0, 18.0] {
         let mut fit = CascadeViews::new(
@@ -62,7 +64,7 @@ fn fitted_cascades_equal_declared_cascades_refitted() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000], [-800, 300, 4_000]], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let sun = Vec3::new(0.6, 0.0, 0.8);
     let recurrence = RangeFit {
         split_policy: worldrunner_render_shadow::SplitPolicy::OverlapRecurrence {
@@ -134,7 +136,7 @@ fn empty_depth_has_explicit_zero_receiver_uniform() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
-    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let renderer = shadowed(&context, &source, settings()).unwrap();
     let mut fit = CascadeViews::new(
         &renderer.gpu,
         &view(),
@@ -173,7 +175,8 @@ fn gpu_depth_fitted_shadow_retains_camera_invisible_caster() {
         view().viewport(),
     )
     .unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let fitted = crate::shadows::sdsm::AdoptedFit {
@@ -193,9 +196,10 @@ fn gpu_depth_fitted_shadow_retains_camera_invisible_caster() {
         let frame = context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                renderer.encode_depth_fitted(
-                    &context,
-                    &view,
+                encode_depth_fitted(
+                    &mut renderer,
+                    &mut scheduler,
+                    (&context, &view),
                     (&target.color_attachment(), &target.depth_attachment()),
                     encoder,
                     (fitted, policy()),
@@ -223,7 +227,8 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let view = view();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut outputs = Vec::new();
     for adoption in [
         AdoptionPolicy::SameFrameCapture,
@@ -241,7 +246,14 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
                 }),
             )
             .unwrap();
-        let fit = adopted_stock_fit(&mut renderer, &context, &view, &target, adoption);
+        let fit = adopted_stock_fit(
+            &mut renderer,
+            &mut scheduler,
+            &context,
+            &view,
+            &target,
+            adoption,
+        );
         assert_eq!(fit.source_frame, 10);
         assert_eq!(
             fit.adopted_frame,
@@ -255,7 +267,14 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
             matches!(fit.depth, DepthRange::Receivers { near, far } if near > 0.1 && far < 100.0)
         );
         let actual = target.read_rgba8(&context).unwrap();
-        assert_fitted_pixels(&mut renderer, &context, &view, &mut target, fit, &actual);
+        assert_fitted_pixels(
+            (&mut renderer, &mut scheduler),
+            &context,
+            &view,
+            &mut target,
+            fit,
+            &actual,
+        );
         outputs.push(actual);
     }
     assert_eq!(outputs[0].pixels, outputs[1].pixels);
@@ -268,7 +287,7 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
     let baseline = capture_scene(&context, &source, &view).unwrap();
     assert_shadow(&outputs[0], &baseline, Vec3::new(-0.75, 0.0, 0.0));
     renderer.set_depth_fitting(&context, None).unwrap();
-    render_target(&mut renderer, &context, &view, &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
     let disabled = target.read_rgba8(&context).unwrap();
     assert_eq!(
         disabled.pixels,
@@ -280,6 +299,7 @@ fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
 
 fn adopted_stock_fit(
     renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     context: &GpuContext,
     view: &SceneView,
     target: &OffscreenTarget,
@@ -287,11 +307,12 @@ fn adopted_stock_fit(
 ) -> crate::shadows::sdsm::AdoptedFit {
     use crate::shadows::sdsm::AdoptionPolicy;
     let first = renderer
-        .render_depth_fitted(
+        .render_depth_fitted_host(
             context,
             view,
             (&target.color_attachment(), &target.depth_attachment()),
-            10,
+            (Some(10), false, &[]),
+            scheduler,
         )
         .unwrap();
     if adoption == AdoptionPolicy::SameFrameCapture {
@@ -308,21 +329,23 @@ fn adopted_stock_fit(
             .expect("SDSM interactive frame 10 GPU work did not finish within 30 seconds");
         assert!(
             renderer
-                .render_depth_fitted(
+                .render_depth_fitted_host(
                     context,
                     view,
                     (&target.color_attachment(), &target.depth_attachment()),
-                    11
+                    (Some(11), false, &[]),
+                    scheduler
                 )
                 .unwrap()
                 .is_none()
         );
         renderer
-            .render_depth_fitted(
+            .render_depth_fitted_host(
                 context,
                 view,
                 (&target.color_attachment(), &target.depth_attachment()),
-                12,
+                (Some(12), false, &[]),
+                scheduler,
             )
             .unwrap()
             .unwrap()
@@ -330,7 +353,7 @@ fn adopted_stock_fit(
 }
 
 fn assert_fitted_pixels(
-    renderer: &mut ShadowedScene,
+    (renderer, scheduler): (&mut ShadowedScene, &mut crate::compositor::FrameRenderer),
     context: &GpuContext,
     view: &SceneView,
     target: &mut OffscreenTarget,
@@ -340,9 +363,10 @@ fn assert_fitted_pixels(
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode_depth_fitted(
-                context,
-                view,
+            encode_depth_fitted(
+                renderer,
+                scheduler,
+                (context, view),
                 (&target.color_attachment(), &target.depth_attachment()),
                 encoder,
                 (fit, policy()),
@@ -388,7 +412,13 @@ fn gpu_stock_sdsm_capture_reuses_hdr_ssao_and_reflection_metadata() {
         let source_before = frame.depth_statistics_source().unwrap().unwrap();
         crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
         let fit = renderer
-            .render_depth_fitted_with(&context, &view(), (&color, &depth), 3, &mut frame)
+            .render_depth_fitted_host(
+                &context,
+                &view(),
+                (&color, &depth),
+                (Some(3), false, &[]),
+                &mut frame,
+            )
             .unwrap();
         if adoption == AdoptionPolicy::SameFrameCapture {
             assert_eq!(fit.unwrap().source_frame, 3);
@@ -425,12 +455,11 @@ pub(super) fn screen_renderers(
         source.effects(),
     )
     .unwrap();
-    let renderer = ShadowedScene::with_target(
+    let renderer = ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     (frame, renderer)

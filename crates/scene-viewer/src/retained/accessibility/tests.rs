@@ -51,7 +51,7 @@ fn semantic_fixture() -> (
     worldrunner_world_simulation::ObjectHandle,
 ) {
     use worldrunner_world_simulation::ui::{
-        Canvas, RectTransform, UiControl, UiRouter, UiSemantics,
+        Canvas, CanvasMode, RectTransform, UiControl, UiRouter, UiSemantics,
     };
     use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, ParentSpace};
     let mut world = World::new(WorldSettings::default()).unwrap();
@@ -60,7 +60,13 @@ fn semantic_fixture() -> (
         .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
         .unwrap();
     world
-        .add_component(root, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let button = world.create_object(ObjectDesc::default()).unwrap();
     world

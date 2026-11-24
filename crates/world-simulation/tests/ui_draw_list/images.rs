@@ -55,7 +55,7 @@ fn images_keep_corner_tints_and_flip_only_uvs() {
             ([uv[0] / 16., uv[1] / 12., uv[2] / 16., uv[3] / 12.]).map(f32::to_bits)
         );
         assert_eq!(draw.corner_colors, Some(colors));
-        assert_eq!(draw.texture, Some(7));
+        assert_eq!(draw.texture, Some(UiTexture::Image(7)));
         assert_eq!(
             (bounds(draw)).map(f32::to_bits),
             ([10., 20., 8., 6.]).map(f32::to_bits)

@@ -1,5 +1,8 @@
 //! Informational probe. Run serially with `--ignored --nocapture`.
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_post::{FrameTiming, PassId, TimingMode};
 
 const WARMUP_FRAMES: u64 = 8;
@@ -66,15 +69,16 @@ fn measure(
 ) -> Option<Samples> {
     let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         DirectionalShadowSettings {
             refresh_policy: policy,
             ..settings()
         },
+        ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
     )
     .unwrap();
-    renderer
-        .scheduler
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    scheduler
         .configure_timing(context.device(), context.queue(), TimingMode::Required)
         .unwrap();
     let view = view();
@@ -85,7 +89,14 @@ fn measure(
         refreshed_layers: Vec::new(),
     };
     for frame in 0..WARMUP_FRAMES + SAMPLE_FRAMES {
-        let timing = timed_frame(&mut renderer, context, &view, &target, frame);
+        let timing = timed_frame(
+            &mut renderer,
+            &mut scheduler,
+            context,
+            &view,
+            &target,
+            frame,
+        );
         if frame < WARMUP_FRAMES {
             continue;
         }
@@ -114,23 +125,24 @@ fn measure(
 
 pub(super) fn timed_frame(
     renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     context: &GpuContext,
     view: &SceneView,
     target: &OffscreenTarget,
     frame: u64,
 ) -> FrameTiming {
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    renderer.scheduler.begin_timing(frame).unwrap();
+    scheduler.begin_timing(frame).unwrap();
     renderer
-        .encode(
+        .encode_with(
             context,
             view,
-            &target.color_attachment(),
-            &target.depth_attachment(),
+            (&target.color_attachment(), &target.depth_attachment()),
             &mut encoder,
+            scheduler,
         )
         .unwrap();
-    renderer.scheduler.finish_timing(&mut encoder).unwrap();
+    scheduler.finish_timing(&mut encoder).unwrap();
     let submission = encoder.finish().submit().unwrap();
     context
         .device()
@@ -139,9 +151,8 @@ pub(super) fn timed_frame(
             timeout: Some(std::time::Duration::from_secs(30)),
         })
         .unwrap();
-    let mut timings = crate::test_support::take_timings(context.device(), 1, || {
-        renderer.scheduler.take_timings()
-    });
+    let mut timings =
+        crate::test_support::take_timings(context.device(), 1, || scheduler.take_timings());
     let timing = timings.pop().expect("required frame timestamp result");
     assert_eq!(timing.frame_id, frame);
     timing

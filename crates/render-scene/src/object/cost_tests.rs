@@ -4,9 +4,9 @@
 //! then, for each selected range (one batch of instances at one level of detail): the instance
 //! buffer, the previous-instance buffer when the pipelines write velocity, one draw per material
 //! slot, and a pipeline, a material group, a vertex buffer or an index buffer only when it differs
-//! from the one bound before. Ranges of one mesh level share its vertex and index buffers, so
-//! consecutive ranges of one mesh bind them once. A steady-state frame builds nothing on the program
-//! runtime.
+//! from the one bound before. Mesh levels share the chunks of buffers an upload packs them into, so
+//! consecutive ranges bind the vertex and index buffers once until the chunk changes. A steady-state
+//! frame builds nothing on the program runtime.
 
 use std::ops::Range;
 
@@ -34,34 +34,79 @@ impl Counted {
     }
 }
 
-/// Counts the commands a recording issues into a [`PassCommands`], by kind.
+/// How many of a pass's draws could be one multi-draw: the draws that follow one another with
+/// no command between them, since a recording leaves out the commands a draw does not need.
+///
+/// Both counts are of runs, so a pass that draws `d` times in `r` runs would record `r` multi-draws
+/// where it now records `d` draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Runs {
+    /// Runs of draws that share the pipeline, every bind group and every vertex and index buffer.
+    pub by_buffers: u32,
+    /// Runs of draws that share the pipeline, every bind group and the instance buffers, however
+    /// many vertex and index buffers they set, as when meshes share their buffers.
+    pub by_state: u32,
+    state_changed: bool,
+    geometry_changed: bool,
+}
+
+impl Runs {
+    fn state(&mut self) {
+        self.state_changed = true;
+        self.geometry_changed = true;
+    }
+
+    fn geometry(&mut self, slot: u32) {
+        self.geometry_changed = true;
+        // The instance and skin slots are state a run cannot span.
+        if slot != 0 {
+            self.state_changed = true;
+        }
+    }
+
+    fn draw(&mut self, first: bool) {
+        self.by_buffers += u32::from(first || self.geometry_changed);
+        self.by_state += u32::from(first || self.state_changed);
+        self.state_changed = false;
+        self.geometry_changed = false;
+    }
+}
+
+/// Counts the commands a recording issues into a [`PassCommands`], by kind, and its runs of draws.
 #[derive(Default)]
-pub(crate) struct Tally(pub Counted);
+pub(crate) struct Tally(pub Counted, pub Runs);
 
 impl PassCommands for Tally {
     fn set_pipeline(&mut self, _: &wgpu::RenderPipeline) {
         self.0.pipelines += 1;
+        self.1.state();
     }
     fn set_bind_group(&mut self, _: u32, _: &wgpu::BindGroup) {
         self.0.groups += 1;
+        self.1.state();
     }
-    fn set_vertex_buffer(&mut self, _: u32, _: &wgpu::Buffer) {
+    fn set_vertex_buffer(&mut self, slot: u32, _: &wgpu::Buffer) {
         self.0.vertex_buffers += 1;
+        self.1.geometry(slot);
     }
     fn set_index_buffer(&mut self, _: &wgpu::Buffer, _: wgpu::IndexFormat) {
         self.0.index_buffers += 1;
+        self.1.geometry(0);
     }
     fn draw(&mut self, _: Range<u32>, _: Range<u32>) {
+        self.1.draw(self.0.draws == 0);
         self.0.draws += 1;
     }
     fn draw_indexed(&mut self, _: Range<u32>, _: i32, _: Range<u32>) {
+        self.1.draw(self.0.draws == 0);
         self.0.draws += 1;
     }
 }
 
-/// The commands the runtime path records for the same scene, after preparing it as a frame does.
-/// Preparing before the pass builds the pipelines, so recording builds nothing.
-fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> Counted {
+/// The commands the runtime path records for the same scene, after preparing it as a frame does,
+/// with the runs of draws the recording holds. Preparing before the pass builds the pipelines, so
+/// recording builds nothing.
+fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> (Counted, Runs) {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let built = build(context.device(), &CONFIGS[index]);
@@ -85,7 +130,7 @@ fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> Counted {
             .draw_objects_prepared(&mut tally, &frame, selected.object_context()),
     );
     encoder.finish().submit().unwrap();
-    let counted = tally.0;
+    let (counted, runs) = (tally.0, tally.1);
     assert_eq!(
         built.pipelines.object_runtime_stats(),
         prepared,
@@ -102,35 +147,39 @@ fn through_runtime(index: usize, scene: &RenderScene, cards: usize) -> Counted {
         counted.draws,
         counted.total(),
     );
-    counted
+    println!(
+        "OBJECT-COST-RUNS config={} cards={cards} draws={} runs_by_buffers={} runs_by_state={}",
+        CONFIGS[index].name, counted.draws, runs.by_buffers, runs.by_state,
+    );
+    (counted, runs)
 }
 
 /// Eight cards with eight different keys, one batch each: eight pipelines, eight material
 /// groups and the frame group, and per batch its instance buffer and one draw. The cards use two
-/// meshes (plain and impostor) in two runs, so their vertex and index buffers bind twice.
+/// meshes (plain and impostor) that share one chunk, so their vertex and index buffers bind once.
 #[test]
 fn the_runtime_path_records_one_batch_of_commands_per_card_with_its_own_key() {
     let scene = scenes::scene(&scenes::base_specs());
-    let counted = through_runtime(2, &scene, 8);
+    let counted = through_runtime(2, &scene, 8).0;
     assert_eq!(
         counted,
         Counted {
             pipelines: 8,
             groups: 1 + 8,
-            vertex_buffers: 8 + 2,
-            index_buffers: 2,
+            vertex_buffers: 8 + 1,
+            index_buffers: 1,
             draws: 8,
         }
     );
-    assert_eq!(counted.total(), 37);
+    assert_eq!(counted.total(), 35);
 }
 
 /// A velocity pipeline adds the previous-instance buffer to every batch and nothing else.
 #[test]
 fn the_runtime_path_adds_the_previous_instance_buffer_under_velocity() {
     let scene = scenes::scene(&scenes::base_specs());
-    let plain = through_runtime(2, &scene, 8);
-    let recorded = through_runtime(4, &scene, 8);
+    let plain = through_runtime(2, &scene, 8).0;
+    let recorded = through_runtime(4, &scene, 8).0;
     assert_eq!(
         recorded,
         Counted {
@@ -138,7 +187,7 @@ fn the_runtime_path_adds_the_previous_instance_buffer_under_velocity() {
             ..plain
         }
     );
-    assert_eq!(recorded.total(), 45);
+    assert_eq!(recorded.total(), 43);
 }
 
 /// Cards with one key and a material each share the pipeline bind and rebind their material
@@ -147,7 +196,7 @@ fn the_runtime_path_adds_the_previous_instance_buffer_under_velocity() {
 #[test]
 fn the_runtime_path_sets_a_pipeline_only_when_the_key_changes() {
     let scene = scenes::scene(&[Spec::default(); 6]);
-    let counted = through_runtime(2, &scene, 6);
+    let counted = through_runtime(2, &scene, 6).0;
     assert_eq!(
         counted,
         Counted {
@@ -166,7 +215,7 @@ fn the_runtime_path_sets_a_pipeline_only_when_the_key_changes() {
 #[test]
 fn the_runtime_path_draws_cards_that_share_a_material_with_one_instanced_draw() {
     let scene = scenes::shared(Spec::default(), 6);
-    let counted = through_runtime(2, &scene, 6);
+    let counted = through_runtime(2, &scene, 6).0;
     assert_eq!(
         counted,
         Counted {
@@ -340,4 +389,54 @@ fn the_object_prepass_prepares_before_its_pass_and_steady_state_frames_build_not
             );
         }
     }
+}
+
+/// Twelve batches of one pipeline key that differ only in mesh (three) and material (four) are
+/// recorded grouped: the pass binds each of the four materials once, and the three meshes share a
+/// chunk, so the vertex and index buffers bind once.
+#[test]
+fn grouped_draws_bind_each_material_once() {
+    let scene = scenes::grid(3, 4);
+    let (grouped, _) = through_runtime(2, &scene, 12);
+    assert_eq!(
+        grouped,
+        Counted {
+            pipelines: 1,
+            groups: 1 + 4,
+            vertex_buffers: grouped.vertex_buffers,
+            index_buffers: 1,
+            draws: 12,
+        },
+        "each material binds once and the meshes' chunk binds once: {grouped:?}"
+    );
+}
+
+/// How many multi-draws the grouped pass could record, with the walk's batches as they are: none
+/// fewer than it draws. A batch owns its instance buffer, so no two consecutive draws of the
+/// scene share every buffer even though the meshes share theirs, and a multi-draw of one run
+/// would replace each draw. A moving-camera frame over a compacted view shares one instance
+/// buffer between batches, where the meshes' shared buffers make a material's draws one run.
+#[test]
+fn every_grouped_draw_of_the_test_scenes_is_a_run_of_its_own() {
+    let cases = [
+        ("grid", scenes::grid(3, 4), 12),
+        ("six materials", scenes::scene(&[Spec::default(); 6]), 6),
+        ("base", scenes::scene(&scenes::base_specs()), 8),
+    ];
+    for (name, scene, draws) in cases {
+        let (counted, runs) = through_runtime(2, &scene, draws);
+        assert_eq!(counted.draws, u32::try_from(draws).unwrap(), "{name}");
+        assert_eq!(
+            (runs.by_buffers, runs.by_state),
+            (counted.draws, counted.draws),
+            "{name}: a run of two draws would need a shared buffer pair"
+        );
+    }
+}
+
+/// Cards of one material are one batch and one draw, which is one run.
+#[test]
+fn one_instanced_draw_is_one_run() {
+    let (counted, runs) = through_runtime(2, &scenes::shared(Spec::default(), 6), 6);
+    assert_eq!((counted.draws, runs.by_buffers, runs.by_state), (1, 1, 1));
 }

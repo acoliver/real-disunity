@@ -8,7 +8,7 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::{Camera, mesh_objects::extract_mesh_objects};
 use worldrunner_world_simulation::{
     ComponentDesc, DrawnMaterial, LocalTransform, MeshFilter, MeshRenderer, ObjectDesc,
-    ObjectHandle, RendererKind, World, WorldSettings,
+    ObjectHandle, World, WorldSettings,
 };
 
 const MESH: u64 = (1 << 41) + 5;
@@ -17,17 +17,10 @@ fn new_world() -> World {
     World::new(WorldSettings::default()).unwrap()
 }
 
-fn drawn(red: f32, texture: u64) -> DrawnMaterial {
-    DrawnMaterial {
-        color: [red, 0.5, 0.25, 1.0],
-        texture,
-    }
-}
-
-fn renderer(slots: Vec<DrawnMaterial>) -> MeshRenderer {
+/// A renderer with `slots` material slots, none holding a material.
+fn renderer(slots: u32) -> MeshRenderer {
     MeshRenderer {
-        material_count: u32::try_from(slots.len()).unwrap(),
-        drawn: slots,
+        material_count: slots,
         ..MeshRenderer::default()
     }
 }
@@ -54,12 +47,7 @@ fn add_mesh_object(
 }
 
 fn simple(world: &mut World) -> ObjectHandle {
-    add_mesh_object(
-        world,
-        MESH,
-        renderer(vec![drawn(1.0, 0)]),
-        ObjectDesc::default(),
-    )
+    add_mesh_object(world, MESH, renderer(1), ObjectDesc::default())
 }
 
 fn listed(world: &World) -> Vec<ObjectHandle> {
@@ -84,28 +72,36 @@ fn add_camera(world: &mut World, culling_mask: u32) {
 #[test]
 fn an_enabled_renderer_with_a_drawn_mesh_is_listed_with_its_mesh_and_slots() {
     let mut world = new_world();
-    let slots = vec![drawn(0.1, 0), drawn(0.2, (1 << 40) + 3)];
-    let object = add_mesh_object(
+    let (first, second) = (material(&mut world), material(&mut world));
+    set_vector(&mut world, first, "_Color", [0.1, 0.5, 0.25, 1.0]);
+    set_vector(&mut world, second, "_Color", [0.2, 0.5, 0.25, 1.0]);
+    set_texture(
         &mut world,
-        MESH,
-        renderer(slots.clone()),
-        ObjectDesc::default(),
+        second,
+        "_MainTex",
+        TextureRef::Asset((1 << 40) + 3),
     );
+    let object = object_with(&mut world, with_materials(&[Some(first), Some(second)]));
     let listed = extract_mesh_objects(&world).unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!((listed[0].object, listed[0].mesh), (object, MESH));
-    assert_eq!(listed[0].slots, slots);
+    assert_eq!(
+        listed[0].slots,
+        vec![
+            colored([0.1, 0.5, 0.25, 1.0]),
+            DrawnMaterial {
+                color: [0.2, 0.5, 0.25, 1.0],
+                texture: (1 << 40) + 3,
+            },
+        ]
+    );
+    assert_eq!(listed[0].materials, vec![Some(first), Some(second)]);
 }
 
 #[test]
 fn a_renderer_without_a_drawn_mesh_or_a_filter_is_left_out() {
     let mut world = new_world();
-    add_mesh_object(
-        &mut world,
-        0,
-        renderer(vec![drawn(1.0, 0)]),
-        ObjectDesc::default(),
-    );
+    add_mesh_object(&mut world, 0, renderer(1), ObjectDesc::default());
     let bare = world.create_object(ObjectDesc::default()).unwrap();
     world
         .add_component(bare, ComponentDesc::MeshRenderer(MeshRenderer::default()))
@@ -116,9 +112,9 @@ fn a_renderer_without_a_drawn_mesh_or_a_filter_is_left_out() {
 #[test]
 fn a_disabled_renderer_or_one_forced_off_is_left_out_and_the_others_stay() {
     let mut world = new_world();
-    let mut disabled = renderer(vec![drawn(1.0, 0)]);
+    let mut disabled = renderer(1);
     disabled.switches.enabled = false;
-    let mut forced_off = renderer(vec![drawn(1.0, 0)]);
+    let mut forced_off = renderer(1);
     forced_off.switches.force_rendering_off = true;
     add_mesh_object(&mut world, MESH, disabled, ObjectDesc::default());
     add_mesh_object(&mut world, MESH, forced_off, ObjectDesc::default());
@@ -131,7 +127,7 @@ fn a_renderer_that_only_casts_shadows_is_left_out_and_the_other_modes_stay() {
     let mut world = new_world();
     let mut kept = Vec::new();
     for mode in [0, 1, 2, 3] {
-        let mut renderer = renderer(vec![drawn(1.0, 0)]);
+        let mut renderer = renderer(1);
         renderer.shadow_casting_mode = mode;
         let object = add_mesh_object(&mut world, MESH, renderer, ObjectDesc::default());
         if mode != 3 {
@@ -139,16 +135,6 @@ fn a_renderer_that_only_casts_shadows_is_left_out_and_the_other_modes_stay() {
         }
     }
     assert_eq!(listed(&world), kept);
-}
-
-#[test]
-fn skinned_and_particle_renderers_are_left_out() {
-    let mut world = new_world();
-    for kind in [RendererKind::Skinned, RendererKind::Particle] {
-        let renderer = MeshRenderer::of_kind(kind);
-        add_mesh_object(&mut world, MESH, renderer, ObjectDesc::default());
-    }
-    assert!(listed(&world).is_empty());
 }
 
 #[test]
@@ -168,12 +154,7 @@ fn the_cameras_culling_mask_decides_by_layer() {
         layer: 5,
         ..ObjectDesc::default()
     };
-    let five = add_mesh_object(
-        &mut world,
-        MESH,
-        renderer(vec![drawn(1.0, 0)]),
-        on_layer_five,
-    );
+    let five = add_mesh_object(&mut world, MESH, renderer(1), on_layer_five);
     let zero = simple(&mut world);
     assert_eq!(listed(&world), vec![five, zero], "no camera culls nothing");
     add_camera(&mut world, 1 << 5);
@@ -181,22 +162,12 @@ fn the_cameras_culling_mask_decides_by_layer() {
 }
 
 #[test]
-fn slots_are_one_per_material_and_a_missing_one_draws_white() {
+fn an_empty_slot_draws_white_with_texture_zero_and_there_is_one_slot_per_material() {
     let mut world = new_world();
-    let mut three = renderer(vec![drawn(0.1, 0)]);
-    three.material_count = 3;
-    add_mesh_object(&mut world, MESH, three, ObjectDesc::default());
-    let none = renderer(vec![]);
-    add_mesh_object(&mut world, MESH, none, ObjectDesc::default());
+    add_mesh_object(&mut world, MESH, renderer(3), ObjectDesc::default());
+    add_mesh_object(&mut world, MESH, renderer(0), ObjectDesc::default());
     let listed = extract_mesh_objects(&world).unwrap();
-    assert_eq!(
-        listed[0].slots,
-        vec![
-            drawn(0.1, 0),
-            DrawnMaterial::default(),
-            DrawnMaterial::default()
-        ]
-    );
+    assert_eq!(listed[0].slots, vec![WHITE; 3]);
     assert!(listed[1].slots.is_empty());
 }
 
@@ -210,7 +181,7 @@ fn the_matrix_places_the_object_in_the_view_basis() {
         },
         ..ObjectDesc::default()
     };
-    add_mesh_object(&mut world, MESH, renderer(vec![drawn(1.0, 0)]), desc);
+    add_mesh_object(&mut world, MESH, renderer(1), desc);
     let matrix = extract_mesh_objects(&world).unwrap()[0].local_to_world;
     // The engine's y becomes the view's up, and its z the view's depth: (x, y, z) -> (x, -z, y).
     assert_eq!(&matrix[12..15], &[1.0, -3.0, 2.0]);
@@ -273,11 +244,11 @@ fn render_texture(world: &mut World) -> RenderTextureId {
         .unwrap()
 }
 
-/// A renderer with one slot per entry of `materials`, each holding `snapshot` as its drawn record.
-fn with_materials(snapshot: DrawnMaterial, materials: &[Option<MaterialId>]) -> MeshRenderer {
+/// A renderer with one slot per entry of `materials`.
+fn with_materials(materials: &[Option<MaterialId>]) -> MeshRenderer {
     MeshRenderer {
         slot_materials: materials.to_vec(),
-        ..renderer(vec![snapshot; materials.len()])
+        ..renderer(u32::try_from(materials.len()).unwrap())
     }
 }
 
@@ -301,7 +272,7 @@ fn slot_of(world: &World) -> DrawnMaterial {
 fn a_color_and_texture_set_on_the_material_after_the_renderer_exists_are_drawn() {
     let mut world = new_world();
     let material = material(&mut world);
-    object_with(&mut world, with_materials(WHITE, &[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
     assert_eq!(slot_of(&world), WHITE);
     set_vector(&mut world, material, "_Color", [0.2, 0.4, 0.6, 0.8]);
     set_texture(
@@ -337,7 +308,7 @@ fn a_color_and_texture_set_on_the_material_after_the_renderer_exists_are_drawn()
 fn base_color_draws_when_the_material_has_no_color_and_color_wins_when_it_has_both() {
     let mut world = new_world();
     let material = material(&mut world);
-    object_with(&mut world, with_materials(drawn(0.3, 5), &[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
     set_vector(&mut world, material, "_BaseColor", [0.1, 0.2, 0.3, 0.4]);
     assert_eq!(slot_of(&world), colored([0.1, 0.2, 0.3, 0.4]));
     set_vector(&mut world, material, "_Color", [0.5, 0.6, 0.7, 0.8]);
@@ -348,17 +319,21 @@ fn base_color_draws_when_the_material_has_no_color_and_color_wins_when_it_has_bo
 fn a_live_material_with_neither_color_nor_texture_draws_white_and_untextured() {
     let mut world = new_world();
     let material = material(&mut world);
-    object_with(&mut world, with_materials(drawn(0.3, 5), &[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
     assert_eq!(slot_of(&world), WHITE);
 }
 
 #[test]
-fn a_main_texture_that_is_not_an_asset_draws_untextured() {
+fn a_main_texture_that_is_not_an_asset_or_was_not_sent_draws_untextured() {
     let mut world = new_world();
     let material = material(&mut world);
     let render = render_texture(&mut world);
-    object_with(&mut world, with_materials(drawn(0.3, 5), &[Some(material)]));
-    for texture in [TextureRef::Render(render), TextureRef::None] {
+    object_with(&mut world, with_materials(&[Some(material)]));
+    for texture in [
+        TextureRef::Render(render),
+        TextureRef::None,
+        TextureRef::Unsent,
+    ] {
         set_texture(&mut world, material, "_MainTex", texture);
         assert_eq!(slot_of(&world).texture, 0);
     }
@@ -370,7 +345,7 @@ fn a_main_texture_that_is_not_an_asset_draws_untextured() {
 fn a_texture_under_another_name_is_not_the_main_texture() {
     let mut world = new_world();
     let material = material(&mut world);
-    object_with(&mut world, with_materials(WHITE, &[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
     set_texture(&mut world, material, "_BumpMap", TextureRef::Asset(7));
     assert_eq!(slot_of(&world).texture, 0);
 }
@@ -379,7 +354,7 @@ fn a_texture_under_another_name_is_not_the_main_texture() {
 fn a_negative_channel_draws_as_zero() {
     let mut world = new_world();
     let material = material(&mut world);
-    object_with(&mut world, with_materials(WHITE, &[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
     set_vector(&mut world, material, "_Color", [-1.0, 0.5, 2.0, -0.25]);
     assert_eq!(slot_of(&world), colored([0.0, 0.5, 2.0, 0.0]));
 }
@@ -388,7 +363,7 @@ fn a_negative_channel_draws_as_zero() {
 fn the_world_refuses_a_color_that_is_not_finite_so_a_slot_never_draws_one() {
     let mut world = new_world();
     let material = material(&mut world);
-    object_with(&mut world, with_materials(WHITE, &[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
     let edit = MaterialEdit::Property(PropertyValue::Vector(
         "_Color".into(),
         [f32::NAN, 0.0, 0.0, 1.0],
@@ -398,27 +373,19 @@ fn the_world_refuses_a_color_that_is_not_finite_so_a_slot_never_draws_one() {
 }
 
 #[test]
-fn a_destroyed_material_and_an_empty_slot_draw_what_the_renderer_was_given() {
+fn a_destroyed_material_and_an_empty_slot_draw_white_with_texture_zero() {
     let mut world = new_world();
     let gone = material(&mut world);
     set_vector(&mut world, gone, "_Color", [0.9, 0.9, 0.9, 0.9]);
     let live = material(&mut world);
     set_vector(&mut world, live, "_Color", [0.2, 0.2, 0.2, 0.2]);
-    let mut renderer = with_materials(drawn(0.3, 5), &[Some(gone), None, Some(live)]);
+    let mut renderer = with_materials(&[Some(gone), None, Some(live)]);
     renderer.material_count = 4;
     object_with(&mut world, renderer);
     world.destroy_material(gone).unwrap();
     assert_eq!(
         slots_of(&world),
-        vec![vec![
-            drawn(0.3, 5),
-            drawn(0.3, 5),
-            DrawnMaterial {
-                color: [0.2; 4],
-                texture: 0
-            },
-            WHITE,
-        ]]
+        vec![vec![WHITE, WHITE, colored([0.2; 4]), WHITE]]
     );
 }
 
@@ -426,8 +393,8 @@ fn a_destroyed_material_and_an_empty_slot_draw_what_the_renderer_was_given() {
 fn renderers_that_share_a_material_all_draw_its_change() {
     let mut world = new_world();
     let material = material(&mut world);
-    object_with(&mut world, with_materials(WHITE, &[Some(material)]));
-    object_with(&mut world, with_materials(drawn(0.3, 5), &[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
+    object_with(&mut world, with_materials(&[Some(material)]));
     set_texture(&mut world, material, "_MainTex", TextureRef::Asset(21));
     set_vector(&mut world, material, "_Color", [0.5; 4]);
     let both = DrawnMaterial {
@@ -457,10 +424,10 @@ fn a_property_block_of_the_renderer_overrides_the_material_for_what_it_sets() {
     let material = material(&mut world);
     set_vector(&mut world, material, "_Color", [0.2; 4]);
     set_texture(&mut world, material, "_MainTex", TextureRef::Asset(3));
-    let mut tinted = with_materials(WHITE, &[Some(material)]);
+    let mut tinted = with_materials(&[Some(material)]);
     tinted.property_block = Some(block(&[("_Color", [0.7, 0.6, 0.5, 0.4])], &[]));
     object_with(&mut world, tinted);
-    let mut painted = with_materials(WHITE, &[Some(material)]);
+    let mut painted = with_materials(&[Some(material)]);
     painted.property_block = Some(block(&[], &[("_MainTex", TextureRef::Asset(8))]));
     object_with(&mut world, painted);
     let [first, second] = [0, 1].map(|i| slots_of(&world)[i][0]);
@@ -486,7 +453,7 @@ fn a_slot_block_overrides_only_its_slot_and_wins_over_the_all_slot_block() {
     let material = material(&mut world);
     set_vector(&mut world, material, "_Color", [0.2; 4]);
     set_texture(&mut world, material, "_MainTex", TextureRef::Asset(3));
-    let mut renderer = with_materials(WHITE, &[Some(material), Some(material), Some(material)]);
+    let mut renderer = with_materials(&[Some(material), Some(material), Some(material)]);
     renderer.property_block = Some(block(&[("_Color", [0.7; 4])], &[]));
     renderer.slot_blocks.insert(
         1,
@@ -506,7 +473,7 @@ fn a_slot_block_overrides_only_its_slot_and_wins_over_the_all_slot_block() {
 #[test]
 fn a_mesh_object_carries_the_slot_blocks_of_its_renderer() {
     let mut world = new_world();
-    let mut renderer = renderer(vec![drawn(1.0, 0), drawn(1.0, 0)]);
+    let mut renderer = renderer(2);
     renderer.property_block = Some(block(&[("_Color", [0.7; 4])], &[]));
     renderer
         .slot_blocks

@@ -1,0 +1,390 @@
+#![cfg(feature = "ui")]
+
+#[test]
+fn annotation_labels_share_native_types_and_merge_coverage_without_collisions() {
+    use glam::{DVec3, Vec2};
+    use worldrunner_camera::{CameraLens, CameraPose, CameraState, ViewConvention, Viewport};
+    use worldrunner_world_simulation::ui::TextRun;
+    use worldrunner_world_simulation::ui::{annotations::*, presentation::UiPresentation};
+    let view = worldrunner_camera::resolve(&CameraState {
+        pose: CameraPose {
+            eye_meters: DVec3::Z * 5.,
+            forward: -DVec3::Z,
+            up: DVec3::Y,
+        },
+        lens: CameraLens::Orthographic {
+            half_height_meters: 2.,
+            near_meters: 0.1,
+            far_meters: 10.,
+        },
+        viewport: Viewport {
+            width: 64,
+            height: 64,
+        },
+        convention: ViewConvention::RIGHT_HANDED,
+    })
+    .unwrap();
+    let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+    let font = fonts.register(test_font::font()).unwrap();
+    let annotation = Annotation {
+        primitive: AnnotationPrimitive::Label {
+            anchor: AnnotationPoint::World(glam::Vec3::ZERO),
+            run: TextRun {
+                text: "A".into(),
+                ..TextRun::new(font)
+            },
+            alignment: Vec2::ZERO,
+        },
+        draw_order: (1, 2, 3),
+        clip_rect: None,
+        depth: AnnotationDepth::AlwaysVisible,
+    };
+    let native: worldrunner_world_simulation::ui::presentation::UiPresentation =
+        extract_annotations(&[annotation], &fonts, &view).unwrap();
+    let mut frame = UiPresentation::default();
+    frame.append(native.clone()).unwrap();
+    frame.append(native).unwrap();
+    assert_eq!(frame.coverage.keys().copied().collect::<Vec<_>>(), [0, 1]);
+    assert_eq!(
+        frame.draws.iter().map(|d| d.texture).collect::<Vec<_>>(),
+        [Some(UiTexture::Coverage(0)), Some(UiTexture::Coverage(1))]
+    );
+    let before = frame.clone();
+    let mut oversized = frame.clone();
+    oversized.draws = vec![frame.draws[0].clone(); 10923];
+    assert!(frame.append(oversized).is_err());
+    assert_eq!(frame, before);
+}
+
+#[test]
+fn missing_canvas_fails_and_frame_glyph_budget_is_shared() {
+    use worldrunner_world_simulation::ParentSpace;
+    use worldrunner_world_simulation::ui::{CanvasMode, TextRun, UiError};
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let object = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .add_component(
+            object,
+            ComponentDesc::RectTransform(RectTransform::default()),
+        )
+        .unwrap();
+    let mut fonts = FontBook::new(UiLimits {
+        max_glyphs: 1,
+        ..Default::default()
+    })
+    .unwrap();
+    let font = fonts.register(test_font::font()).unwrap();
+    world
+        .add_component(
+            object,
+            ComponentDesc::Text(TextRun {
+                text: "A".into(),
+                ..TextRun::new(font)
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        extract_ui(&world, &fonts, [800, 600]),
+        Err(UiError::MissingLayout.into())
+    );
+    world
+        .add_component(
+            object,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
+        .unwrap();
+    let child = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .add_component(
+            child,
+            ComponentDesc::RectTransform(RectTransform::default()),
+        )
+        .unwrap();
+    world
+        .set_parent(child, Some(object), ParentSpace::KeepLocal)
+        .unwrap();
+    world
+        .add_component(
+            child,
+            ComponentDesc::Text(TextRun {
+                text: "A".into(),
+                ..TextRun::new(font)
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        extract_ui(&world, &fonts, [800, 600]),
+        Err(UiError::GlyphLimit.into())
+    );
+}
+
+#[path = "../../world-simulation/tests/ui_font/mod.rs"]
+mod test_font;
+
+#[test]
+fn glyph_contributions_use_coverage_texture_and_preserve_alpha_and_order() {
+    use worldrunner_world_simulation::ui::{CanvasMode, TextRun, UiError};
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let root = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
+        .unwrap();
+    world
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
+        .unwrap();
+    let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+    let font = fonts.register(test_font::font_with(2, 800, -200)).unwrap();
+    let text = world
+        .add_component(
+            root,
+            ComponentDesc::Text(TextRun {
+                text: "A".into(),
+                color: [0.5, 0.25, 1., 0.75],
+                ..TextRun::new(font)
+            }),
+        )
+        .unwrap();
+    let plan = extract_ui(&world, &fonts, [800, 600]).unwrap();
+    assert_eq!(plan.texts.len(), 1);
+    let output = &plan.texts[0];
+    assert!(output.overlay);
+    assert_eq!(
+        output.color.map(f32::to_bits),
+        [0.5_f32, 0.25, 1., 0.75].map(f32::to_bits)
+    );
+    assert_eq!(output.quads.len(), 1);
+    let texture = output.texture.as_ref().unwrap();
+    assert!(texture.width > 0 && texture.height > 0);
+    assert_eq!(
+        u64::try_from(texture.bytes.len()).unwrap(),
+        u64::from(texture.width) * u64::from(texture.height)
+    );
+    assert!(texture.bytes.contains(&255));
+    assert_eq!(plan, extract_ui(&world, &fonts, [800, 600]).unwrap());
+    let empty = FontBook::new(UiLimits::default()).unwrap();
+    assert_eq!(
+        extract_ui(&world, &empty, [800, 600]),
+        Err(UiError::MissingFont(font).into())
+    );
+    world
+        .set_component(
+            text,
+            ComponentDesc::Text(TextRun {
+                enabled: false,
+                ..TextRun::new(font)
+            }),
+        )
+        .unwrap();
+    assert!(
+        extract_ui(&world, &empty, [800, 600])
+            .unwrap()
+            .texts
+            .is_empty()
+    );
+}
+
+use worldrunner_world_simulation::ui::contribution::extract_ui;
+use worldrunner_world_simulation::ui::{
+    Canvas, CanvasMode, FontBook, RectTransform, UiLimits, UiTexture,
+};
+use worldrunner_world_simulation::{ComponentDesc, ObjectDesc, World, WorldSettings};
+
+#[test]
+fn ui_extraction_is_pathless_and_omits_inactive_rectangles() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let root = world.create_object(ObjectDesc::default()).unwrap();
+    world
+        .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
+        .unwrap();
+    world
+        .add_component(
+            root,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
+        .unwrap();
+    let fonts = FontBook::new(UiLimits::default()).unwrap();
+    let plan = extract_ui(&world, &fonts, [800, 600]).unwrap();
+    assert_eq!(plan.layout.rects.len(), 1);
+    assert!(plan.texts.is_empty());
+    world.set_active(root, false).unwrap();
+    assert!(
+        extract_ui(&world, &fonts, [800, 600])
+            .unwrap()
+            .layout
+            .rects
+            .is_empty()
+    );
+}
+
+mod pixel_perfect {
+    use super::test_font;
+    use glam::{Vec2, Vec3};
+    use worldrunner_world_simulation::ui::contribution::extract_ui;
+    use worldrunner_world_simulation::ui::{
+        Canvas, CanvasMode, FontBook, RectTransform, TextRun, UiLimits,
+    };
+    use worldrunner_world_simulation::{
+        ComponentDesc, LocalTransform, ObjectDesc, ParentSpace, World, WorldSettings,
+    };
+
+    /// The screen position (pixels, and depth) of each glyph's top-left corner for "AV" placed
+    /// at a fractional pixel position on a canvas in `mode`.
+    fn glyph_corners(mode: fn(&mut World) -> CanvasMode, pixel_perfect: bool) -> Vec<Vec3> {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let mode = mode(&mut world);
+        let root = world.create_object(ObjectDesc::default()).unwrap();
+        world
+            .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
+            .unwrap();
+        world
+            .add_component(
+                root,
+                ComponentDesc::Canvas(Canvas {
+                    mode,
+                    pixel_perfect,
+                    ..Canvas::default()
+                }),
+            )
+            .unwrap();
+        let label = world.create_object(ObjectDesc::default()).unwrap();
+        world
+            .add_component(
+                label,
+                ComponentDesc::RectTransform(RectTransform {
+                    anchored_position: Vec2::new(10.3, -20.6),
+                    size_delta: Vec2::new(200., 60.),
+                    ..RectTransform::default()
+                }),
+            )
+            .unwrap();
+        world
+            .set_parent(label, Some(root), ParentSpace::KeepLocal)
+            .unwrap();
+        let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+        let font = fonts.register(test_font::font()).unwrap();
+        world
+            .add_component(
+                label,
+                ComponentDesc::Text(TextRun {
+                    text: "AV".into(),
+                    // Keep the snapping probe away from the rectangle's clip edges.
+                    horizontal: worldrunner_world_simulation::ui::HorizontalAlign::Center,
+                    ..TextRun::new(font)
+                }),
+            )
+            .unwrap();
+        let plan = extract_ui(&world, &fonts, [800, 600]).unwrap();
+        let pixels = plan.layout.rect(label).unwrap().pixels_from_world.unwrap();
+        plan.texts[0]
+            .quads
+            .iter()
+            .map(|quad| pixels.transform_point3(Vec3::from(quad.corners[3])))
+            .collect()
+    }
+
+    fn overlay(_: &mut World) -> CanvasMode {
+        CanvasMode::ScreenSpaceOverlay
+    }
+
+    /// Pong's canvas mode, through a camera that is itself off the pixel grid.
+    fn camera(world: &mut World) -> CanvasMode {
+        let camera = world
+            .create_object(ObjectDesc {
+                local_transform: LocalTransform {
+                    translation: Vec3::new(0.0137, -0.0211, -10.),
+                    ..LocalTransform::default()
+                },
+                ..ObjectDesc::default()
+            })
+            .unwrap();
+        CanvasMode::ScreenSpaceCamera {
+            camera,
+            orthographic_size: 5.,
+            plane_distance: 10.37,
+        }
+    }
+
+    fn off_grid(point: Vec3) -> f32 {
+        let pixel = point.truncate();
+        (pixel - pixel.round()).abs().max_element()
+    }
+
+    #[test]
+    fn the_first_glyph_lands_on_a_whole_pixel_and_the_rest_keep_their_spacing() {
+        for mode in [overlay as fn(&mut World) -> CanvasMode, camera] {
+            let free = glyph_corners(mode, false);
+            let snapped = glyph_corners(mode, true);
+            assert_eq!(free.len(), 2);
+            assert!(
+                off_grid(free[0]) > 0.05,
+                "the fixture is off the grid: {free:?}"
+            );
+            assert!(off_grid(snapped[0]) < 1e-3, "{snapped:?}");
+            let moved = snapped[0] - free[0];
+            assert!(moved.abs().max_element() <= 0.5 + 1e-3, "{moved:?}");
+            assert!(
+                (snapped[0].z - free[0].z).abs() < 1e-4,
+                "depth is not snapped"
+            );
+            let spacing = |c: &[Vec3]| c[1] - c[0];
+            assert!(
+                (spacing(&snapped) - spacing(&free)).abs().max_element() < 1e-3,
+                "glyphs move together"
+            );
+        }
+    }
+
+    #[test]
+    fn world_space_canvases_ignore_pixel_perfect() {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let root = world.create_object(ObjectDesc::default()).unwrap();
+        world
+            .add_component(root, ComponentDesc::RectTransform(RectTransform::default()))
+            .unwrap();
+        let canvas = world
+            .add_component(
+                root,
+                ComponentDesc::Canvas(Canvas {
+                    mode: CanvasMode::WorldSpace,
+                    pixel_perfect: true,
+                    ..Canvas::default()
+                }),
+            )
+            .unwrap();
+        let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+        let font = fonts.register(test_font::font()).unwrap();
+        world
+            .add_component(
+                root,
+                ComponentDesc::Text(TextRun {
+                    text: "A".into(),
+                    ..TextRun::new(font)
+                }),
+            )
+            .unwrap();
+        let snapped = extract_ui(&world, &fonts, [800, 600]).unwrap();
+        world
+            .set_component(
+                canvas,
+                ComponentDesc::Canvas(Canvas {
+                    mode: CanvasMode::WorldSpace,
+                    ..Canvas::default()
+                }),
+            )
+            .unwrap();
+        let free = extract_ui(&world, &fonts, [800, 600]).unwrap();
+        assert_eq!(snapped.texts[0].quads, free.texts[0].quads);
+    }
+}

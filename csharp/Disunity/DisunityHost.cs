@@ -37,8 +37,9 @@ public static partial class DisunityHost
         UnityEngine.Time.Start();
         _faulted = false;
         ResetScriptExceptions();
-        WhiteRenderers.Reset();
         UnsentTextures.Reset();
+        RectDimensionMessages.Reset();
+        ScriptExecutionOrders.Reset();
         ResetWorldSettings();
         _listenerDiagnostic = null;
         try
@@ -73,6 +74,14 @@ public static partial class DisunityHost
     internal static IEnumerable<Component> Components(GameObject owner) =>
         Scripts.Of(owner).Cast<Component>().Concat(NativeComponents.Of(owner)).Where(c => c.Life < ComponentLife.Hidden).Prepend(owner.transform);
 
+    /// <summary>The one place a script joins the host: Attach and a clone's scripts both bind here, so each is looked up by
+    /// its identity and watched for the messages the engine sends itself.</summary>
+    private static void BindScript(ulong identity, MonoBehaviour script)
+    {
+        Scripts.Add(identity, script);
+        RectDimensionMessages.Register(script);
+    }
+
     internal static unsafe T Attach<T>(GameObject owner, T behaviour) where T : MonoBehaviour
     {
         behaviour.gameObject = owner;
@@ -80,7 +89,8 @@ public static partial class DisunityHost
         ulong script;
         ThrowIfError(NativeBindings.disunity_script_register(WorldHandle, behaviour.gameObject.NativeHandle, identity, &script));
         ReportScriptMessages(script, behaviour.GetType());
-        Scripts.Add(identity, behaviour);
+        ReportScriptExecutionOrder(script, behaviour.GetType());
+        BindScript(identity, behaviour);
         DisunityAdvance work;
         ThrowIfError(NativeBindings.disunity_object_wake(WorldHandle, behaviour.gameObject.NativeHandle, &work));
         Drain(work);

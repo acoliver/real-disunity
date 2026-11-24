@@ -1,6 +1,8 @@
 use super::*;
 use crate::compositor::terms::{CaptureTerm, TermCapture};
+use crate::draw::PreparedScene;
 use crate::offscreen::LinearRgbaImage;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_post::{FrameConfig, Readback};
 
 #[test]
@@ -23,14 +25,14 @@ fn check_scene(context: &GpuContext, terrain: bool) {
         CaptureTerm::SunSpecular,
     ]
     .map(|term| TermCapture::new(context.device(), size, term));
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let color =
         crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::Rgba16Float);
     let depth =
@@ -40,10 +42,14 @@ fn check_scene(context: &GpuContext, terrain: bool) {
     let prepared = context
         .submission()
         .prepare(context.device(), |encoder, _| {
-            renderer.encode(context, &view, &color_view, &depth_view, encoder)?;
-            for capture in &captures {
-                renderer.encode_term_capture(context.device(), encoder, capture)?;
-            }
+            renderer.encode_with(
+                context,
+                &view,
+                (&color_view, &depth_view),
+                encoder,
+                &mut scheduler,
+            )?;
+            renderer.encode_term_captures(context.device(), encoder, &captures, &scheduler)?;
             Ok::<_, ShadowError>(())
         })
         .unwrap();

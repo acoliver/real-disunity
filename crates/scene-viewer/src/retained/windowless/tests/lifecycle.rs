@@ -36,7 +36,7 @@ fn completion_while_paused_exits_through_poll_without_another_update() {
         let events = driver.events.clone();
         let updates = driver.updates.clone();
         let mut run = host(crate::renderer::retained_tests::source())
-            .windowless(&mut driver)
+            .windowless(&mut driver, None)
             .unwrap();
         let id = run.host_mut().request_capture(0).unwrap();
         assert!(run.frame().unwrap());
@@ -71,7 +71,7 @@ fn external_exit_and_explicit_shutdown_notify_once_without_frames() {
         let mut driver = Driver::default();
         let events = driver.events.clone();
         let mut run = host(crate::renderer::retained_tests::source())
-            .windowless(&mut driver)
+            .windowless(&mut driver, None)
             .unwrap();
         if external {
             run.host_mut().request_exit();
@@ -89,7 +89,7 @@ fn zero_extent_and_restored_resize_are_delivered_without_frames() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     run.resize([0, 0]).unwrap();
     assert!(!run.frame().unwrap());
@@ -139,7 +139,7 @@ fn resize_callback_failure_closes_and_delivers_final_notification() {
     let events: Rc<RefCell<Vec<RetainedEvent>>> = Rc::default();
     let mut driver = FailResize(events.clone());
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     assert!(matches!(run.resize([0, 0]), Err(ViewerError::Driver(e)) if e == "resize failed"));
     assert!(run.closed);
@@ -152,7 +152,7 @@ fn drop_without_captures_notifies_once() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     drop(run);
     assert_eq!(*events.borrow(), vec![RetainedEvent::Shutdown]);
@@ -163,7 +163,7 @@ fn external_exit_cancels_undelivered_capture_before_polling() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let id = run.host_mut().request_capture(0).unwrap();
     run.host_mut().request_exit();
@@ -180,4 +180,21 @@ fn external_exit_cancels_undelivered_capture_before_polling() {
             RetainedEvent::Shutdown,
         ]
     );
+}
+#[test]
+fn a_session_says_it_is_closed_after_an_exit_request_or_a_shutdown() {
+    for external in [false, true] {
+        let mut driver = Driver::default();
+        let mut run = host(crate::renderer::retained_tests::source())
+            .windowless(&mut driver, None)
+            .unwrap();
+        assert!(!run.is_closed());
+        if external {
+            run.host_mut().request_exit();
+            assert!(!run.poll().unwrap());
+        } else {
+            run.shutdown().unwrap();
+        }
+        assert!(run.is_closed(), "external exit request: {external}");
+    }
 }

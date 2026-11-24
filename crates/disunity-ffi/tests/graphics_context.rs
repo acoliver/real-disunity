@@ -1,11 +1,11 @@
 //! Scriptable render context records through the ABI: each call validates and forwards one
-//! record, and a take hands the records back with the bytes that carry their details.
-use worldrunner_disunity_ffi::{
-    abi::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*, sprites::*,
-};
-use worldrunner_world_simulation::graphics::{
-    OffscreenWork, TargetRef, snapshot_wire::decode_work,
-};
+//! record, and the frame's work holds the records.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
+use worldrunner_disunity_ffi::{abi::*, graphics_commands::*, graphics_context::*, sprites::*};
+use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef};
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -26,39 +26,6 @@ fn rejected(code: i32) {
     assert_ne!(code, 0);
 }
 
-/// Takes the frame's work and the decoded detail of each context record.
-fn take(world: u64) -> Vec<(DisunityOffscreenWork, OffscreenWork)> {
-    let mut count = 0;
-    let mut records = [DisunityOffscreenWork::default(); 8];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, records.as_mut_ptr(), 8, &mut count).code,
-            0
-        );
-    }
-    records[..count as usize]
-        .iter()
-        .map(|record| {
-            let mut length = 0;
-            let mut bytes = [0_u8; 512];
-            unsafe {
-                assert_eq!(
-                    disunity_offscreen_detail(
-                        world,
-                        record.bindings,
-                        bytes.as_mut_ptr(),
-                        512,
-                        &mut length
-                    )
-                    .code,
-                    0
-                );
-            }
-            (*record, decode_work(&bytes[..length as usize]).unwrap())
-        })
-        .collect()
-}
-
 #[test]
 fn a_culling_result_is_forwarded_with_its_planes() {
     let world = new_world();
@@ -74,23 +41,21 @@ fn a_culling_result_is_forwarded_with_its_planes() {
             0
         );
     }
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 2);
-    assert_eq!(taken[0].0.kind, KIND_CULL);
-    assert_ne!(taken[0].0.bindings, 0);
     let OffscreenWork::Cull {
         id,
         culling_mask,
         planes: got,
         options,
         ..
-    } = &taken[0].1
+    } = &taken[0]
     else {
-        panic!("expected a culling result, got {:?}", taken[0].1);
+        panic!("expected a culling result, got {:?}", taken[0]);
     };
     assert_eq!((*id, *culling_mask, *options), (5, 0xF0F0_0001, 6));
     assert_eq!(got.concat(), planes);
-    let OffscreenWork::Cull { id, planes, .. } = &taken[1].1 else {
+    let OffscreenWork::Cull { id, planes, .. } = &taken[1] else {
         panic!("expected a culling result");
     };
     assert_eq!((*id, planes.len()), (6, 0));
@@ -155,23 +120,21 @@ fn a_camera_setup_is_forwarded_with_its_matrices_and_target() {
             0
         );
     }
-    let taken = take(world);
+    let taken = snapshot(world).work;
     assert_eq!(taken.len(), 2);
-    assert_eq!(taken[0].0.kind, KIND_SETUP_CAMERA);
-    assert_ne!(taken[0].0.bindings, 0);
     let OffscreenWork::SetupCamera {
         view: got_view,
         projection: got_projection,
         target: got_target,
         ..
-    } = &taken[0].1
+    } = &taken[0]
     else {
-        panic!("expected a camera setup, got {:?}", taken[0].1);
+        panic!("expected a camera setup, got {:?}", taken[0]);
     };
     assert_eq!((got_view, got_projection), (&view, &projection));
     assert_eq!(*got_target, TargetRef::Temporary(-9));
     assert!(matches!(
-        taken[1].1,
+        taken[1],
         OffscreenWork::SetupCamera {
             target: TargetRef::CameraTarget,
             ..
@@ -197,7 +160,7 @@ fn a_camera_setup_with_bad_arguments_is_refused_and_records_nothing() {
         rejected(setup(world, camera, Some(&good), Some(&good), &target(9, 0, 0)).code);
         rejected(setup(world, camera, Some(&good), Some(&good), &target(0, 0, 77)).code);
     }
-    assert_eq!(take(world).len(), 0);
+    assert_eq!(snapshot(world).work.len(), 0);
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
 
@@ -220,6 +183,6 @@ fn a_culling_result_with_bad_arguments_is_refused_and_records_nothing() {
         );
         rejected(disunity_offscreen_cull(world, 2, camera, 1, planes.as_ptr(), 1, 0).code);
     }
-    assert_eq!(take(world).len(), 1);
+    assert_eq!(snapshot(world).work.len(), 1);
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

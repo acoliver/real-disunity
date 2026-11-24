@@ -1,65 +1,24 @@
 //! Per-slot property blocks through the ABI: clearing one slot leaves the others, and writing the
 //! renderer's settings leaves every block in place.
-use worldrunner_disunity_ffi::{abi::*, graphics_properties::*, mesh_renderer::*};
+mod common;
 
-const SCOPE_BLOCK: u32 = 2;
-const SCOPE_SLOT_BLOCK: u32 = 4;
+use common::{
+    SCOPE_BLOCK, SCOPE_SLOT_BLOCK, new_world, read_property, renderer, set_float, slot_block,
+};
+use worldrunner_disunity_ffi::{graphics_properties::*, mesh_renderer::*};
 
 fn new_renderer() -> (u64, u64) {
-    let (mut world, mut object, mut renderer) = (0, 0, 0);
-    unsafe {
-        assert_eq!(disunity_world_create(&mut world).code, 0);
-        assert_eq!(disunity_gameobject_create(world, &mut object).code, 0);
-        assert_eq!(
-            disunity_mesh_renderer_create(world, object, 0, &mut renderer).code,
-            0
-        );
-    }
-    (world, renderer)
-}
-
-fn slot_block(world: u64, renderer: u64, material_index: u32) -> u64 {
-    let mut target = 0;
-    unsafe {
-        assert_eq!(
-            disunity_mesh_renderer_slot_block_target(world, renderer, material_index, &mut target)
-                .code,
-            0
-        );
-    }
-    target
+    let world = new_world();
+    (world, renderer(world))
 }
 
 fn set_fade(world: u64, scope: u32, target: u64, value: f32) {
-    let name = "_Fade";
-    let result = unsafe {
-        disunity_shader_float_write(
-            world,
-            scope,
-            target,
-            name.as_ptr(),
-            u32::try_from(name.len()).unwrap(),
-            value,
-        )
-    };
-    assert_eq!(result.code, 0);
+    assert_eq!(set_float(world, scope, target, "_Fade", value).code, 0);
 }
 
 /// The value of `_Fade` in the block, or `None` when the block does not hold it.
 fn fade(world: u64, scope: u32, target: u64) -> Option<f32> {
-    let name = "_Fade";
-    let mut value = DisunityPropertyRead::default();
-    let result = unsafe {
-        disunity_shader_property_read(
-            world,
-            scope,
-            target,
-            name.as_ptr(),
-            u32::try_from(name.len()).unwrap(),
-            &mut value,
-        )
-    };
-    assert_eq!(result.code, 0);
+    let value = read_property(world, scope, target, "_Fade");
     (value.present != 0).then_some(value.float_value)
 }
 

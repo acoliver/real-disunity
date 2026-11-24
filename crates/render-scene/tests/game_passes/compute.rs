@@ -3,7 +3,9 @@
 //! target, one dispatch per level (each reading level n-1 and writing level n of the same texture
 //! through one-level imports), and a render pass at `AfterOpaqueSnapshots` samples every level.
 //! A second compute pass writes seven levels of a texture in one dispatch through seven storage
-//! images. Every level is read back and compared with its closed form.
+//! images. A third writes two levels of layer 1 of a two-layer target through images the kernel
+//! declares as arrays of 2D images, each a one-layer array import, beside a 2D import of layer 0.
+//! Every level is read back and compared with its closed form.
 use super::common::{self, unfilterable_binding};
 use super::fixture::{Rig, SIZE, quad_scene};
 use super::pyramid_model::read_mip;
@@ -11,6 +13,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature,
+};
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
 };
@@ -28,10 +34,6 @@ use worldrunner_render_scene::{
         GamePasses, GameResources, GameTargets, LevelAccess, PassTarget, TargetDeclaration,
         TargetExtent,
     },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassSlot, PrepareContext, PreparedAccess, PreparedFeature,
-    },
     wgpu,
 };
 
@@ -40,10 +42,12 @@ const SEED: &str = "compute.seed";
 const CHAIN: &str = "compute.chain";
 const DIGEST: &str = "compute.digest";
 const WIDE: &str = "compute.wide";
+const ARRAY: &str = "compute.array";
 const SEED_SIZE: u32 = 8;
 const LEVELS: u32 = 3;
 const WIDE_SIZE: u32 = 64;
 const WIDE_LEVELS: u32 = 7;
+const ARRAY_SIZE: u32 = 16;
 /// The texel of every chain level the digest samples.
 const PROBE: [u32; 2] = [1, 1];
 
@@ -90,6 +94,21 @@ const REDUCE_WGSL: &str = "
     let c = textureLoad(source, p + vec2<i32>(0, 1), 0).r;
     let d = textureLoad(source, p + vec2<i32>(1, 1), 0).r;
     textureStore(destination, vec2<i32>(id.xy), vec4<f32>(max(max(a, b), max(c, d)), 0.0, 0.0, 0.0));
+}";
+
+/// Mips 0 and 1 of layer 1 of the array target through one-layer array images, each stored at
+/// array index 0, and mip 0 of layer 0 through a 2D image: the texel's column plus 16 times its
+/// row, plus 1000, 2000 and 3000.
+const ARRAY_WGSL: &str = "
+@group(0) @binding(0) var top: texture_storage_2d_array<r32float, write>;
+@group(0) @binding(1) var next: texture_storage_2d_array<r32float, write>;
+@group(0) @binding(2) var plain: texture_storage_2d<r32float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let p = vec2<i32>(id.xy);
+    let v = f32(id.x + 16u * id.y);
+    textureStore(top, p, 0, vec4<f32>(v + 1000.0, 0.0, 0.0, 0.0));
+    if (all(id.xy < vec2<u32>(8u))) { textureStore(next, p, 0, vec4<f32>(v + 2000.0, 0.0, 0.0, 0.0)); }
+    textureStore(plain, p, vec4<f32>(v + 3000.0, 0.0, 0.0, 0.0));
 }";
 
 /// Level m of the wide texture: the texel's column plus 64 times its row, plus m.
@@ -141,6 +160,14 @@ fn wide() -> TargetDeclaration {
     storage(WIDE, WIDE_SIZE, WIDE_LEVELS)
 }
 
+/// Two layers of two mips: the kernel writes both mips of layer 1 and mip 0 of layer 0.
+fn array() -> TargetDeclaration {
+    storage(ARRAY, ARRAY_SIZE, 2).layers(2)
+}
+
+/// The levels of the array target the array pass writes, as (layer, mip).
+const ARRAY_LEVELS: [(u32, u32); 3] = [(1, 0), (1, 1), (0, 0)];
+
 fn writer() -> GamePassSpec {
     GamePassSpec::new(GamePlace::BeforeOpaque, 0).writing([ColorOutput::Target(seed().layer(0))])
 }
@@ -153,6 +180,16 @@ fn chain_pass() -> GameComputeSpec {
 
 fn wide_pass() -> GameComputeSpec {
     GameComputeSpec::new(GamePlace::AfterOpaque, 1).writing_mips(wide().layer_mips(0))
+}
+
+fn array_pass() -> GameComputeSpec {
+    let array = array();
+    GameComputeSpec::new(GamePlace::AfterOpaque, 2).writing_mips(
+        ARRAY_LEVELS
+            .iter()
+            .map(|&(layer, mip)| array.mip(layer, mip))
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn reader() -> GamePassSpec {
@@ -191,6 +228,14 @@ fn model() -> Vec<Vec<f32>> {
     levels
 }
 
+/// Mip `mip` of the array target's level written with `offset`, computed on the CPU.
+fn array_model(mip: u32, offset: f32) -> Vec<f32> {
+    let side = (ARRAY_SIZE >> mip) as usize;
+    (0..side * side)
+        .map(|index| exact(index % side) + 16.0 * exact(index / side) + offset)
+        .collect()
+}
+
 /// Level `level` of the wide texture, computed on the CPU.
 fn wide_model(level: u32) -> Vec<f32> {
     let side = (WIDE_SIZE >> level) as usize;
@@ -199,7 +244,13 @@ fn wide_model(level: u32) -> Vec<f32> {
         .collect()
 }
 
-fn compute_program(context: &GameBuild<'_>, wgsl: &str, images: &[u32]) -> ComputeProgram {
+/// A program whose bindings are storage images at `images` (arrays of 2D images at those also in
+/// `arrays`) and sampled 2D textures elsewhere.
+fn compute_program(
+    context: &GameBuild<'_>,
+    wgsl: &str,
+    (images, arrays): (&[u32], &[u32]),
+) -> ComputeProgram {
     let binding = |binding: u32, kind| ResourceBinding {
         at: BindingAddress { set: 0, binding },
         source: BindingSource::Engine(EngineSemantic::named(format!("compute.{binding}"))),
@@ -214,7 +265,11 @@ fn compute_program(context: &GameBuild<'_>, wgsl: &str, images: &[u32]) -> Compu
                     ResourceKind::StorageImage {
                         access: wgpu::StorageTextureAccess::WriteOnly,
                         format: FLOAT,
-                        dimension: wgpu::TextureViewDimension::D2,
+                        dimension: if arrays.contains(&at) {
+                            wgpu::TextureViewDimension::D2Array
+                        } else {
+                            wgpu::TextureViewDimension::D2
+                        },
                     },
                 )
             } else {
@@ -250,14 +305,23 @@ struct Programs {
     double: ComputeProgram,
     reduce: ComputeProgram,
     seven: ComputeProgram,
+    array: ComputeProgram,
+}
+
+/// The compute pass a frame runs beside the chain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Extra {
+    ChainOnly,
+    SevenLevels,
+    ArrayLevels,
 }
 
 struct Parts {
     targets: GameTargets,
     resources: GameResources,
     programs: Programs,
-    /// Whether the frame also runs the seven-image pass.
-    seven: bool,
+    /// The compute pass the frame also runs.
+    extra: Extra,
     draws: RefCell<Vec<(GamePlace, PreparedProgramDraw)>>,
 }
 
@@ -287,8 +351,14 @@ impl FrameFeature for Game {
             targets.plan_compute_pass(&chain_pass(), passes, views)?,
             targets.plan_pass(&reader(), passes, views)?,
         ];
-        if self.0.seven {
-            declared.push(targets.plan_compute_pass(&wide_pass(), passes, views)?);
+        match self.0.extra {
+            Extra::ChainOnly => {}
+            Extra::SevenLevels => {
+                declared.push(targets.plan_compute_pass(&wide_pass(), passes, views)?);
+            }
+            Extra::ArrayLevels => {
+                declared.push(targets.plan_compute_pass(&array_pass(), passes, views)?);
+            }
         }
         Ok(FeatureDeclaration {
             passes: declared,
@@ -434,6 +504,43 @@ impl Game {
     }
 }
 
+impl Game {
+    /// Both mips of layer 1 of the array target through one-layer array imports and mip 0 of
+    /// layer 0 through a 2D import, in one dispatch.
+    fn stage_array(&self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+        let targets = &self.0.targets;
+        let imports = ARRAY_LEVELS
+            .iter()
+            .zip(0..)
+            .map(|(&(layer, mip), binding)| {
+                let semantic = EngineSemantic::named(format!("compute.{binding}"));
+                let level = GameLevel { layer, mip };
+                if layer == 1 {
+                    targets.import_level_array(ARRAY, semantic, level, LevelAccess::Storage)
+                } else {
+                    targets.import_level(ARRAY, semantic, level, LevelAccess::Storage)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let array = array();
+        let writes: Vec<_> = ARRAY_LEVELS
+            .iter()
+            .map(|&(layer, mip)| array.mip(layer, mip))
+            .collect();
+        let access = PreparedAccess {
+            reads: &[],
+            writes: &writes,
+        };
+        let groups = ARRAY_SIZE / 8;
+        self.dispatch(
+            context,
+            (&array_pass(), "array levels"),
+            (&self.0.programs.array, &imports, [groups, groups, 1]),
+            access,
+        )
+    }
+}
+
 impl PreparedFeature for Game {
     fn prepare(&mut self, context: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         self.0.draws.borrow_mut().clear();
@@ -445,8 +552,10 @@ impl PreparedFeature for Game {
             .import(CHAIN, EngineSemantic::named("compute.0"))?;
         self.prepare_draw(context, &reader(), (&programs.digest, &[whole]))?;
         self.stage_chain(context)?;
-        if self.0.seven {
-            self.stage_wide(context)?;
+        match self.0.extra {
+            Extra::ChainOnly => {}
+            Extra::SevenLevels => self.stage_wide(context)?,
+            Extra::ArrayLevels => self.stage_array(context)?,
         }
         Ok(())
     }
@@ -466,7 +575,7 @@ impl PreparedFeature for Game {
 }
 
 struct ComputeGame {
-    seven: bool,
+    extra: Extra,
 }
 
 impl GameFeatureFactory for ComputeGame {
@@ -476,8 +585,10 @@ impl GameFeatureFactory for ComputeGame {
 
     fn targets(&self) -> Vec<TargetDeclaration> {
         let mut targets = vec![seed(), chain(), digest()];
-        if self.seven {
-            targets.push(wide());
+        match self.extra {
+            Extra::ChainOnly => {}
+            Extra::SevenLevels => targets.push(wide()),
+            Extra::ArrayLevels => targets.push(array()),
         }
         targets
     }
@@ -513,22 +624,23 @@ impl GameFeatureFactory for ComputeGame {
         let programs = Programs {
             seed,
             digest,
-            double: compute_program(context, DOUBLE_WGSL, &[1]),
-            reduce: compute_program(context, REDUCE_WGSL, &[1]),
-            seven: compute_program(context, SEVEN_WGSL, &[0, 1, 2, 3, 4, 5, 6]),
+            double: compute_program(context, DOUBLE_WGSL, (&[1], &[])),
+            reduce: compute_program(context, REDUCE_WGSL, (&[1], &[])),
+            seven: compute_program(context, SEVEN_WGSL, (&[0, 1, 2, 3, 4, 5, 6], &[])),
+            array: compute_program(context, ARRAY_WGSL, (&[0, 1, 2], &[0, 1])),
         };
         Ok(Box::new(Game(Rc::new(Parts {
             targets: context.targets.clone(),
             resources: context.resources.clone(),
             programs,
-            seven: self.seven,
+            extra: self.extra,
             draws: RefCell::new(Vec::new()),
         }))))
     }
 }
 
-fn rig(seven: bool) -> Rig {
-    let inventory = GamePasses::new().with(Arc::new(ComputeGame { seven }));
+fn rig(extra: Extra) -> Rig {
+    let inventory = GamePasses::new().with(Arc::new(ComputeGame { extra }));
     Rig::new(&quad_scene(), SIZE, |settings| {
         settings.game_passes = inventory;
     })
@@ -541,7 +653,7 @@ fn texture(rig: &Rig, name: &'static str) -> wgpu::Texture {
 #[test]
 fn a_compute_pass_between_two_render_passes_builds_a_chain_level_by_level() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let mut rig = rig(false);
+    let mut rig = rig(Extra::ChainOnly);
     let model = model();
     assert!(!rig.renderer.game_targets().is_mip_written(CHAIN, 0, 0));
     for frame in 0..2 {
@@ -573,7 +685,7 @@ fn a_compute_pass_between_two_render_passes_builds_a_chain_level_by_level() {
 #[test]
 fn one_dispatch_writes_seven_levels_of_a_texture_through_seven_storage_images() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let mut rig = rig(true);
+    let mut rig = rig(Extra::SevenLevels);
     rig.render().unwrap();
     let wide = texture(&rig, WIDE);
     for level in 0..WIDE_LEVELS {
@@ -581,6 +693,21 @@ fn one_dispatch_writes_seven_levels_of_a_texture_through_seven_storage_images() 
             read_mip(&rig, &wide, (0, level)),
             wide_model(level),
             "wide level {level}"
+        );
+    }
+}
+
+#[test]
+fn a_kernel_writes_levels_of_one_layer_through_images_it_declares_as_arrays() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let mut rig = rig(Extra::ArrayLevels);
+    rig.render().unwrap();
+    let array = texture(&rig, ARRAY);
+    for (&(layer, mip), offset) in ARRAY_LEVELS.iter().zip([1000.0, 2000.0, 3000.0]) {
+        assert_eq!(
+            read_mip(&rig, &array, (layer, mip)),
+            array_model(mip, offset),
+            "layer {layer}, mip {mip}"
         );
     }
 }

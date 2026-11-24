@@ -1,5 +1,6 @@
 //! Velocity pipelines keep each instance's previous-frame transform beside the current one.
 use super::*;
+use crate::test_support::upload_scene;
 
 const HDR: TextureFormat = TextureFormat::Rgba16Float;
 const STRIDE: usize = crate::geometry::INSTANCE_BYTES;
@@ -28,8 +29,7 @@ fn fixture() -> Fixture {
     })
     .unwrap();
     let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let renderer = crate::compositor::FrameRenderer::hdr(
         &context,
         [TARGET, TARGET],
@@ -86,15 +86,16 @@ impl Fixture {
             .submission()
             .begin(self.context.device())
             .unwrap();
-        crate::compositor::encode_scene(
-            &mut self.renderer,
-            self.context.device(),
-            &mut encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
-            frame_from(pose()),
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                self.context.device(),
+                &mut encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&color, &depth),
+                frame_from(pose()),
+            )
+            .unwrap();
         if submit {
             encoder.finish().submit().unwrap();
         }
@@ -253,7 +254,7 @@ fn instance_buffers_count_in_the_authority_census_until_the_scene_drops() {
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-    let mut gpu = SceneGpu::upload(context.device(), &authority, &source, &pipelines).unwrap();
+    let mut gpu = upload_scene(context.device(), &authority, &source, &pipelines).unwrap();
     gpu.flush_instances(context.device(), &authority).unwrap();
     let expected: u64 = gpu
         .instances
@@ -283,21 +284,24 @@ fn scene_textures_and_mesh_buffers_count_in_the_authority_census_until_the_scene
     let authority =
         worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
     let source = super::super::decals::source(false, true);
-    let pipelines = ScenePipelines::new(context.device(), HDR);
-    let gpu = SceneGpu::upload(context.device(), &authority, &source, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(context.device(), HDR, 1).unwrap();
+    let gpu = upload_scene(context.device(), &authority, &source, &pipelines).unwrap();
     let textures: u64 = gpu
         .retained
         .textures
         .iter()
         .map(|texture| texture_bytes(texture))
         .sum();
-    let meshes: u64 = gpu
-        .meshes
-        .iter()
-        .flat_map(|mesh| &mesh.lods)
-        .flat_map(|lod| lod.transition.iter().chain([&lod.vertices, &lod.indices]))
-        .map(wgpu::Buffer::size)
-        .sum();
+    // Levels share chunks, so each buffer counts once however many levels read it.
+    let mut chunks: Vec<&wgpu::Buffer> = Vec::new();
+    for lod in gpu.meshes.iter().flat_map(|mesh| &mesh.lods) {
+        for span in lod.transition.iter().chain([&lod.vertices, &lod.indices]) {
+            if !chunks.contains(&span.buffer()) {
+                chunks.push(span.buffer());
+            }
+        }
+    }
+    let meshes: u64 = chunks.iter().map(|buffer| buffer.size()).sum();
     assert!(textures > 0 && meshes > 0);
     let snapshot = authority.census().snapshot();
     assert_eq!(snapshot.get(ResourceClass::Texture), textures);

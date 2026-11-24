@@ -64,6 +64,7 @@ internal static class PresentationTests
     private static void CanvasScaleFollowsTheViewport()
     {
         var canvas = DisunityHost.CreateGameObject().AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         Require(canvas.scaleFactor == 1, "default canvas scale");
         DisunityHost.ScaleWithScreenSize(canvas, new Vector2(1920, 1080), 0);
         DisunityHost.SetViewport(960, 540);

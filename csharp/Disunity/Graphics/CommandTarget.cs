@@ -7,10 +7,15 @@ namespace UnityEngine.Rendering;
 /// the render texture it names kept as an object, so the world resource is made (as <see cref="Graphics.Blit(Texture, RenderTexture)"/> does)
 /// only when the command is executed. A <see cref="RenderTexture"/> names itself, an integer or string names a temporary render
 /// texture by its property name id, <see cref="BuiltinRenderTextureType.CameraTarget"/> names the target of the camera being rendered and
-/// <see cref="BuiltinRenderTextureType.None"/> names nothing. A <see cref="Texture2D"/> names itself as a texture to read, and only a
-/// texture is read from it: as a render target it throws <see cref="NotSupportedException"/>. Every other built-in target (the camera's
-/// depth, the G-buffer, motion vectors and the rest), any other texture and a render buffer have no world counterpart, so recording one
-/// throws <see cref="NotSupportedException"/> naming it.
+/// <see cref="BuiltinRenderTextureType.None"/> names nothing. A texture that is not a render texture (a <see cref="Texture2D"/>,
+/// <see cref="Texture2DArray"/>, <see cref="Cubemap"/> or <see cref="Texture3D"/>) names itself as a texture to read, under the rule of
+/// <see cref="Shader.SetGlobalTexture(string, Texture)"/>: <see cref="ToTexture"/> sends it as <see cref="WorldGraphics.TextureOf(Texture?)"/>
+/// does, as the asset the host draws by, or as named and not sent when the world cannot hold it. Only a texture is read from it: as a
+/// render target it throws <see cref="NotSupportedException"/>. The host reads any stored texture as the source of a blit or a
+/// copy, a layer of an array, cube or volume by the element a copy names and the first layer for a blit without a material, so a
+/// source is as free as a global; <see cref="ToSource"/> refuses only a texture the world cannot send. Every other built-in target (the
+/// camera's depth, the G-buffer, motion vectors and the rest) and a render buffer have no world counterpart, so recording one throws
+/// <see cref="NotSupportedException"/> naming it.
 /// </summary>
 internal readonly record struct CommandTarget(uint Kind, int NameId, Texture? Texture, int Mip, int Face, int Slice)
 {
@@ -38,12 +43,11 @@ internal readonly record struct CommandTarget(uint Kind, int NameId, Texture? Te
         }
     }
 
-    /// <summary>A texture that is not a render texture: a live <see cref="Texture2D"/> is read as the asset the world holds; a
-    /// destroyed one throws <see cref="ArgumentException"/> and any other kind of texture <see cref="NotSupportedException"/>.</summary>
+    /// <summary>A texture that is not a render texture: a live texture is read as the asset the world holds, whatever its kind; a
+    /// destroyed one throws <see cref="ArgumentException"/>.</summary>
     private static CommandTarget OfTexture(in RenderTargetIdentifier id, string member) => ObjectRegistry.Find(id.m_InstanceID) switch
     {
-        Texture2D { width: > 0, height: > 0 } texture when texture => new(KindAsset, 0, texture, id.m_MipLevel, (int)id.m_CubeFace, id.m_DepthSlice),
-        Texture other when other => throw new NotSupportedException($"{member}: a {other.GetType().Name} as a command buffer texture is not supported yet"),
+        Texture texture when texture => new(KindAsset, 0, texture, id.m_MipLevel, (int)id.m_CubeFace, id.m_DepthSlice),
         _ => throw new ArgumentException($"{member}: the texture of the target was destroyed"),
     };
 
@@ -81,7 +85,7 @@ internal readonly record struct CommandTarget(uint Kind, int NameId, Texture? Te
     }
 
     /// <summary>Returns this target when a blit, copy or global texture can name it: a render texture, a temporary render texture,
-    /// a texture asset or nothing has a world form as a texture, and the camera target throws <see cref="NotSupportedException"/>
+    /// a texture asset of any kind or nothing has a world form as a texture, and the camera target throws <see cref="NotSupportedException"/>
     /// naming <paramref name="member"/>.</summary>
     internal CommandTarget AsTexture(string member) => Kind is KindRender or KindTemporary or KindNone or KindAsset
         ? this
@@ -100,7 +104,7 @@ internal readonly record struct CommandTarget(uint Kind, int NameId, Texture? Te
         ? (WorldGraphics.TargetTemporary, (uint)NameId)
         : (WorldGraphics.TargetRender, ToNative().render);
 
-    /// <summary>The texture kind and identity the world records: none, a texture asset by its renderer identity, a render
+    /// <summary>The texture kind and identity the world records: none, a texture asset by the identity the host draws it by, a render
     /// texture, or a temporary render texture by its property name id. A texture destroyed since the command was recorded throws
     /// <see cref="InvalidOperationException"/>.</summary>
     internal (uint Kind, ulong Texture) ToTexture() => Kind switch
@@ -112,4 +116,16 @@ internal readonly record struct CommandTarget(uint Kind, int NameId, Texture? Te
             : throw new InvalidOperationException("a texture was destroyed after the command was recorded"),
         _ => (2u, ToNative().render),
     };
+
+    /// <summary>The texture a blit or a copy reads, as <see cref="ToTexture"/> sends it, with the rule of
+    /// <see cref="WorldGraphics.RequireTexture"/> that <c>Blit(Texture, ...)</c> follows: a texture the world cannot send (an empty
+    /// <see cref="Texture2D"/>, or an array, cube or volume the host cannot store) throws <see cref="NotSupportedException"/>
+    /// naming <paramref name="member"/>, because the host would draw nothing from it.</summary>
+    internal (uint Kind, ulong Texture) ToSource(string member)
+    {
+        var source = ToTexture();
+        return Kind == KindAsset && WorldGraphics.IsUnbound(source.Kind)
+            ? throw new NotSupportedException($"{member}: a {Texture!.GetType().Name} source is not supported yet")
+            : source;
+    }
 }

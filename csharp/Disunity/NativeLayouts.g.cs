@@ -293,7 +293,9 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityUiGraphicInfo>("texture").ToInt32() != 0) throw new InvalidOperationException("DisunityUiGraphicInfo.texture offset");
         if (Marshal.OffsetOf<DisunityUiGraphicInfo>("vertex_count").ToInt32() != 8) throw new InvalidOperationException("DisunityUiGraphicInfo.vertex_count offset");
         if (Marshal.OffsetOf<DisunityUiGraphicInfo>("index_count").ToInt32() != 12) throw new InvalidOperationException("DisunityUiGraphicInfo.index_count offset");
-        if (Marshal.SizeOf<DisunityUiGraphicInfo>() != 16 || typeof(DisunityUiGraphicInfo).GetFields().Length != 3) throw new InvalidOperationException("DisunityUiGraphicInfo layout");
+        if (Marshal.OffsetOf<DisunityUiGraphicInfo>("texture_kind").ToInt32() != 16) throw new InvalidOperationException("DisunityUiGraphicInfo.texture_kind offset");
+        if (Marshal.OffsetOf<DisunityUiGraphicInfo>("padding").ToInt32() != 20) throw new InvalidOperationException("DisunityUiGraphicInfo.padding offset");
+        if (Marshal.SizeOf<DisunityUiGraphicInfo>() != 24 || typeof(DisunityUiGraphicInfo).GetFields().Length != 5) throw new InvalidOperationException("DisunityUiGraphicInfo layout");
         if (Marshal.OffsetOf<DisunityCanvasRenderer>("mesh").ToInt32() != 0) throw new InvalidOperationException("DisunityCanvasRenderer.mesh offset");
         if (Marshal.OffsetOf<DisunityCanvasRenderer>("texture").ToInt32() != 8) throw new InvalidOperationException("DisunityCanvasRenderer.texture offset");
         if (Marshal.OffsetOf<DisunityCanvasRenderer>("alpha_texture").ToInt32() != 16) throw new InvalidOperationException("DisunityCanvasRenderer.alpha_texture offset");
@@ -553,18 +555,6 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityComputeGlobalTexture>("name_length").ToInt32() != 0) throw new InvalidOperationException("DisunityComputeGlobalTexture.name_length offset");
         if (Marshal.OffsetOf<DisunityComputeGlobalTexture>("global_length").ToInt32() != 4) throw new InvalidOperationException("DisunityComputeGlobalTexture.global_length offset");
         if (Marshal.SizeOf<DisunityComputeGlobalTexture>() != 8 || typeof(DisunityComputeGlobalTexture).GetFields().Length != 2) throw new InvalidOperationException("DisunityComputeGlobalTexture layout");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityComputeBinding.kind offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("name_offset").ToInt32() != 4) throw new InvalidOperationException("DisunityComputeBinding.name_offset offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("name_length").ToInt32() != 8) throw new InvalidOperationException("DisunityComputeBinding.name_length offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("float_offset").ToInt32() != 12) throw new InvalidOperationException("DisunityComputeBinding.float_offset offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("int_value").ToInt32() != 16) throw new InvalidOperationException("DisunityComputeBinding.int_value offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("texture_kind").ToInt32() != 20) throw new InvalidOperationException("DisunityComputeBinding.texture_kind offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("resource").ToInt32() != 24) throw new InvalidOperationException("DisunityComputeBinding.resource offset");
-        if (Marshal.SizeOf<DisunityComputeBinding>() != 32 || typeof(DisunityComputeBinding).GetFields().Length != 7) throw new InvalidOperationException("DisunityComputeBinding layout");
-        if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("entry_count").ToInt32() != 0) throw new InvalidOperationException("DisunityComputeBindingsInfo.entry_count offset");
-        if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("float_count").ToInt32() != 4) throw new InvalidOperationException("DisunityComputeBindingsInfo.float_count offset");
-        if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("text_length").ToInt32() != 8) throw new InvalidOperationException("DisunityComputeBindingsInfo.text_length offset");
-        if (Marshal.SizeOf<DisunityComputeBindingsInfo>() != 12 || typeof(DisunityComputeBindingsInfo).GetFields().Length != 3) throw new InvalidOperationException("DisunityComputeBindingsInfo layout");
         if (Marshal.OffsetOf<DisunityEnvironment>("ambient_set").ToInt32() != 0) throw new InvalidOperationException("DisunityEnvironment.ambient_set offset");
         if (Marshal.OffsetOf<DisunityEnvironment>("ambient_mode").ToInt32() != 4) throw new InvalidOperationException("DisunityEnvironment.ambient_mode offset");
         if (Marshal.OffsetOf<DisunityEnvironment>("ambient_intensity").ToInt32() != 8) throw new InvalidOperationException("DisunityEnvironment.ambient_intensity offset");
@@ -616,6 +606,18 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityRenderTexture>("padding").ToInt32() != 60) throw new InvalidOperationException("DisunityRenderTexture.padding offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 64) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
         if (Marshal.SizeOf<DisunityRenderTexture>() != 72 || typeof(DisunityRenderTexture).GetFields().Length != 17) throw new InvalidOperationException("DisunityRenderTexture layout");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("mesh").ToInt32() != 0) throw new InvalidOperationException("DisunityDrawBatch.mesh offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("material").ToInt32() != 8) throw new InvalidOperationException("DisunityDrawBatch.material offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("buffer").ToInt32() != 16) throw new InvalidOperationException("DisunityDrawBatch.buffer offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("offset").ToInt32() != 24) throw new InvalidOperationException("DisunityDrawBatch.offset offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("size").ToInt32() != 32) throw new InvalidOperationException("DisunityDrawBatch.size offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("submesh").ToInt32() != 40) throw new InvalidOperationException("DisunityDrawBatch.submesh offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("pass").ToInt32() != 44) throw new InvalidOperationException("DisunityDrawBatch.pass offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("metadata_count").ToInt32() != 48) throw new InvalidOperationException("DisunityDrawBatch.metadata_count offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("names_len").ToInt32() != 52) throw new InvalidOperationException("DisunityDrawBatch.names_len offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("visible_count").ToInt32() != 56) throw new InvalidOperationException("DisunityDrawBatch.visible_count offset");
+        if (Marshal.OffsetOf<DisunityDrawBatch>("tags_len").ToInt32() != 60) throw new InvalidOperationException("DisunityDrawBatch.tags_len offset");
+        if (Marshal.SizeOf<DisunityDrawBatch>() != 64 || typeof(DisunityDrawBatch).GetFields().Length != 11) throw new InvalidOperationException("DisunityDrawBatch layout");
         if (Marshal.OffsetOf<DisunityTargetRef>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTargetRef.kind offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("name_id").ToInt32() != 4) throw new InvalidOperationException("DisunityTargetRef.name_id offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("render").ToInt32() != 8) throw new InvalidOperationException("DisunityTargetRef.render offset");
@@ -632,13 +634,7 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityOffscreenWork>("source_mip").ToInt32() != 56) throw new InvalidOperationException("DisunityOffscreenWork.source_mip offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("target_element").ToInt32() != 60) throw new InvalidOperationException("DisunityOffscreenWork.target_element offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("target_mip").ToInt32() != 64) throw new InvalidOperationException("DisunityOffscreenWork.target_mip offset");
-        if (Marshal.OffsetOf<DisunityOffscreenWork>("shader").ToInt32() != 72) throw new InvalidOperationException("DisunityOffscreenWork.shader offset");
-        if (Marshal.OffsetOf<DisunityOffscreenWork>("kernel").ToInt32() != 80) throw new InvalidOperationException("DisunityOffscreenWork.kernel offset");
-        if (Marshal.OffsetOf<DisunityOffscreenWork>("groups_x").ToInt32() != 84) throw new InvalidOperationException("DisunityOffscreenWork.groups_x offset");
-        if (Marshal.OffsetOf<DisunityOffscreenWork>("groups_y").ToInt32() != 88) throw new InvalidOperationException("DisunityOffscreenWork.groups_y offset");
-        if (Marshal.OffsetOf<DisunityOffscreenWork>("groups_z").ToInt32() != 92) throw new InvalidOperationException("DisunityOffscreenWork.groups_z offset");
-        if (Marshal.OffsetOf<DisunityOffscreenWork>("bindings").ToInt32() != 96) throw new InvalidOperationException("DisunityOffscreenWork.bindings offset");
-        if (Marshal.SizeOf<DisunityOffscreenWork>() != 104 || typeof(DisunityOffscreenWork).GetFields().Length != 18) throw new InvalidOperationException("DisunityOffscreenWork layout");
+        if (Marshal.SizeOf<DisunityOffscreenWork>() != 72 || typeof(DisunityOffscreenWork).GetFields().Length != 12) throw new InvalidOperationException("DisunityOffscreenWork layout");
         if (Marshal.OffsetOf<DisunityTextureSlot>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTextureSlot.kind offset");
         if (Marshal.OffsetOf<DisunityTextureSlot>("texture").ToInt32() != 8) throw new InvalidOperationException("DisunityTextureSlot.texture offset");
         if (Marshal.OffsetOf<DisunityTextureSlot>("scale_x").ToInt32() != 16) throw new InvalidOperationException("DisunityTextureSlot.scale_x offset");
@@ -761,13 +757,17 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityUiDraw>("effect_g").ToInt32() != 140) throw new InvalidOperationException("DisunityUiDraw.effect_g offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("effect_b").ToInt32() != 144) throw new InvalidOperationException("DisunityUiDraw.effect_b offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("effect_a").ToInt32() != 148) throw new InvalidOperationException("DisunityUiDraw.effect_a offset");
-        if (Marshal.SizeOf<DisunityUiDraw>() != 152 || typeof(DisunityUiDraw).GetFields().Length != 36) throw new InvalidOperationException("DisunityUiDraw layout");
+        if (Marshal.OffsetOf<DisunityUiDraw>("texture_kind").ToInt32() != 152) throw new InvalidOperationException("DisunityUiDraw.texture_kind offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("padding").ToInt32() != 156) throw new InvalidOperationException("DisunityUiDraw.padding offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("material").ToInt32() != 160) throw new InvalidOperationException("DisunityUiDraw.material offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("material_generation").ToInt32() != 168) throw new InvalidOperationException("DisunityUiDraw.material_generation offset");
+        if (Marshal.SizeOf<DisunityUiDraw>() != 176 || typeof(DisunityUiDraw).GetFields().Length != 40) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 22;
+    internal const uint Version = 31;
     internal static void VerifyRevision(uint actual)
     {
         if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);

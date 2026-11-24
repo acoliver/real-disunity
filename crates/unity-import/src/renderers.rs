@@ -79,20 +79,22 @@ pub(crate) fn plan_mesh_renderer(
     }
 }
 
+/// What a skinned mesh renderer names, resolved against the plan: the asset index of its mesh and
+/// the object index of each bone transform and of the root bone.
+pub(crate) struct PlannedSkin {
+    pub(crate) mesh: Option<usize>,
+    pub(crate) bones: Vec<Option<usize>>,
+    pub(crate) root_bone: Option<usize>,
+}
+
 /// The plan skinned mesh renderer for a decoded one.
 pub(crate) fn plan_skinned_mesh_renderer(
     owner: &str,
     skinned: &SkinnedMeshRenderer,
+    skin: PlannedSkin,
     materials: Vec<Option<usize>>,
     differences: &mut Vec<String>,
 ) -> PlanComponent {
-    if !skinned.mesh.is_null() {
-        differences.push(unplanned(
-            owner,
-            "SkinnedMeshRenderer",
-            "mesh references a Mesh asset",
-        ));
-    }
     PlanComponent::SkinnedMeshRenderer {
         renderer: plan_renderer(
             owner,
@@ -103,11 +105,10 @@ pub(crate) fn plan_skinned_mesh_renderer(
         ),
         quality: skinned.quality,
         update_when_offscreen: skinned.update_when_offscreen,
+        mesh: skin.mesh,
+        bones: skin.bones,
+        root_bone: skin.root_bone,
     }
-}
-
-fn unplanned(owner: &str, class: &str, what: &str) -> String {
-    format!("{owner}: {class} {what}, which plans cannot build yet")
 }
 
 /// The asset index `resolve` gives for each material slot, in the first [`MAX_MATERIALS`]

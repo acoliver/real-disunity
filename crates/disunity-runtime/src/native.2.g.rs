@@ -101,24 +101,6 @@ pub struct DisunityComputeGlobalTexture {
     pub global_length: u32,
 }
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisunityComputeBinding {
-    pub kind: u32,
-    pub name_offset: u32,
-    pub name_length: u32,
-    pub float_offset: u32,
-    pub int_value: i32,
-    pub texture_kind: u32,
-    pub resource: u64,
-}
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisunityComputeBindingsInfo {
-    pub entry_count: u32,
-    pub float_count: u32,
-    pub text_length: u32,
-}
-#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DisunityEnvironment {
     pub ambient_set: u32,
@@ -186,6 +168,21 @@ pub struct DisunityRenderTexture {
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityDrawBatch {
+    pub mesh: u64,
+    pub material: u64,
+    pub buffer: u64,
+    pub offset: u64,
+    pub size: u64,
+    pub submesh: u32,
+    pub pass: i32,
+    pub metadata_count: u32,
+    pub names_len: u32,
+    pub visible_count: u32,
+    pub tags_len: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityTargetRef {
     pub kind: u32,
     pub name_id: i32,
@@ -206,12 +203,6 @@ pub struct DisunityOffscreenWork {
     pub source_mip: u32,
     pub target_element: u32,
     pub target_mip: u32,
-    pub shader: u64,
-    pub kernel: u32,
-    pub groups_x: u32,
-    pub groups_y: u32,
-    pub groups_z: u32,
-    pub bindings: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -363,4 +354,13 @@ pub struct DisunityUiDraw {
     pub effect_g: f32,
     pub effect_b: f32,
     pub effect_a: f32,
+    /// 0 when `DisunityQuad::texture` is a stored image identity (graphics) or a coverage index
+    /// (text); 1 when it is a render texture id (`RenderTextureId::to_bits`).
+    pub texture_kind: u32,
+    pub padding: u32,
+    /// The world material of a graphic the game draws with its own shader, from
+    /// `MaterialId::to_bits`; zero for the engine's look and for text.
+    pub material: u64,
+    /// The generation of that material's state; zero when `material` is zero.
+    pub material_generation: u64,
 }

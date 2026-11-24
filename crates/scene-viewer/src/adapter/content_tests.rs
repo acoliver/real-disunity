@@ -295,23 +295,7 @@ fn supplier_failure_is_typed_and_not_repeated() {
 }
 
 #[test]
-fn supplier_validates_selected_scene_and_pending_captures() {
-    let mut host = RetainedHost::with_initial_content(crate::tests::options(), |_| {
-        Ok(InitialContent {
-            scene: crate::tests::scene(true),
-            settings: None,
-        })
-    })
-    .unwrap();
-    assert!(matches!(
-        host.resolve_initial_content(InitialContext {
-            adapter: &identity(),
-            surface_extent: [64, 32],
-            display: None,
-            presentable_backends: None,
-        }),
-        Err(ViewerError::UnsupportedScene("water requires HDR"))
-    ));
+fn supplier_validates_pending_captures() {
     let mut host = RetainedHost::with_initial_content(crate::tests::options(), |_| {
         Ok(InitialContent {
             scene: crate::tests::scene(false),

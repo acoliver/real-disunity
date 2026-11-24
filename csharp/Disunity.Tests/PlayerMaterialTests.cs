@@ -88,7 +88,7 @@ internal static class PlayerMaterialTests
         File.WriteAllText(Path.Combine(directory, "rock.json"), ScenePlan([], new JsonArray(PlannedObject(Renderer(2, null, 4)))).ToJsonString());
         var assets = new JsonArray
         {
-            new JsonObject { ["type"] = "Shader", ["name"] = LitShader, ["render_queue"] = 3000, ["pass_count"] = 2, ["pass_names"] = new JsonArray("", ""), ["subshader_count"] = 1 },
+            new JsonObject { ["type"] = "Shader", ["name"] = LitShader, ["render_queue"] = 3000, ["pass_count"] = 2, ["pass_names"] = new JsonArray("", ""), ["subshader_count"] = 1, ["tags"] = new JsonArray(), ["fallback"] = "" },
             new JsonObject
             {
                 ["type"] = "Texture2D", ["name"] = "Albedo", ["width"] = 8, ["height"] = 8, ["format"] = 4, ["mip_count"] = 1, ["readable"] = true,
@@ -148,6 +148,7 @@ internal static class PlayerMaterialTests
         Expect.That(bare.shader is not null && bare.shader.name == "Hidden/InternalErrorShader", "a material without a shader gets the fallback shader");
         Expect.That(bare.rawRenderQueue == -1 && bare.renderQueue == bare.shader!.renderQueue, "a queue of -1 is the shader's");
         Expect.Equal(2000, bare.renderQueue, "the fallback shader draws in the geometry queue");
+        Expect.Equal("d", bare.GetTag("MohawkStaticBatching", true, "d"), "the engine's fallback shader declares no tags, so GetTag gives the default");
         Console.WriteLine("PASS: a material without a shader gets the fallback shader and the shader's queue");
     }
 
@@ -179,7 +180,7 @@ internal static class PlayerMaterialTests
 
     private static void ScenePlansBuildTheirMaterials()
     {
-        var shader = new JsonObject { ["type"] = "Shader", ["name"] = "Test/PlayerMaterials/SceneLit", ["render_queue"] = 2000, ["pass_count"] = 1, ["pass_names"] = new JsonArray(""), ["subshader_count"] = 1 };
+        var shader = new JsonObject { ["type"] = "Shader", ["name"] = "Test/PlayerMaterials/SceneLit", ["render_queue"] = 2000, ["pass_count"] = 1, ["pass_names"] = new JsonArray(""), ["subshader_count"] = 1, ["tags"] = new JsonArray(), ["fallback"] = "" };
         var material = Lit(0, null);
         material["textures"] = new JsonArray(Slot("_MainTex", null));
         var scripted = new JsonObject

@@ -4,8 +4,7 @@ use worldrunner_world_simulation::physics2d::{
     Body2d, Collider2d, ColliderGeometry, ContactPhase, PhysicsError, QueryFilter, Shape2d,
 };
 use worldrunner_world_simulation::presentation::{
-    GlobalLight2d, Sprite, SpriteLighting,
-    extraction::{SpriteTextures, extract_world},
+    GlobalLight2d, Sprite, SpriteLighting, extraction::extract_world,
 };
 use worldrunner_world_simulation::tilemap::{Tile, TileCell, TileCollider, TileLayout, Tilemap};
 use worldrunner_world_simulation::{
@@ -302,7 +301,7 @@ fn lit_tiles_take_the_global_light_on_their_layer_and_unlit_tiles_keep_their_tin
         let owner = w.create_object(ObjectDesc::default()).unwrap();
         w.add_component(owner, ComponentDesc::Tilemap(map)).unwrap();
     }
-    let plan = extract_world(&w, &SpriteTextures::default(), [10, 10]).unwrap();
+    let plan = extract_world(&w, [10, 10]).unwrap();
     let drawn: Vec<_> = plan.quads.iter().map(|q| (q.color, q.lighting)).collect();
     assert_eq!(
         drawn,

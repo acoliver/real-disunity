@@ -1,26 +1,29 @@
-//! The renderer's choice of whether the stock passes draw the scene's water.
+//! The stock passes' view of the scene's water, which a game feature may draw instead.
 //!
-//! The water the renderer installed is resident whatever the choice: its bodies, its environment
-//! and its surface inputs are kept and updated. [`FrameRenderer::stock_water`] is the one query
-//! the stock consumers read, so each of them sees the water only while the stock passes draw it.
+//! The water the renderer installed is resident whatever a game declares: its bodies, its
+//! environment and its surface inputs are kept and updated. [`FrameRenderer::stock_water`] is the
+//! one query the stock consumers read, so each of them sees the water only while the stock passes
+//! draw it.
 use super::FrameRenderer;
-use crate::draw::WaterDraws;
-use crate::water::{Water, WaterFeature, WaterRegistration};
+use crate::water::{Water, WaterRegistration};
 use worldrunner_render_post::FrameError;
 
 impl FrameRenderer {
-    /// The water the stock passes draw this frame: the installed water, unless the draws are
-    /// suppressed. The water pass and its reactive mask pass, the water receivers, the snapshots
+    /// The water the stock passes draw this frame: the installed water, unless a game feature
+    /// declared that it draws the water. The water pass, the water receivers, the snapshots
     /// the water reads and the water inputs of the reflections all follow this. Code that holds
-    /// other fields of the renderer mutably reads `self.water_draws.drawn(self.water.as_ref())`.
+    /// other fields of the renderer mutably reads
+    /// `self.game.replaces.stock_water(self.water.as_ref())`, which is the same rule.
     pub(crate) fn stock_water(&self) -> Option<&Water> {
-        self.water_draws.drawn(self.water.as_ref())
+        self.game.replaces.stock_water(self.water.as_ref())
     }
 
-    /// Registers the water feature with the choice of draws the renderer was configured with, so
-    /// the declaration the chain keeps for it is the one the choice makes before any frame plans.
+    /// Registers the stock water feature, unless a game feature draws the water: then the chain
+    /// carries no water feature and the frame validates as it does without water.
     pub(super) fn register_water(&mut self, device: &wgpu::Device) -> Result<(), FrameError> {
-        self.water_state.borrow_mut().draws = self.water_draws;
+        if self.game.replaces.water {
+            return Ok(());
+        }
         let samples = self.targets().config().samples;
         self.chain
             .register(
@@ -66,32 +69,5 @@ impl FrameRenderer {
                     specular.create_view(&wgpu::TextureViewDescriptor::default()),
                 )
             })
-    }
-
-    /// Hands the registered water feature this frame's water and the choice of draws.
-    pub(super) fn record_water_frame(&self, feature: Option<WaterFeature>) {
-        let mut state = self.water_state.borrow_mut();
-        state.mask_written |= feature.as_ref().is_some_and(WaterFeature::writes_mask);
-        state.feature = feature;
-        state.draws = self.water_draws;
-    }
-
-    /// Zeroes the reactive mask when an earlier frame drew the stock water into it and this frame
-    /// draws none, so the temporal resolve does not read a mask of water that is no longer
-    /// there. A renderer that never suppresses the water, and every frame after the clear, encode
-    /// nothing.
-    pub(super) fn clear_unwritten_water_mask(&self, encoder: &mut wgpu::CommandEncoder) {
-        let mut state = self.water_state.borrow_mut();
-        if state.draws == WaterDraws::Suppressed && std::mem::take(&mut state.mask_written) {
-            self.targets().encode_mask_clear(encoder);
-        }
-    }
-
-    /// Selects the water draws without a configuration, for tests that switch them between
-    /// frames of one renderer.
-    #[cfg(test)]
-    pub(crate) fn force_water_draws(&mut self, draws: WaterDraws) {
-        self.water_draws = draws;
-        self.water_state.borrow_mut().draws = draws;
     }
 }

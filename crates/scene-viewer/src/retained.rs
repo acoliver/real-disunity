@@ -85,6 +85,13 @@ pub enum RetainedUpdate {
     /// Replaces screen-space text without rebuilding scene resources. Empty plans clear it.
     Ui(std::sync::Arc<worldrunner_render_scene::simulation::UiOverlay>),
     Decal(DecalUpdate),
+    /// Shows one frame of a native 2D world: its sprite and glyph quads, drawn with the
+    /// contribution's own view over its clear colour. Textures and quads replace the previous
+    /// world frame together. From the generation that publishes it the host's view is the
+    /// frame's view, in place of the camera updates, which a world host does not use. The frame's
+    /// viewport must be the host's current size, its clear channels must be finite and in
+    /// `0..=1`, and the host must have no directional shadows.
+    World(std::sync::Arc<worldrunner_render_scene::simulation::WorldSceneContribution>),
     Add {
         id: ObjectId,
         object: SceneObject,
@@ -173,7 +180,8 @@ pub enum CameraShadowPolicy {
 }
 
 /// Typed OS input, without application action mapping or GPU types.
-/// Key names follow `LiveInputEvent`'s lowercase convention.
+/// Key names are lowercase: characters as typed and named keys such as `arrowleft`, `space` and
+/// `escape`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedInput {
     Text(TextInput),
@@ -281,6 +289,10 @@ pub struct RetainedHost {
     pub(crate) offscreen: Option<PendingOffscreen>,
     /// The game's screen the viewer shows in place of the stock scene, if the player offers one.
     pub(crate) game_screen: Option<crate::GameScreen>,
+    /// The texture the player's runs of UI draws were drawn into, which the overlay shows.
+    pub(crate) ui_layers: Option<wgpu::Texture>,
+    /// The render textures of the player the UI draws read, which the overlay binds.
+    pub(crate) ui_targets: Vec<worldrunner_render_scene::simulation::UiTarget>,
     pub(crate) scene: Option<RenderScene>,
     pub(crate) initial_scene: Option<RenderScene>,
     initial_content: Option<startup::Supplier>,
@@ -345,7 +357,7 @@ impl RetainedHost {
             });
         }
         if let RetainedUpdate::Settings(effects) = &update {
-            Self::validate_streamed_effects(effects, &self.options)?;
+            Self::validate_streamed_effects(effects)?;
         }
         if resource_edits::is_resource_edit(&update) {
             return self.apply_resource_edit(update);
@@ -383,7 +395,43 @@ impl RetainedHost {
             self.enqueue(update, false);
             return Ok(());
         }
+        if let RetainedUpdate::World(frame) = &update {
+            self.validate_world(frame)?;
+            self.enqueue(update, false);
+            return Ok(());
+        }
         self.apply_scene_update(update)
+    }
+
+    /// A world frame draws in the plain resident at the host's size, over a clear colour.
+    fn validate_world(
+        &self,
+        frame: &worldrunner_render_scene::simulation::WorldSceneContribution,
+    ) -> Result<(), ViewerError> {
+        if self.options.shadows.is_some() {
+            return Err(ViewerError::UnsupportedScene(
+                "a world frame with directional shadows",
+            ));
+        }
+        let size = Viewport {
+            width: self.size[0],
+            height: self.size[1],
+        };
+        if frame.view.viewport() != size {
+            return Err(ViewerError::InvalidOptions(
+                "a world frame's view must match the host size",
+            ));
+        }
+        if frame
+            .clear
+            .iter()
+            .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+        {
+            return Err(ViewerError::InvalidOptions(
+                "a world frame's clear channels must be finite and in 0..=1",
+            ));
+        }
+        Ok(())
     }
 
     fn apply_scene_update(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
@@ -552,6 +600,9 @@ impl RetainedHost {
         if !self.has_view_extent() {
             return Ok(None);
         }
+        if let Some(view) = self.readiness.world_view {
+            return Ok(Some(view));
+        }
         Ok(Some(SceneView::with_convention(
             self.readiness.camera.0,
             self.readiness.camera.1,
@@ -563,20 +614,11 @@ impl RetainedHost {
         )?))
     }
 
-    /// Runs once on the main thread through the same event loop and renderer as `run_with_updates`.
-    pub fn run(self, driver: &mut impl RetainedDriver) -> Result<(), ViewerError> {
-        self.run_with_activity(
-            driver,
-            crate::activity::ActivityGuard::begin,
-            crate::app::run_retained,
-        )
-    }
-
     /// Hands the player's offscreen work for the next frame the viewer renders. That frame admits
     /// it on its own recording and runs it before its first pass, in the same submission, so its
     /// render textures are written before the scene samples them. A later call replaces work no
     /// frame took. The operations must come from a runtime on the device the window draws on,
-    /// such as one [`crate::ViewerStart::device`] made.
+    /// such as one [`crate::SharedGpu::device`] made.
     pub fn admit_offscreen(&mut self, operations: PendingOffscreen) {
         self.offscreen = Some(operations);
     }
@@ -595,14 +637,50 @@ impl RetainedHost {
         self.game_screen = screen;
     }
 
-    /// As [`Self::run`], on the event loop `start` made and on the device it made, if it made one,
-    /// which another user such as a player's offscreen work may share. The window's surface is
-    /// checked against that device's adapter when it is made.
+    /// Offers the texture that holds the runs of UI draws the player drew with a game's shader,
+    /// or withdraws it with `None`. The UI overlay shows each run of it at the sort position of the
+    /// run's first draw (see [`UiOverlay::from_presentation`]), over the screen and the scene. The
+    /// texture is a single-sample `Rgba8UnormSrgb` texture the viewer can sample, its rows bottom
+    /// first as a render texture's are. A texture nothing wrote is transparent. Until the host
+    /// offers one, the overlay's runs are transparent too.
     ///
     /// # Errors
-    /// As [`Self::run`], and [`ViewerError::SharedSurface`] when the adapter cannot present to the
-    /// window, or a missing-feature error when the scene needs a feature the device lacks.
-    pub fn run_on(
+    /// Fails by name when the texture is not such a texture; the previous offer stays.
+    ///
+    /// [`UiOverlay::from_presentation`]: worldrunner_render_scene::simulation::UiOverlay::from_presentation
+    pub fn show_ui_layers(&mut self, layers: Option<wgpu::Texture>) -> Result<(), ViewerError> {
+        if let Some(texture) = &layers {
+            crate::game_screen::require_render_texture(
+                texture,
+                "UI layers that are not a single-sample sampled Rgba8UnormSrgb texture",
+            )?;
+        }
+        self.ui_layers = layers;
+        Ok(())
+    }
+
+    /// Offers the device textures of the render textures the UI draws read, replacing the earlier
+    /// offer. The overlay binds them for the frames the viewer renders next: a texture of an id
+    /// the overlay reads is sampled after the frame's own offscreen operations, in the same
+    /// submission, so what those wrote is what the UI shows. An id with no offered texture, or
+    /// whose texture has no storage yet, draws as transparent black, and a texture no longer
+    /// offered is let go of when the next frame stages the overlay again.
+    pub fn show_ui_textures(
+        &mut self,
+        targets: Vec<worldrunner_render_scene::simulation::UiTarget>,
+    ) {
+        self.ui_targets = targets;
+    }
+
+    /// Runs once on the main thread, on the event loop `start` made and on the device it made, if
+    /// it made one, which another user such as a player's offscreen work may share. A start that
+    /// made no device leaves the viewer to make its own. The window's surface is checked against
+    /// that device's adapter when it is made.
+    ///
+    /// # Errors
+    /// Fails with [`ViewerError::SharedSurface`] when the adapter cannot present to the window, or
+    /// with a missing-feature error when the scene needs a feature the device lacks.
+    pub fn run(
         self,
         start: crate::ViewerStart,
         driver: &mut impl RetainedDriver,
@@ -610,7 +688,7 @@ impl RetainedHost {
         self.run_with_activity(
             driver,
             crate::activity::ActivityGuard::begin,
-            |host, driver| crate::app::run_retained_on(host, driver, start),
+            |host, driver| crate::app::run_retained(host, driver, start),
         )
     }
 

@@ -9,7 +9,7 @@ internal static class UiTests
         DisunityHost.LoadWorld();
         var root = DisunityHost.CreateGameObject();
         var rect = root.AddComponent<RectTransform>();
-        root.AddComponent<Canvas>();
+        root.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
         Require(ReferenceEquals(root.transform, rect), "RectTransform replaces transform wrapper");
         Require(rect.rect.width == 800 && rect.rect.height == 600, "native screen Canvas layout");
         var label = DisunityHost.CreateGameObject();

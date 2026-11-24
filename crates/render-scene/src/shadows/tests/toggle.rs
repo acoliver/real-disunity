@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_shadow_capture_requested_while_disabled_waits_for_enabled_submission() {
@@ -7,11 +8,18 @@ fn gpu_shadow_capture_requested_while_disabled_waits_for_enabled_submission() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, retained_settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, retained_settings()).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let receiver = Vec3::new(-0.75, 0.0, 0.0);
     assert_shadow(
-        &render_image(&mut renderer, &context, &camera, &mut target),
+        &render_image(
+            &mut renderer,
+            &mut scheduler,
+            &context,
+            &camera,
+            &mut target,
+        ),
         &baseline,
         receiver,
     );
@@ -19,7 +27,13 @@ fn gpu_shadow_capture_requested_while_disabled_waits_for_enabled_submission() {
     take_shadow_execution();
     renderer.set_shadows_enabled(false);
     renderer.request_shadow_capture();
-    let disabled = render_image(&mut renderer, &context, &camera, &mut target);
+    let disabled = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_lit(&disabled, &baseline, receiver);
     assert!(!take_shadow_execution());
     assert_eq!(
@@ -30,12 +44,12 @@ fn gpu_shadow_capture_requested_while_disabled_waits_for_enabled_submission() {
     renderer.set_shadows_enabled(true);
     let mut abandoned = context.submission().begin(context.device()).unwrap();
     renderer
-        .encode(
+        .encode_with(
             &context,
             &camera,
-            &target.color_attachment(),
-            &target.depth_attachment(),
+            (&target.color_attachment(), &target.depth_attachment()),
             &mut abandoned,
+            &mut scheduler,
         )
         .unwrap();
     drop(abandoned);
@@ -44,7 +58,13 @@ fn gpu_shadow_capture_requested_while_disabled_waits_for_enabled_submission() {
         initial_refresh
     );
     take_shadow_execution();
-    let restored = render_image(&mut renderer, &context, &camera, &mut target);
+    let restored = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_shadow(&restored, &baseline, receiver);
     assert!(take_shadow_execution());
     assert_eq!(
@@ -60,10 +80,17 @@ fn gpu_resident_shadow_toggle_disables_and_restores_cached_shadow() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, retained_settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, retained_settings()).unwrap();
     assert!(renderer.shadows_enabled());
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
-    let warmed = render_image(&mut renderer, &context, &camera, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let warmed = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     let receiver = Vec3::new(-0.75, 0.0, 0.0);
     assert_shadow(&warmed, &baseline, receiver);
     let initial_refresh = renderer.cascade_refresh_states()[0].last_frame();
@@ -71,7 +98,13 @@ fn gpu_resident_shadow_toggle_disables_and_restores_cached_shadow() {
 
     renderer.set_shadows_enabled(false);
     assert!(!renderer.shadows_enabled());
-    let disabled = render_image(&mut renderer, &context, &camera, &mut target);
+    let disabled = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_lit(&disabled, &baseline, receiver);
     assert!(
         !take_shadow_execution(),
@@ -85,7 +118,13 @@ fn gpu_resident_shadow_toggle_disables_and_restores_cached_shadow() {
 
     renderer.set_shadows_enabled(true);
     assert!(renderer.shadows_enabled());
-    let restored = render_image(&mut renderer, &context, &camera, &mut target);
+    let restored = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_shadow(&restored, &baseline, receiver);
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_frame(),
@@ -102,13 +141,20 @@ fn gpu_shadow_toggle_before_first_frame_skips_maps_until_enabled() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let receiver = Vec3::new(-0.75, 0.0, 0.0);
     take_shadow_execution();
 
     renderer.set_shadows_enabled(false);
-    let disabled = render_image(&mut renderer, &context, &camera, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let disabled = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_lit(&disabled, &baseline, receiver);
     assert!(!take_shadow_execution());
     assert!(
@@ -119,7 +165,13 @@ fn gpu_shadow_toggle_before_first_frame_skips_maps_until_enabled() {
     );
 
     renderer.set_shadows_enabled(true);
-    let enabled = render_image(&mut renderer, &context, &camera, &mut target);
+    let enabled = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_shadow(&enabled, &baseline, receiver);
     assert!(take_shadow_execution());
     assert!(
@@ -137,11 +189,18 @@ fn gpu_shadow_toggle_refreshes_a_caster_moved_while_disabled() {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let camera = view();
     let baseline = capture_scene(&context, &source, &camera).unwrap();
-    let mut renderer = ShadowedScene::new(&context, &source, retained_settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, retained_settings()).unwrap();
     let mut target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
     let old_shadow = Vec3::new(-0.75, 0.0, 0.0);
     let new_shadow = Vec3::new(0.75, 0.0, 0.0);
-    let warmed = render_image(&mut renderer, &context, &camera, &mut target);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let warmed = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_shadow(&warmed, &baseline, old_shadow);
     assert_lit(&warmed, &baseline, new_shadow);
     let initial_refresh = renderer.cascade_refresh_states()[0].last_frame();
@@ -151,7 +210,13 @@ fn gpu_shadow_toggle_refreshes_a_caster_moved_while_disabled() {
     renderer.set_shadows_enabled(false);
     move_caster(&mut renderer);
     for _ in 0..2 {
-        let disabled = render_image(&mut renderer, &context, &camera, &mut target);
+        let disabled = render_image(
+            &mut renderer,
+            &mut scheduler,
+            &context,
+            &camera,
+            &mut target,
+        );
         assert_lit(&disabled, &baseline, old_shadow);
         assert_lit(&disabled, &baseline, new_shadow);
         assert!(!take_shadow_execution());
@@ -166,7 +231,13 @@ fn gpu_shadow_toggle_refreshes_a_caster_moved_while_disabled() {
     }
 
     renderer.set_shadows_enabled(true);
-    let restored = render_image(&mut renderer, &context, &camera, &mut target);
+    let restored = render_image(
+        &mut renderer,
+        &mut scheduler,
+        &context,
+        &camera,
+        &mut target,
+    );
     assert_lit(&restored, &baseline, old_shadow);
     assert_shadow(&restored, &baseline, new_shadow);
     assert_ne!(
@@ -186,11 +257,12 @@ fn gpu_shadow_toggle_refreshes_a_caster_moved_while_disabled() {
 
 fn render_image(
     renderer: &mut ShadowedScene,
+    scheduler: &mut crate::compositor::FrameRenderer,
     context: &GpuContext,
     camera: &SceneView,
     target: &mut OffscreenTarget,
 ) -> RgbaImage {
-    render_target(renderer, context, camera, target).unwrap();
+    render_target(renderer, scheduler, context, camera, target).unwrap();
     target.read_rgba8(context).unwrap()
 }
 

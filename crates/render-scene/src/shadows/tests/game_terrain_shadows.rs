@@ -1,16 +1,16 @@
-//! A game that draws the streamed terrain itself on the shadowed route, with the stock terrain
-//! draws turned off for the camera passes, and shades it from the stock shadow cascades. The
+//! A game that draws the streamed terrain itself on the shadowed route, which turns the stock
+//! terrain draws off for the camera passes, and shades it from the stock shadow cascades. The
 //! game's pass samples the lent cascade depth with the lent comparison sampler, so what it
 //! shows is the terrain the stock casters wrote into the cascades.
-use super::refresh::depth_layers;
 use super::*;
 use crate::compositor::{
     ColorOutput, DepthAccess, FrameCameraHandle, FrameInputError, FrameShadowHandle, FrameShadows,
     FrameTerrainError, FrameTerrainHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
-    GameTargets, PassTarget, TerrainDraws,
+    GameTargets, PassTarget, StockReplacement,
 };
 use crate::draw::TerrainChunkDraw;
 use crate::geometry::{VERTEX_STRIDE, vertex_attributes};
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -88,6 +88,7 @@ type Seen = Arc<Mutex<Vec<Lent>>>;
 
 struct Receiver {
     seen: Seen,
+    replaces: StockReplacement,
 }
 
 struct Parts {
@@ -155,6 +156,10 @@ fn receiver_program(runtime: &ProgramRuntime) -> GraphicsProgram {
 impl GameFeatureFactory for Receiver {
     fn name(&self) -> &'static str {
         "terrain receiver"
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.replaces
     }
 
     fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
@@ -409,14 +414,13 @@ struct Outcome {
     lent: Vec<Lent>,
     shades: Shades,
     stock_terrain_calls: u64,
-    cascade_depth: Vec<Vec<f32>>,
 }
 
-/// Renders `FRAMES` same-frame fitted captures of the ridge with the game installed and the
-/// stock terrain draws set to `draws`.
-fn run(draws: TerrainDraws) -> Outcome {
+/// Renders `FRAMES` same-frame fitted captures of the ridge with the game installed, declaring
+/// `replaces`.
+fn run(replaces: StockReplacement) -> Outcome {
     let context = context();
-    let mut renderer = ShadowedScene::new(&context, &ridge_scene(), settings()).unwrap();
+    let mut renderer = shadowed(&context, &ridge_scene(), settings()).unwrap();
     renderer
         .set_depth_fitting(
             &context,
@@ -426,17 +430,26 @@ fn run(draws: TerrainDraws) -> Outcome {
             }),
         )
         .unwrap();
-    renderer.scheduler.force_terrain_draws(draws);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let seen = Seen::default();
     GamePasses::new()
-        .with(Arc::new(Receiver { seen: seen.clone() }))
-        .install(&mut renderer.scheduler, &context, None)
+        .with(Arc::new(Receiver {
+            seen: seen.clone(),
+            replaces,
+        }))
+        .install(&mut scheduler, &context, None)
         .unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     for frame in 0..FRAMES {
         let attachments = (&target.color_attachment(), &target.depth_attachment());
         renderer
-            .render_depth_fitted(&context, &view(), attachments, frame)
+            .render_depth_fitted_host(
+                &context,
+                &view(),
+                attachments,
+                (Some(frame), false, &[]),
+                &mut scheduler,
+            )
             .expect("the frame renders without refusal")
             .expect("the capture fitted");
         context
@@ -453,60 +466,44 @@ fn run(draws: TerrainDraws) -> Outcome {
         lent,
         shades: shades(&image),
         stock_terrain_calls: renderer.scene_mut().statistics().passes.terrain.calls,
-        cascade_depth: depth_layers(&context, &renderer),
     }
 }
 
 /// Every segment that prepared the game was lent chunks and the cascade the fixture declares.
-fn assert_lent_everything(outcome: &Outcome, draws: TerrainDraws) {
-    assert!(!outcome.lent.is_empty(), "{draws:?}: the game prepared");
+fn assert_lent_everything(outcome: &Outcome, label: &str) {
+    assert!(!outcome.lent.is_empty(), "{label}: the game prepared");
     for lent in &outcome.lent {
         assert!(
             matches!(lent.chunks, Ok(Some(count)) if count > 0),
-            "{draws:?}: chunks were lent: {lent:?}"
+            "{label}: chunks were lent: {lent:?}"
         );
-        assert_eq!(lent.cascades, Ok(1), "{draws:?}: shadows were lent");
+        assert_eq!(lent.cascades, Ok(1), "{label}: shadows were lent");
     }
 }
 
 #[test]
 fn a_game_drawn_terrain_receives_the_stock_terrain_shadows() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let stock = run(TerrainDraws::Stock);
-    let casters = run(TerrainDraws::CastersOnly);
-    let suppressed = run(TerrainDraws::Suppressed);
-    for (outcome, draws) in [
-        (&stock, TerrainDraws::Stock),
-        (&casters, TerrainDraws::CastersOnly),
-        (&suppressed, TerrainDraws::Suppressed),
-    ] {
-        assert_lent_everything(outcome, draws);
-    }
+    let stock = run(StockReplacement::NONE);
+    let declared = run(StockReplacement::TERRAIN_SURFACE);
+    assert_lent_everything(&stock, "undeclared");
+    assert_lent_everything(&declared, "declared");
 
     assert!(
         stock.stock_terrain_calls > 0,
         "the stock opaque pass draws terrain, so the count below is not vacuous"
     );
     println!(
-        "game pixels, stock {:?}, casters only {:?}, suppressed {:?}",
-        stock.shades, casters.shades, suppressed.shades
+        "game pixels, stock {:?}, declared {:?}",
+        stock.shades, declared.shades
     );
     assert_eq!(
-        casters.stock_terrain_calls, 0,
-        "casters only leaves the camera terrain to the game"
+        declared.stock_terrain_calls, 0,
+        "a declared terrain leaves the camera terrain to the game"
     );
     assert!(
-        casters.cascade_depth != suppressed.cascade_depth,
-        "the stock terrain casts into the cascades only when it is not suppressed"
-    );
-    assert_eq!(
-        suppressed.shades.shadowed, 0,
-        "no terrain casters, so nothing the game draws is shadowed: {:?}",
-        suppressed.shades
-    );
-    assert!(
-        casters.shades.shadowed > 0 && casters.shades.lit > 0,
+        declared.shades.shadowed > 0 && declared.shades.lit > 0,
         "the game's terrain is partly shadowed and partly lit: {:?}",
-        casters.shades
+        declared.shades
     );
 }

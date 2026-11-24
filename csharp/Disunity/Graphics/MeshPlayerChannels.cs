@@ -7,7 +7,8 @@ namespace UnityEngine;
 /// <summary>Every vertex channel and sub-mesh of a mesh, which the host reads beside the fixed vertices.</summary>
 public partial class Mesh
 {
-    private const uint AttributePosition = 0, AttributeNormal = 1, AttributeTangent = 2, AttributeColor = 3, AttributeUv0 = 4;
+    private const uint AttributePosition = 0, AttributeNormal = 1, AttributeTangent = 2, AttributeColor = 3, AttributeUv0 = 4,
+        AttributeBlendWeights = 12, AttributeBlendIndices = 13;
 
     /// <summary>Sends every channel the mesh holds and every sub-mesh, empty ones included so range i is sub-mesh i, with
     /// all indices and their base vertex applied. Called right after the fixed store of the same data, which it pairs with.</summary>
@@ -53,6 +54,9 @@ public partial class Mesh
             if (dimension == 0 || data.Uvs[uv].Length != count) continue;
             Add(channels, floats, AttributeUv0 + (uint)uv, (uint)dimension, data.Uvs[uv], v => Leading(v, dimension));
         }
+        if (data.BoneWeights.Length != count) return;
+        Add(channels, floats, AttributeBlendWeights, 4, data.BoneWeights, v => [v.weight0, v.weight1, v.weight2, v.weight3]);
+        Add(channels, floats, AttributeBlendIndices, 4, data.BoneWeights, v => [v.boneIndex0, v.boneIndex1, v.boneIndex2, v.boneIndex3]);
     }
 
     private static float[] Leading(Vector4 value, int dimension) => new[] { value.x, value.y, value.z, value.w }[..dimension];

@@ -25,8 +25,6 @@ pub use image::Image;
 pub use settings::{Filter, SpriteMode, TextureSettings, Wrap};
 pub use sprites::Sprite;
 
-/// The fileID of the texture object inside a texture asset.
-pub const TEXTURE_FILE_ID: i64 = 2_800_000;
 /// The fileID of the sprite of a texture imported in single sprite mode.
 pub const SINGLE_SPRITE_FILE_ID: i64 = 21_300_000;
 

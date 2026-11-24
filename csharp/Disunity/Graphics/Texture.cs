@@ -95,7 +95,8 @@ public abstract class Texture : Object
     internal static int ForcedMinimumAnisotropy { get; private set; } = -1;
     internal static int GlobalMaximumAnisotropy { get; private set; } = -1;
 
-    /// <summary>A debug aid that tints materials by streaming state; no streaming exists, so it does nothing.</summary>
+    /// <summary>A debug aid that tints materials by texture streaming state. The engine does not stream textures: every mip
+    /// level is resident, as the <see cref="Texture2D"/> streaming members report, so there is no streaming state to show.</summary>
     public static void SetStreamingTextureMaterialDebugProperties() { }
 
     /// <inheritdoc cref="SetStreamingTextureMaterialDebugProperties()"/>

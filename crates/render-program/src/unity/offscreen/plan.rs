@@ -3,41 +3,63 @@
 //! constants buffers, whose sizes depend on every draw of the frame; a [`DrawPlan`] holds the
 //! chunk and offset its constants will have.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use worldrunner_render_post::contracts::{
-    AllocationKey, BufferUse, BufferUseKind, BufferView, ResourceLifetime, ResourceUse,
-    SamplerBinding, Semantic, TextureBinding, TextureBindingKind, UseKind,
-};
+use worldrunner_render_post::contracts::AllocationKey;
+use worldrunner_render_post::contracts::BufferUse;
+use worldrunner_render_post::contracts::BufferUseKind;
+use worldrunner_render_post::contracts::BufferView;
+use worldrunner_render_post::contracts::ResourceLifetime;
+use worldrunner_render_post::contracts::ResourceUse;
+use worldrunner_render_post::contracts::SamplerBinding;
+use worldrunner_render_post::contracts::TextureBinding;
 
 use crate::budget::Reservation;
 use crate::draw::VertexInput;
 use crate::error::ProgramError;
-use crate::ids::{MeshId, ShaderId, TextureId};
-use crate::layers::{Layers, TextureInput};
+use crate::ids::MeshId;
+use crate::ids::ShaderId;
+use crate::ids::TextureId;
+use crate::layers::Layers;
 use crate::layout::Slot;
 use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
 use crate::resources::BufferHandle;
 use crate::runtime::ProgramRuntime;
-use crate::sampler::{SamplerCache, SamplerState};
+use crate::sampler::SamplerCache;
+use crate::sampler::SamplerState;
 use crate::unity::constants::pack_layout;
-use crate::unity::shader::{PassSelector, ProgramShader, Variant};
-use crate::unity::state::{RenderState, resolve_state};
-use crate::unity::targets::{BufferTarget, ConstantBufferTarget, TextureTarget};
+use crate::unity::shader::PassSelector;
+use crate::unity::shader::ProgramShader;
+use crate::unity::shader::Variant;
+use crate::unity::state::RenderState;
+use crate::unity::state::resolve_state;
+use crate::unity::targets::BufferTarget;
+use crate::unity::targets::ConstantBufferTarget;
+use crate::unity::targets::TextureTarget;
 use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 
 use super::constants_plan::ConstantsPlan;
-use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
+use super::counts::DrawCounts;
+use super::defaults::DeclaredInputs;
+use super::defaults::DefaultBuffers;
+use super::defaults::Fill;
+use super::defaults::declared_inputs;
+use super::defaults::default_for;
 use super::depth_range;
+use super::dots::DotsDraw;
 use super::error::OffscreenError;
 use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
-use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
-use super::sampling::{self, Sampled, read_unfilterable};
-use super::slot_dimension;
-use super::storage_buffers::{PendingStorage, check_stage_limits, require_buffers};
+use super::probe::CONSTANT_ENTRY;
+use super::probe::CONSTANT_FRAGMENT;
+use super::probe::DrawFacts;
+use super::sampling::{self};
+use super::storage_buffers::PendingStorage;
+use super::storage_buffers::check_stage_limits;
+use super::storage_buffers::require_buffers;
 use super::texel_size;
 use super::textures::TextureTable;
 use super::tracker::Tracker;
@@ -48,16 +70,16 @@ pub(super) struct ProgramEntry {
     pub(super) variant: Arc<Variant>,
     /// The pass of the first sub-shader the program is.
     pub(super) pass: usize,
-    constants: Vec<ConstantBufferTarget>,
-    textures: Vec<TextureTarget>,
+    pub(super) constants: Vec<ConstantBufferTarget>,
+    pub(super) textures: Vec<TextureTarget>,
     /// The structured buffers the stages declare, by the property that names each.
-    buffers: Vec<BufferTarget>,
+    pub(super) buffers: Vec<BufferTarget>,
     /// The sampler binding split from the texture at a set and binding.
-    samplers: HashMap<(u32, u32), u32>,
+    pub(super) samplers: HashMap<(u32, u32), u32>,
     /// The names the shader gives its comparison samplers, by set and binding.
-    comparison_names: HashMap<(u32, u32), String>,
+    pub(super) comparison_names: HashMap<(u32, u32), String>,
     /// The vertex inputs the vertex stage declares, by location.
-    inputs: DeclaredInputs,
+    pub(super) inputs: DeclaredInputs,
     /// The color locations the fragment stage writes.
     pub(super) color_outputs: Vec<u32>,
 }
@@ -100,24 +122,12 @@ pub(super) struct DrawPlan {
     pub(super) texture_uses: Vec<ResourceUse>,
     /// What a probed camera render's look needs, noted only while the services are probing.
     pub(super) facts: Option<DrawFacts>,
-    /// The texture properties that no layer set and the shader does not declare, which the draw
-    /// reads from the frame's `undeclared_textures`.
-    pub(super) undeclared: Vec<String>,
     /// The texture properties the draw reads a stand-in for, with the reason the layers gave, or
-    /// [`UNDECLARED_REASON`] for a slot no layer explains. A draw left out reports none.
+    /// `texture_binding::UNDECLARED_REASON` for a slot no layer explains. A draw left out reports none.
     pub(super) stand_ins: Vec<(String, String)>,
     /// The constant buffer members and state properties no layer supplied. They count as the
     /// frame's only once the draw is kept (see [`Services::keep_unset`]).
     pub(super) unset: BTreeSet<String>,
-}
-
-/// The texture a slot reads and why it is not a layer's own: see `Services::texture_input`.
-struct ChosenTexture {
-    input: TextureInput,
-    /// Whether it is the frame's default for a slot no layer sets and the shader does not declare.
-    undeclared: bool,
-    /// The reason it is a stand-in, if it is one.
-    stand_in: Option<String>,
 }
 
 /// The program and render state `choose` picked for a draw, and the state properties no layer
@@ -131,14 +141,6 @@ pub(super) struct Chosen {
 /// Set in the blob number of the key of a program whose fragment stage writes a constant colour,
 /// which no shader's blob numbers reach.
 const CONSTANT_FRAGMENT_KEY: u32 = 1 << 31;
-
-/// The reason a draw reads the frame's grey for a slot no layer sets and the shader does not
-/// declare, when no layer says why the slot has no texture.
-const UNDECLARED_REASON: &str = "undeclared";
-
-/// The reason a draw samples a render texture that no draw, copy or blit has written, so that it
-/// holds the zeros it was made with.
-const UNWRITTEN_REASON: &str = "unwritten-render-texture";
 
 /// The fragment stage of [`StateVariant::constant_fragment`](super::StateVariant): it reads
 /// nothing and binds nothing.
@@ -191,106 +193,8 @@ pub(super) struct DrawSpec<'a> {
     pub(super) keywords: Vec<&'a str>,
     pub(super) selector: PassSelector,
     pub(super) layers: Layers<'a>,
-}
-
-/// What planning a frame's draws left out or narrowed, for the host to report.
-#[derive(Clone, Default)]
-pub(super) struct DrawCounts {
-    /// Camera draws left out because the shader has no pass the camera selects.
-    pub(super) unmatched: usize,
-    /// Camera draws left out because no layer names a texture the pass samples, in all and by the
-    /// texture property.
-    pub(super) missing_texture: usize,
-    pub(super) missing_textures: std::collections::BTreeMap<String, usize>,
-    /// Draws left out because no layer names a structured buffer the pass reads, by the buffer
-    /// property.
-    pub(super) missing_buffers: std::collections::BTreeMap<String, usize>,
-    /// Draws that read one of the frame's `undeclared_textures` for a texture property no layer
-    /// set and the shader does not declare, by the texture property.
-    pub(super) undeclared_defaults: std::collections::BTreeMap<String, usize>,
-    /// Draws that read a stand-in texture, in all and by (texture property, reason).
-    pub(super) stand_in_draws: usize,
-    pub(super) stand_ins: std::collections::BTreeMap<(String, String), usize>,
-    /// Camera draws left out because the mesh lacks a vertex channel the pass reads, in all and
-    /// by (source channel, shader input).
-    pub(super) missing_channel: usize,
-    pub(super) missing_channels: std::collections::BTreeMap<(i8, i8), usize>,
-    /// Draws left out because the pass samples a texture it draws into, in all and by that
-    /// texture.
-    pub(super) feedback_loop: usize,
-    pub(super) feedback_loops: std::collections::BTreeMap<TextureId, usize>,
-    /// Draws that read a constant for a channel their mesh lacks, by channel, input and format.
-    pub(super) defaulted: Vec<super::DefaultedChannelDraws>,
-    /// Texture reads that bound fewer levels than the texture has.
-    pub(super) partial_mips: usize,
-    /// What each camera render recorded, in call order.
-    pub(super) cameras: Vec<super::CameraDraws>,
-    /// What each draw list recorded, in call order.
-    pub(super) lists: Vec<super::ListDraws>,
-    /// The draws left out, by what the shader's passes have against what the camera selected.
-    pub(super) unmatched_passes: Vec<super::UnmatchedPasses>,
-    /// The partial texture reads, by what read them.
-    pub(super) partial_reads: Vec<super::PartialMipReads>,
-    /// Why each camera render left draws out, in the order of `cameras`, and the camera now being
-    /// planned.
-    pub(super) camera_causes: Vec<super::CameraCauses>,
-    pub(super) current: super::CameraCauses,
-    /// How each camera render drew, in the order of `cameras`.
-    pub(super) passes: Vec<super::CameraPassReport>,
-    /// Programs built because the state had none, and the time draws spent choosing programs.
-    pub(super) programs_built: usize,
-    pub(super) program_time: std::time::Duration,
-}
-
-impl DrawCounts {
-    /// Takes the counts back to `before`, as if the draws planned since had not been, except for
-    /// the programs they built and the time they took, which the state keeps.
-    pub(super) fn forget_since(&mut self, before: Self) {
-        let (programs_built, program_time) = (self.programs_built, self.program_time);
-        *self = Self {
-            programs_built,
-            program_time,
-            ..before
-        };
-    }
-
-    /// Counts one draw that read the frame's undeclared-texture default for each of `names`.
-    pub(super) fn note_undeclared(&mut self, names: &[String]) {
-        for name in names {
-            *self.undeclared_defaults.entry(name.clone()).or_default() += 1;
-        }
-    }
-
-    /// Counts one draw that read a stand-in texture for each of `stand_ins`, as one draw with
-    /// stand-ins however many it read.
-    pub(super) fn note_stand_ins(&mut self, stand_ins: &[(String, String)]) {
-        if stand_ins.is_empty() {
-            return;
-        }
-        self.stand_in_draws += 1;
-        for entry in stand_ins {
-            *self.stand_ins.entry(entry.clone()).or_default() += 1;
-        }
-    }
-
-    /// Counts one draw that read a constant for each of `defaulted`.
-    pub(super) fn note_defaulted(&mut self, defaulted: &[(i8, i8, wgpu::VertexFormat)]) {
-        for &(channel, input, format) in defaulted {
-            let found = self.defaulted.iter_mut().find(|entry| {
-                (entry.channel, entry.input, entry.format) == (channel, input, format)
-            });
-            if let Some(entry) = found {
-                entry.draws += 1;
-            } else {
-                self.defaulted.push(super::DefaultedChannelDraws {
-                    channel,
-                    input,
-                    format,
-                    draws: 1,
-                });
-            }
-        }
-    }
+    /// The instances of a raw buffer the draw makes, when it makes them.
+    pub(super) dots: Option<DotsDraw<'a>>,
 }
 
 /// The parts of the state a draw is planned from, borrowed from it together.
@@ -317,8 +221,6 @@ pub(super) struct Services<'a> {
     /// Whether the draws planned now use a fragment stage that writes a constant colour, whatever
     /// the pass's own does.
     pub(super) constant_fragment: bool,
-    /// Whether depth is reversed (near 1, far 0): see `depth_range`.
-    pub(super) reversed_depth: bool,
 }
 
 impl Services<'_> {
@@ -356,7 +258,6 @@ impl Services<'_> {
             storage: Vec::new(),
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
-            undeclared: Vec::new(),
             stand_ins: Vec::new(),
             unset,
         };
@@ -364,7 +265,7 @@ impl Services<'_> {
         // Every texture and structured buffer is looked for before anything is bound, so a draw
         // that lacks one changes nothing in the frame.
         self.require_textures(spec, &entry, &slots)?;
-        let storage = require_buffers(spec, &entry, &slots)?;
+        let storage = require_buffers(spec, &entry, &slots, self.defaults)?;
         let mut sampler_states = HashMap::new();
         let mut any_unfiltered = false;
         for slot in &slots {
@@ -395,91 +296,6 @@ impl Services<'_> {
         Ok(plan)
     }
 
-    /// Checks that every texture slot has a texture to read.
-    fn require_textures(
-        &self,
-        spec: &DrawSpec<'_>,
-        entry: &ProgramEntry,
-        slots: &[Slot],
-    ) -> Result<(), OffscreenError> {
-        for slot in slots {
-            if !matches!(slot.ty, wgpu::BindingType::Texture { .. }) {
-                continue;
-            }
-            let Some(target) = entry
-                .textures
-                .iter()
-                .find(|t| (t.set, t.binding) == (slot.set, slot.binding))
-            else {
-                continue;
-            };
-            self.texture_input(spec, target.name.resolve(&[])?, slot)?;
-        }
-        Ok(())
-    }
-
-    /// The texture a slot of property `name` reads, whether it is the frame's default for an
-    /// undeclared property, and the reason when it is a stand-in.
-    ///
-    /// A layer's texture wins. It is a stand-in when its layer says why, with the reason of the
-    /// highest layer that explains the property (see [`Layers::stand_in`]), and when it is a
-    /// render texture that nothing has written (`unwritten-render-texture`). With none, and when
-    /// the shader does not declare the property, this engine reads a grey default texture of the
-    /// slot's dimension, so the frame's `undeclared_textures` stand in, for a slot that samples a
-    /// single-sampled float texture of a dimension with a default. The reason is the one a layer
-    /// explains the missing texture with, or `undeclared`. A declared property, a slot of another
-    /// kind or dimension and a frame without the texture leave the property missing.
-    fn texture_input(
-        &self,
-        spec: &DrawSpec<'_>,
-        name: &str,
-        slot: &Slot,
-    ) -> Result<ChosenTexture, OffscreenError> {
-        if let Some(input) = spec.layers.texture(name) {
-            let unwritten = self.textures.never_written(input.texture)
-                && self.tracker.is_unwritten(input.texture);
-            return Ok(ChosenTexture {
-                input: *input,
-                undeclared: false,
-                stand_in: spec
-                    .layers
-                    .stand_in(name)
-                    .or_else(|| unwritten.then_some(UNWRITTEN_REASON))
-                    .map(str::to_owned),
-            });
-        }
-        let default = match slot.ty {
-            wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { .. },
-                view_dimension,
-                multisampled: false,
-            } => self.undeclared_textures.for_view(view_dimension),
-            _ => None,
-        };
-        let declared = self
-            .shaders
-            .get(&spec.shader)
-            .is_some_and(|shader| shader.declares_texture(name));
-        match default {
-            Some(texture) if !declared => Ok(ChosenTexture {
-                input: TextureInput {
-                    texture,
-                    sampler: None,
-                },
-                undeclared: true,
-                stand_in: Some(
-                    spec.layers
-                        .explanation(name)
-                        .unwrap_or(UNDECLARED_REASON)
-                        .to_owned(),
-                ),
-            }),
-            _ => Err(OffscreenError::MissingTexture {
-                name: name.to_owned(),
-            }),
-        }
-    }
-
     /// The program and render state of the pass and variant `spec` selects.
     pub(super) fn choose(&mut self, spec: &DrawSpec<'_>) -> Result<Chosen, OffscreenError> {
         let started = std::time::Instant::now();
@@ -504,8 +320,7 @@ impl Services<'_> {
         };
         self.counts.program_time += started.elapsed();
         let mut state = resolve_state(&resolved.state, &spec.layers.values())?;
-        state.state.depth_compare =
-            depth_range::depth_test(state.state.depth_compare, self.reversed_depth);
+        state.state.depth_compare = depth_range::depth_test(state.state.depth_compare);
         Ok(Chosen {
             entry,
             state: state.state,
@@ -586,9 +401,22 @@ impl Services<'_> {
                 what: "a uniform buffer no parameter describes",
             })?;
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
-        let texel_sizes = texel_size::texel_sizes(self.textures, &spec.layers, &target.buffer);
+        let texel_sizes = texel_size::texel_sizes(
+            self.textures,
+            self.undeclared_textures,
+            &spec.layers,
+            &target.buffer,
+        );
         let mut values = spec.layers.values();
         values.push(&texel_sizes);
+        let dots = spec
+            .dots
+            .map(|dots| dots.values(&target.buffer, &values))
+            .transpose()?;
+        // The batch's own values come first: they are what the draw's variant is for.
+        if let Some(set) = &dots {
+            values.insert(0, set);
+        }
         let packed = pack_layout(&target.buffer, &[], &values, min_len)?;
         if let Some(facts) = plan.facts.as_mut() {
             facts.note_constants(&target.buffer, &packed, slot.visibility, &values);
@@ -604,188 +432,6 @@ impl Services<'_> {
             len: packed.bytes.len() as u64,
         });
         Ok(())
-    }
-
-    /// Binds the texture a layer names for the slot's parameter, or the frame's default for an
-    /// undeclared one, and returns the sampler state it is read with.
-    fn bind_texture(
-        &mut self,
-        spec: &DrawSpec<'_>,
-        entry: &ProgramEntry,
-        slot: &Slot,
-        plan: &mut DrawPlan,
-    ) -> Result<Sampled, OffscreenError> {
-        let wgpu::BindingType::Texture {
-            sample_type,
-            view_dimension,
-            ..
-        } = slot.ty
-        else {
-            return Ok(Sampled::default());
-        };
-        let target = entry
-            .textures
-            .iter()
-            .find(|t| (t.set, t.binding) == (slot.set, slot.binding))
-            .ok_or(OffscreenError::UnsupportedBinding {
-                set: slot.set,
-                binding: slot.binding,
-                what: "a texture no parameter names",
-            })?;
-        let name = target.name.resolve(&[])?;
-        let ChosenTexture {
-            input,
-            undeclared,
-            stand_in,
-        } = self.texture_input(spec, name, slot)?;
-        if undeclared {
-            plan.undeclared.push(name.to_owned());
-        }
-        if let Some(reason) = stand_in {
-            plan.stand_ins.push((name.to_owned(), reason));
-        }
-        if let Some(facts) = plan.facts.as_mut() {
-            facts.textures.push((name.to_owned(), input.texture));
-        }
-        let (imported, own) = self.import(input.texture)?;
-        let stored = self.textures.get(input.texture)?.dimension;
-        slot_dimension::refuse(name, input.texture, stored, view_dimension)?;
-        // A depth slot is read through a comparison sampler, which takes the depth aspect alone:
-        // the depth of a depth-only render texture, whose format has no stencil. A colour texture,
-        // and the depth buffer under one, have none to give.
-        let depth_only =
-            imported.format.has_depth_aspect() && !imported.format.has_stencil_aspect();
-        if sample_type == wgpu::TextureSampleType::Depth && !depth_only {
-            return Err(OffscreenError::UnsupportedBinding {
-                set: slot.set,
-                binding: slot.binding,
-                what: "a depth texture slot over a texture with no depth-only storage",
-            });
-        }
-        let versions = self.tracker.sampled_levels(input.texture, imported)?;
-        let mips = u32::try_from(versions.len()).unwrap_or(u32::MAX);
-        if mips < imported.mips {
-            self.counts.partial_mips += 1;
-            self.note_partial_read(spec, entry, (name, mips, imported.mips));
-        }
-        let view = self
-            .tracker
-            .whole_view(imported, mips, view_dimension, versions[0])?;
-        let features = self.runtime.device().features();
-        let (sample_type, state) = read_unfilterable(
-            sample_type,
-            imported.format,
-            features,
-            input.sampler.or(own),
-        );
-        // One read per run of levels written at the same point; a single run is the view itself.
-        let mut start = 0;
-        while start < versions.len() {
-            let end = versions[start..]
-                .iter()
-                .position(|&version| version != versions[start])
-                .map_or(versions.len(), |offset| start + offset);
-            let used = if start == 0 && end == versions.len() {
-                view.clone()
-            } else {
-                let levels = u32::try_from(start).unwrap_or(u32::MAX)
-                    ..u32::try_from(end).unwrap_or(u32::MAX);
-                self.tracker
-                    .levels_view(imported, levels, view_dimension, versions[start])?
-            };
-            plan.texture_uses
-                .push(ResourceUse::read(used, UseKind::Sampled));
-            start = end;
-        }
-        plan.textures.push((
-            slot.set,
-            TextureBinding {
-                binding: slot.binding,
-                visibility: slot.visibility,
-                view,
-                samples: 1,
-                semantic: Semantic::Unspecified,
-                kind: TextureBindingKind::Sampled(sample_type),
-            },
-        ));
-        Ok(Sampled {
-            state,
-            unfiltered: sample_type == wgpu::TextureSampleType::Float { filterable: false },
-        })
-    }
-
-    /// Counts a read of `texture` (property, levels bound, levels it has) by the pass that made it.
-    fn note_partial_read(
-        &mut self,
-        spec: &DrawSpec<'_>,
-        entry: &ProgramEntry,
-        (texture, written, total): (&str, u32, u32),
-    ) {
-        let (key, tag) = match &spec.selector {
-            PassSelector::Index(index) => ("index".to_owned(), Some(index.to_string())),
-            PassSelector::Tag { key, .. } | PassSelector::TagWithUntagged { key, .. } => (
-                key.clone(),
-                self.shaders
-                    .get(&spec.shader)
-                    .and_then(|shader| shader.pass_tag(entry.pass, key)),
-            ),
-        };
-        let found = self.counts.partial_reads.iter_mut().find(|read| {
-            read.texture == texture
-                && (read.written, read.total) == (written, total)
-                && read.key == key
-                && read.tag == tag
-        });
-        if let Some(read) = found {
-            read.reads += 1;
-        } else {
-            self.counts.partial_reads.push(super::PartialMipReads {
-                texture: texture.to_owned(),
-                written,
-                total,
-                key,
-                tag,
-                reads: 1,
-            });
-        }
-    }
-
-    fn bind_sampler(
-        &mut self,
-        entry: &ProgramEntry,
-        slot: &Slot,
-        kind: wgpu::SamplerBindingType,
-        (states, any_unfiltered): (&HashMap<(u32, u32), Sampled>, bool),
-        plan: &mut DrawPlan,
-    ) {
-        if kind == wgpu::SamplerBindingType::Comparison {
-            // The runtime cannot create a comparison sampler for a program, so the draw lends
-            // one: the shadow-map read of the texture the sampler is paired with.
-            let at = (slot.set, slot.binding);
-            let name = entry.comparison_names.get(&at).map(String::as_str);
-            let state = sampling::comparison_state(name, states.get(&at));
-            plan.samplers.push((
-                slot.set,
-                SamplerBinding {
-                    binding: slot.binding,
-                    visibility: slot.visibility,
-                    sampler: self
-                        .samplers
-                        .comparison(state, depth_range::shadow_compare(self.reversed_depth)),
-                },
-            ));
-            return;
-        }
-        let state =
-            sampling::sampler_state(kind, states.get(&(slot.set, slot.binding)), any_unfiltered);
-        plan.samplers.push((
-            slot.set,
-            SamplerBinding {
-                binding: slot.binding,
-                visibility: slot.visibility,
-                sampler: self.samplers.get(state),
-            },
-        ));
     }
 
     /// Imports a texture of the frame and returns it with its own sampler state.

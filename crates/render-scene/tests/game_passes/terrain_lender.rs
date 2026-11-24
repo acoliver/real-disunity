@@ -1,11 +1,15 @@
-//! A game draws the scene's streamed terrain itself: the stock terrain draws are suppressed and
-//! the game's pass draws the chunks the frame's stock selection admitted, from the resident chunk
+//! A game draws the scene's streamed terrain itself: it declares the terrain surface, so the stock
+//! terrain draws stop, and the game's pass draws the chunks the frame's stock selection admitted, from the resident chunk
 //! buffers the renderer lends it, with a program of its own.
 use super::common::{self, graphics};
 use super::fixture::{Rig, SIZE, quad_scene, streamed_terrain_scene, terrain_scene};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedVertexInput,
@@ -16,13 +20,9 @@ use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameCameraHandle, FrameTerrainError, FrameTerrainHandle,
         GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget,
-        TerrainDraws,
+        StockReplacement,
     },
     draw::{TerrainChunkDraw, TerrainChunkEdge},
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-    },
     geometry::{VERTEX_STRIDE, vertex_attributes},
     wgpu::{self, util::DeviceExt},
 };
@@ -65,11 +65,16 @@ type Shared = Arc<Mutex<Seen>>;
 
 struct TerrainGame {
     seen: Shared,
+    replaces: StockReplacement,
 }
 
 impl GameFeatureFactory for TerrainGame {
     fn name(&self) -> &'static str {
         "terrain game"
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        self.replaces
     }
 
     fn build(&self, context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
@@ -255,13 +260,15 @@ fn centre(image: &[[u8; 4]]) -> [u8; 4] {
 /// the last image and the rig.
 fn run(
     scene: &worldrunner_render_plan::RenderScene,
-    draws: TerrainDraws,
+    replaces: StockReplacement,
     frames: usize,
 ) -> (Vec<Answer>, Vec<[u8; 4]>, Rig) {
     let seen = Shared::default();
     let mut rig = Rig::new(scene, SIZE, |settings| {
-        settings.terrain_draws = draws;
-        settings.game_passes = GamePasses::new().with(Arc::new(TerrainGame { seen: seen.clone() }));
+        settings.game_passes = GamePasses::new().with(Arc::new(TerrainGame {
+            seen: seen.clone(),
+            replaces,
+        }));
     });
     let mut image = Vec::new();
     for _ in 0..frames {
@@ -279,9 +286,13 @@ fn refined(answers: &[Answer]) -> Vec<TerrainChunkDraw> {
 }
 
 #[test]
-fn a_game_pass_draws_the_lent_stock_chunks_while_stock_terrain_is_suppressed() {
+fn a_game_pass_draws_the_lent_stock_chunks_while_it_declares_the_terrain_surface() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (answers, image, rig) = run(&streamed_terrain_scene(), TerrainDraws::Suppressed, 3);
+    let (answers, image, rig) = run(
+        &streamed_terrain_scene(),
+        StockReplacement::TERRAIN_SURFACE,
+        3,
+    );
     assert_eq!(centre(&image), GREEN, "the game drew the lent terrain");
     assert_eq!(
         rig.gpu.statistics().passes.terrain.calls,
@@ -331,7 +342,7 @@ fn a_game_pass_draws_the_lent_stock_chunks_while_stock_terrain_is_suppressed() {
 #[test]
 fn stock_terrain_draws_and_lends_the_same_frame_selection() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (answers, _, rig) = run(&streamed_terrain_scene(), TerrainDraws::Stock, 3);
+    let (answers, _, rig) = run(&streamed_terrain_scene(), StockReplacement::NONE, 3);
     assert!(
         rig.gpu.statistics().passes.terrain.calls > 0,
         "the stock pass drew the terrain"
@@ -342,7 +353,7 @@ fn stock_terrain_draws_and_lends_the_same_frame_selection() {
 #[test]
 fn unstreamed_terrain_is_refused_by_name_without_failing_the_frame() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (answers, image, _) = run(&terrain_scene(), TerrainDraws::Suppressed, 1);
+    let (answers, image, _) = run(&terrain_scene(), StockReplacement::TERRAIN_SURFACE, 1);
     assert_eq!(answers, [Err(FrameTerrainError::NotStreamed)]);
     assert_ne!(centre(&image), GREEN, "the game drew nothing");
 }
@@ -350,6 +361,6 @@ fn unstreamed_terrain_is_refused_by_name_without_failing_the_frame() {
 #[test]
 fn a_scene_without_terrain_lends_none() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (answers, _, _) = run(&quad_scene(), TerrainDraws::Stock, 1);
+    let (answers, _, _) = run(&quad_scene(), StockReplacement::NONE, 1);
     assert_eq!(answers, [Ok(None)]);
 }

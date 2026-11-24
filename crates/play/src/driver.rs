@@ -1,20 +1,24 @@
-//! Runs a loaded game in the desktop host.
-use std::collections::BTreeSet;
+//! Runs a loaded original game in the retained host's window.
 use std::path::Path;
-use std::time::Duration;
+use std::sync::Arc;
 
-use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
-use worldrunner_render_plan::simulation::{SpriteTextures, from_presentation};
+use worldrunner_disunity_runtime::DisunityHost;
+use worldrunner_render_plan::simulation::SpriteTextures;
+use worldrunner_render_scene::simulation::WorldSceneContribution;
+use worldrunner_scene_viewer::{
+    RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost, RetainedTick, RetainedUpdate,
+    ViewerStart,
+};
 
 use crate::{
-    player_meshes::PlayerMeshes, player_textures::PlayerTextures, unresolved::UnresolvedTextures,
+    PlayError, PlayerWindow, Prepared,
+    player_meshes::PlayerMeshes,
+    player_textures::PlayerTextures,
+    retained_driver::viewer_options,
+    scene_tables::SceneTables,
+    unresolved::UnresolvedTextures,
+    window_script::{Turn, WindowScript},
 };
-use worldrunner_render_scene::{Viewport, simulation::WorldSceneContribution};
-use worldrunner_scene_viewer::{
-    LiveDriver, LiveFrame, LiveInputEvent, LiveInputSample, LiveReceipt, LiveTick,
-};
-
-use crate::{PlayError, Prepared, keys::key_code};
 
 /// Glyph coverage textures the presentation creates take identities from here up.
 pub(crate) const FIRST_COVERAGE_TEXTURE: u64 = 1 << 32;
@@ -59,98 +63,124 @@ impl Capture {
 /// Writes `rgba`, tightly packed rows of four 8-bit channels, top row first, as an RGB PNG of
 /// `size`: the alpha is not part of the picture.
 pub(crate) fn write_rgb_png(path: &Path, size: [u32; 2], rgba: &[u8]) -> Result<(), PlayError> {
-    let io = |error| PlayError::Io(path.to_owned(), error);
-    let file = std::fs::File::create(path).map_err(io)?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), size[0], size[1]);
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.set_depth(png::BitDepth::Eight);
     let rgb: Vec<u8> = rgba
         .chunks_exact(4)
         .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
+    write_png_bytes(path, size, png::ColorType::Rgb, &rgb)
+}
+
+/// Writes `rgba`, tightly packed rows of four 8-bit channels, top row first, as an RGBA PNG of
+/// `size`, keeping the alpha.
+pub(crate) fn write_rgba_png(path: &Path, size: [u32; 2], rgba: &[u8]) -> Result<(), PlayError> {
+    write_png_bytes(path, size, png::ColorType::Rgba, rgba)
+}
+
+/// Writes `data`, the 8-bit channels of `color` in rows from the top, as a PNG of `size`.
+fn write_png_bytes(
+    path: &Path,
+    size: [u32; 2],
+    color: png::ColorType,
+    data: &[u8],
+) -> Result<(), PlayError> {
+    let io = |error| PlayError::Io(path.to_owned(), error);
+    let file = std::fs::File::create(path).map_err(io)?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), size[0], size[1]);
+    encoder.set_color(color);
+    encoder.set_depth(png::BitDepth::Eight);
     encoder
         .write_header()
-        .and_then(|mut writer| writer.write_image_data(&rgb))
+        .and_then(|mut writer| writer.write_image_data(data))
         .map_err(|error| PlayError::Invalid(format!("{}: {error}", path.display())))
 }
 
-/// A booted game. Window keys reach the game's `Input` at the simulated time they arrive;
-/// each update advances the world by the host's delta and renders its presentation.
-pub struct PlayDriver {
+/// A booted original game. Window keys reach the game's `Input` at the simulated time they
+/// arrive; each update advances the world and shows its presentation as one world frame.
+struct PlayDriver {
     host: DisunityHost,
     textures: SpriteTextures,
     player_textures: PlayerTextures,
     player_meshes: PlayerMeshes,
     unresolved: UnresolvedTextures,
-    simulated: Duration,
-    capture_frames: BTreeSet<u64>,
-    captures: Vec<Capture>,
+    script: WindowScript,
+}
+
+/// Boots the game `prepared` names and plays it in a window until the game has advanced
+/// `window.max_frames` frames or the window closes, returning the frames `window.capture_frames`
+/// names. The window's keys reach the game at their frames, and each frame advances the game by
+/// `window.fixed_dt` or by the time the window took.
+///
+/// # Errors
+/// Fails when the window asks for a frame it never plays, the game cannot boot or load its scene,
+/// the viewer cannot start or a frame cannot be drawn.
+pub fn play_game_window(
+    prepared: Prepared,
+    window: &PlayerWindow,
+) -> Result<Vec<Capture>, PlayError> {
+    window.validate()?;
+    let mut host = DisunityHost::boot(&prepared.config)?;
+    host.run_slice(&prepared.request)?;
+    let mut driver = PlayDriver {
+        host,
+        textures: prepared.textures,
+        player_textures: PlayerTextures::default(),
+        player_meshes: PlayerMeshes::default(),
+        unresolved: UnresolvedTextures::default(),
+        script: WindowScript::new(window),
+    };
+    let scene = SceneTables::initial_scene(None).map_err(|error| {
+        PlayError::Invalid(format!("the initial scene cannot be drawn: {error}"))
+    })?;
+    let start = ViewerStart::new()
+        .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
+    let viewer = RetainedHost::new(scene, viewer_options(window))
+        .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
+    viewer
+        .run(start, &mut driver)
+        .map_err(|error| PlayError::Invalid(error.to_string()))?;
+    driver.script.finish()
 }
 
 impl PlayDriver {
-    /// Boots the managed host and loads the prepared scene. Frames in `capture_frames`
-    /// are kept as [`Capture`]s.
-    pub fn new(
-        prepared: Prepared,
-        capture_frames: impl IntoIterator<Item = u64>,
-    ) -> Result<Self, PlayError> {
-        Self::boot(
-            &prepared.config,
-            &prepared.request,
-            prepared.textures,
-            capture_frames,
-        )
+    /// Advances the game and shows the frame it presents.
+    fn step(&mut self, viewer: &mut RetainedHost, tick: &RetainedTick) -> Result<(), PlayError> {
+        let turn = self.script.next(tick);
+        if turn == Turn::Held {
+            return Ok(());
+        }
+        self.script.advance(&mut self.host, &turn)?;
+        let frame = self.frame(viewer.size())?;
+        viewer
+            .apply(RetainedUpdate::World(Arc::new(frame)))
+            .map_err(|error| {
+                PlayError::Invalid(format!("the viewer rejects the frame: {error}"))
+            })?;
+        self.script.request_capture(viewer)
     }
 
-    /// Boots the managed host from `config` and loads the slice `request` names, drawing
-    /// sprites with `textures`. A built player's scene boots this way with no sprite textures.
-    pub fn boot(
-        config: &ManagedHostConfig,
-        request: &Path,
-        textures: SpriteTextures,
-        capture_frames: impl IntoIterator<Item = u64>,
-    ) -> Result<Self, PlayError> {
-        let mut host = DisunityHost::boot(config)?;
-        host.run_slice(request)?;
-        Ok(Self {
-            host,
-            textures,
-            player_textures: PlayerTextures::default(),
-            player_meshes: PlayerMeshes::default(),
-            unresolved: UnresolvedTextures::default(),
-            simulated: Duration::ZERO,
-            capture_frames: capture_frames.into_iter().collect(),
-            captures: Vec::new(),
-        })
-    }
-
-    #[must_use]
-    pub fn captures(&self) -> &[Capture] {
-        &self.captures
-    }
-
-    fn frame(&mut self, viewport: Viewport) -> Result<LiveFrame, PlayError> {
-        let presentation = self
+    fn frame(&mut self, size: [u32; 2]) -> Result<WorldSceneContribution, PlayError> {
+        let mut plan = self
             .host
-            .export_presentation([viewport.width, viewport.height], FIRST_COVERAGE_TEXTURE)?;
+            .export_presentation(size, FIRST_COVERAGE_TEXTURE)?;
         self.player_textures.refresh(
             &self.host,
-            presentation.quads.iter().filter_map(|quad| quad.texture),
+            plan.quads.iter().filter_map(|quad| quad.texture),
             &mut self.textures,
         )?;
         let mesh_objects = self.host.mesh_objects()?;
         self.player_meshes.refresh(&self.host, &mesh_objects)?;
-        let mut plan = from_presentation(presentation, &self.textures);
         // A texture with no texels to draw (an unsupported player format, say) leaves its sprites
         // out of the frame, each texture named once on stderr.
-        for id in self.unresolved.drop_unresolved(&mut plan) {
+        for id in self
+            .unresolved
+            .drop_unresolved(&mut plan, &self.textures.textures)
+        {
             eprintln!(
                 "a sprite shows texture {id}, which has no texels to draw; its sprites are left out"
             );
         }
-        let contribution = WorldSceneContribution::new(plan)
-            .map_err(|error| PlayError::Invalid(format!("the scene cannot be drawn: {error}")))?;
-        Ok(LiveFrame::from_world(contribution))
+        WorldSceneContribution::new(plan, &self.textures.textures)
+            .map_err(|error| PlayError::Invalid(format!("the scene cannot be drawn: {error}")))
     }
 }
 
@@ -162,51 +192,16 @@ impl Drop for PlayDriver {
     }
 }
 
-impl LiveDriver for PlayDriver {
-    fn ingress(&mut self, sample: &LiveInputSample) -> Result<(), String> {
-        let LiveInputEvent::Key {
-            key,
-            pressed,
-            repeat: false,
-        } = &sample.event
-        else {
-            return Ok(());
-        };
-        let Some(code) = key_code(key) else {
-            return Ok(());
-        };
-        // Input must follow the last advanced frame; the next update reads it.
-        let at = self.simulated + Duration::from_nanos(1);
-        self.host
-            .push_key(at, code, *pressed)
-            .map_err(|error| error.to_string())
+impl RetainedDriver for PlayDriver {
+    fn update(&mut self, viewer: &mut RetainedHost, tick: &RetainedTick) -> Result<(), String> {
+        self.step(viewer, tick).map_err(|error| error.to_string())
     }
 
-    fn update(&mut self, tick: &LiveTick) -> Result<LiveFrame, String> {
-        let nanos =
-            u64::try_from(tick.dt.as_nanos()).map_err(|_| "frame delta too long".to_owned())?;
-        self.host
-            .advance(nanos, 1_000_000_000)
-            .map_err(|error| error.to_string())?;
-        self.simulated += tick.dt;
-        let mut frame = self
-            .frame(tick.viewport)
-            .map_err(|error| error.to_string())?;
-        if self.capture_frames.contains(&tick.frame) {
-            frame.capture = Some(tick.frame);
-        }
-        Ok(frame)
-    }
-
-    fn presented(&mut self, receipt: LiveReceipt) -> Result<(), String> {
-        if let Some(capture) = receipt.capture {
-            self.captures.push(Capture {
-                frame: capture.id,
-                width: capture.image.viewport.width,
-                height: capture.image.viewport.height,
-                pixels: capture.image.pixels,
-            });
-        }
-        Ok(())
+    fn event(
+        &mut self,
+        viewer: &mut RetainedEventHost<'_>,
+        event: &RetainedEvent,
+    ) -> Result<(), String> {
+        self.script.event(&mut self.host, viewer, event)
     }
 }

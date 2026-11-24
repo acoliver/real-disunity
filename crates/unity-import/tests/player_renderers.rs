@@ -21,7 +21,8 @@ use worldrunner_unity_serialized::{
 #[path = "support/renderer_bytes.rs"]
 mod renderer_bytes;
 use renderer_bytes::{
-    Settings, distinct, filter_bytes, game_object, mesh_renderer_bytes, skinned_bytes, transform,
+    Rig, Settings, distinct, filter_bytes, game_object, mesh_renderer_bytes, skinned_bytes,
+    transform,
 };
 
 fn ptr(file_id: i32, path_id: i64) -> PPtr {
@@ -115,6 +116,10 @@ fn rig_objects() -> Vec<ObjectData> {
                 },
                 mesh,
                 &none,
+                &Rig {
+                    bones: &[ptr(0, 3), ptr(0, 7), ptr(1, 900)],
+                    root_bone: ptr(0, 3),
+                },
             ),
         ),
     ]
@@ -144,6 +149,9 @@ fn assert_rig(components: &[Vec<PlanComponent>], differences: &[String], owner: 
     skin["materials"] = json!([null]);
     skin["quality"] = json!(4);
     skin["update_when_offscreen"] = json!(true);
+    skin["mesh"] = Json::Null;
+    skin["bones"] = json!([0, 1, null]);
+    skin["root_bone"] = json!(0);
     assert_eq!(serde_json::to_value(skinned).unwrap(), skin);
     let mut listed = differences.to_vec();
     listed.sort();
@@ -162,7 +170,11 @@ fn assert_rig(components: &[Vec<PlanComponent>], differences: &[String], owner: 
             "Rock",
         ),
         name(
-            "SkinnedMeshRenderer mesh references a Mesh asset, which plans cannot build yet",
+            "SkinnedMeshRenderer mesh references object 500 of file 1, which the plan does not hold",
+            "Body",
+        ),
+        name(
+            "SkinnedMeshRenderer bone 2 references an object outside the planned hierarchy",
             "Body",
         ),
     ];
@@ -228,7 +240,7 @@ fn a_prefab_plans_mesh_filters_and_renderers_with_their_settings() {
         .iter()
         .filter(|d| d.starts_with("prefab Rock:") && d.contains("Mesh"))
         .collect();
-    assert_eq!(rock.len(), 4, "{differences:?}");
+    assert_eq!(rock.len(), 5, "{differences:?}");
 }
 
 #[test]

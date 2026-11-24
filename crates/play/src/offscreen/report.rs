@@ -10,7 +10,7 @@ use worldrunner_render_program::unity::offscreen::{
 
 use super::compute::DispatchTrace;
 use super::frame::{RendererSkip, Skip};
-use super::stand_ins::StandInCounts;
+use super::stand_ins::{GlobalReads, StandInCounts};
 use super::trace::Phases;
 
 /// The uploaded textures and meshes and the render textures given back to make room in the
@@ -43,6 +43,8 @@ pub struct Report {
     pub built: usize,
     /// The dispatches among the records. They are not frame records; see [`Placed`].
     pub dispatches: usize,
+    /// The record and what it is, for each `--read-target` the frame was asked for.
+    pub reads: Vec<(usize, String)>,
     pub skipped: BTreeMap<Skip, usize>,
     pub renderers_skipped: BTreeMap<RendererSkip, usize>,
     /// The `GraphicsFormat` codes of the render textures the frame uses.
@@ -79,10 +81,8 @@ pub struct Report {
     /// The camera draws that read a constant for a vertex channel their mesh lacks, by
     /// `channel C for input I as FORMAT`. These draws are recorded; they are not failures.
     pub defaulted_channels: BTreeMap<String, usize>,
-    /// The camera draws that read the grey default for a texture property no layer set and the
-    /// shader does not declare, by the property. These draws are recorded; they are not failures.
-    pub undeclared_defaults: BTreeMap<String, usize>,
-    /// The texture properties that named no texture the frame can read, by `name: reason`.
+    /// The texture properties that named no texture the frame can read and read no stand-in, by
+    /// `name: reason`. A property that reads a stand-in is counted in `stand_ins`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// The draws that read a stand-in texture, by property and reason.
     pub stand_ins: StandInCounts,
@@ -99,6 +99,8 @@ pub struct Report {
     pub skipped_by_kind: BTreeMap<String, usize>,
     /// The textures the world's globals hold when the frame is mapped, by `name: kind`.
     pub global_textures: BTreeMap<String, usize>,
+    /// The texture globals the frame set and the texture names its draws looked up in a slot.
+    pub global_reads: GlobalReads,
     /// What the runtime's storage held when the budget first refused an allocation of this work,
     /// as lines; empty when it refused none.
     pub holdings: Vec<String>,
@@ -124,7 +126,6 @@ impl ListReport {
         let mut lines: Vec<(String, usize)> = [
             ("culling records", self.culls),
             ("renderers kept by culling", self.kept),
-            ("renderers culled by layer", self.out_by_layer),
             ("renderers culled by planes", self.out_by_planes),
             ("lists made", self.created),
             ("drawing lists drawn", self.drawn),
@@ -155,11 +156,11 @@ impl ListReport {
 /// What the culling records and renderer lists of a frame did, as counts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ListReport {
-    /// The culling records, the renderers they kept (summed) and those they left out by the layer
-    /// mask and by the view volume's planes.
+    /// The culling records, the renderers they kept (summed) and those they left out by the view
+    /// volume's planes. The layer mask is applied by the world when it makes the record's set, so
+    /// the adapter has no renderer of another layer to count.
     pub culls: usize,
     pub kept: usize,
-    pub out_by_layer: usize,
     pub out_by_planes: usize,
     /// The lists made, the drawing lists and the shadow lists drawn with something to draw, and
     /// the draws of lists with nothing left to draw.
@@ -198,9 +199,9 @@ impl Report {
         for entry in operations.missing_buffer_draws() {
             *self.missing_buffers.entry(entry.buffer).or_default() += entry.draws;
         }
-        for entry in operations.undeclared_default_draws() {
-            *self.undeclared_defaults.entry(entry.texture).or_default() += entry.draws;
-        }
+        self.global_reads
+            .read
+            .extend(operations.looked_up_textures().iter().cloned());
         self.stand_ins.draws += operations.draws_with_stand_ins();
         for entry in operations.stand_in_draws() {
             let name = format!("{} {}", entry.texture, entry.reason);
@@ -254,14 +255,10 @@ impl Report {
         }
     }
 
-    /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it.
-    pub fn fail(&mut self, kind: &str, error: &(impl Debug + Display)) {
-        self.fail_with(kind, None, error);
-    }
-
-    /// As [`fail`](Self::fail), with the first example of the cause led by `note` when there is
-    /// one, such as the shader and pass of the record that failed.
-    pub fn fail_with(&mut self, kind: &str, note: Option<&str>, error: &(impl Debug + Display)) {
+    /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it. The
+    /// first example of the cause is led by `note` when there is one, such as the shader and pass
+    /// of the record that failed.
+    pub fn fail(&mut self, kind: &str, note: Option<&str>, error: &(impl Debug + Display)) {
         let name = format!("{kind}:{}", variant_name(error));
         *self.failures.entry(name).or_default() += 1;
         let cause = format!("{kind}:{}", variant_chain(error));
@@ -325,6 +322,7 @@ impl Report {
         for (name, count) in other.global_textures {
             *self.global_textures.entry(name).or_default() += count;
         }
+        self.global_reads.add(&other.global_reads);
         for entry in other.unmatched_passes {
             self.add_unmatched(entry);
         }
@@ -342,9 +340,6 @@ impl Report {
         }
         for (name, count) in other.defaulted_channels {
             *self.defaulted_channels.entry(name).or_default() += count;
-        }
-        for (name, count) in other.undeclared_defaults {
-            *self.undeclared_defaults.entry(name).or_default() += count;
         }
         self.stand_ins.add(&other.stand_ins);
     }

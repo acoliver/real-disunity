@@ -26,8 +26,14 @@ fn rect(w: &mut World, parent: Option<ObjectHandle>, at: Vec2) -> ObjectHandle {
 fn fixture(control: UiControl) -> (World, UiRouter, ObjectHandle, ObjectHandle) {
     let mut w = World::new(WorldSettings::default()).unwrap();
     let root = rect(&mut w, None, Vec2::ZERO);
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let object = rect(&mut w, Some(root), Vec2::ZERO);
     let mut r = UiRouter::default();
     r.controls.insert(object, control);

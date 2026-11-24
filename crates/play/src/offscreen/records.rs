@@ -25,7 +25,7 @@ impl Mapper<'_> {
                 self.pixel_read(index, wanted);
                 continue;
             }
-            match self.record(work) {
+            match self.record(index, work) {
                 Ok(records) => {
                     *self
                         .report

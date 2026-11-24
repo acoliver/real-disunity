@@ -34,6 +34,8 @@ pub(crate) struct Readiness {
     pub page_wait: bool,
     pub geometry_wait: bool,
     pub camera: (CameraPose, SceneCamera, worldrunner_camera::ViewConvention),
+    /// The view of the latest published world frame, which the host draws in place of `camera`.
+    pub world_view: Option<worldrunner_render_scene::SceneView>,
     pub shadow_policy: Option<super::CameraShadowPolicy>,
     pub camera_history: super::camera::CameraHistory,
     #[cfg(test)]
@@ -61,6 +63,9 @@ impl Readiness {
                 self.shadow_policy = camera.shadow_policy;
             }
             self.camera_history.publish(camera.continuity);
+        }
+        if let RetainedUpdate::World(frame) = &front.update {
+            self.world_view = Some(frame.view);
         }
         assert_eq!(front.generation, self.published + 1);
         self.published = front.generation;
@@ -96,7 +101,7 @@ impl RetainedHost {
         Ok(host)
     }
 
-    pub fn ready_generation(&self) -> u64 {
+    pub(crate) fn ready_generation(&self) -> u64 {
         self.readiness.ready
     }
 
@@ -104,7 +109,7 @@ impl RetainedHost {
         self.readiness.accepted
     }
 
-    pub fn preparations_in_flight(&self) -> usize {
+    pub(crate) fn preparations_in_flight(&self) -> usize {
         self.readiness.queue.len()
             + usize::from(self.readiness.page_wait || self.readiness.geometry_wait)
     }
@@ -159,25 +164,10 @@ impl RetainedHost {
         Ok(())
     }
 
-    pub(crate) fn validate_streamed_effects(
-        effects: &SceneEffects,
-        options: &ViewerOptions,
-    ) -> Result<(), ViewerError> {
-        worldrunner_render_scene::compositor::opaque::validate_receiver_reservation(
-            effects.opaque_path(),
-            crate::presentation::receiver_reservation(options.shadows),
-        )
-        .map_err(worldrunner_render_post::PostError::from)?;
+    pub(crate) fn validate_streamed_effects(effects: &SceneEffects) -> Result<(), ViewerError> {
         worldrunner_render_scene::post_settings(effects)?;
         if let Some(water) = effects.water() {
             worldrunner_render_scene::water::validate_settings(water)?;
-        }
-        if matches!(options.frame_profile, crate::FrameProfile::Legacy)
-            && (effects.ssao().is_some() || effects.ssr().is_some() || effects.water().is_some())
-        {
-            return Err(ViewerError::UnsupportedScene(
-                "water, SSAO and SSR streaming require HDR",
-            ));
         }
         Ok(())
     }

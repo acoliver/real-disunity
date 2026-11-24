@@ -14,6 +14,8 @@
 //! Nothing is built in a steady-state frame: pairs are made the first time a frame prepares for
 //! a context, or the first time a draw needs one, and kept as long as the context lives.
 
+#[cfg(test)]
+mod test_hooks;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -27,9 +29,10 @@ use worldrunner_render_program::runtime::{
     Import, ImportTable, Keepalive, PipelineDraw, PreparedPipeline, PreparedSet, ProgramRuntime,
 };
 
+use super::casting;
 use super::layout::{GeometryLayout, vertex_layout};
-use super::program::{Context, WeakContext, semantic};
-use crate::pipeline::PipelineKey;
+use super::program::{Context, WeakContext, caster_key, semantic};
+use crate::pipeline::{MATERIAL_UNIFORM_BYTES, PipelineKey};
 use crate::terrain::program::WeakFamily;
 
 fn named(name: &str) -> EngineSemantic {
@@ -85,6 +88,13 @@ pub(crate) fn imports(
     table
 }
 
+/// A material as the runtime is lent it: what it binds and the bytes of the uniform block in the
+/// buffer it binds, which tell the shadow casters which materials they read alike.
+pub(crate) struct LentMaterial {
+    pub(crate) table: ImportTable,
+    pub(crate) uniform: [u8; MATERIAL_UNIFORM_BYTES],
+}
+
 /// The family, material and set-1 layout a set is made for. Programs whose set-1 slots are
 /// equal share one layout object, so one set serves all of them.
 type SetKey = (u64, usize, BindGroupLayout);
@@ -98,6 +108,10 @@ pub(crate) struct PreparedObjects {
     authority: SubmissionAuthority,
     /// What each material lends. Held by every set and pipeline made from it.
     tables: Vec<Arc<ImportTable>>,
+    /// The bytes of each material's uniform block that a shadow caster reads.
+    caster_reads: Vec<Box<[u8]>>,
+    /// The material whose group an unmasked caster binds for each material.
+    caster_classes: Vec<usize>,
     /// The scene palette every table lends to the programs of skinned geometry.
     palette: Option<Buffer>,
     /// Sets are built against the runtime of a family, whose program fixes their layout, so they
@@ -128,12 +142,14 @@ struct PreparedList {
 impl PreparedObjects {
     pub(crate) fn new(
         authority: SubmissionAuthority,
-        tables: Vec<ImportTable>,
+        materials: Vec<LentMaterial>,
         palette: Option<Buffer>,
     ) -> Self {
         let mut objects = Self {
             authority,
             tables: Vec::new(),
+            caster_reads: Vec::new(),
+            caster_classes: Vec::new(),
             palette,
             sets: RefCell::default(),
             pipelines: RefCell::default(),
@@ -141,7 +157,7 @@ impl PreparedObjects {
             #[cfg(test)]
             lookups: std::cell::Cell::default(),
         };
-        objects.extend(tables);
+        objects.extend(materials);
         objects
     }
 
@@ -157,62 +173,21 @@ impl PreparedObjects {
         Arc::new(table)
     }
 
-    /// One bind group for each material, made from what the material lends. The scene's passes
-    /// bind the prepared sets instead; only the tests that record draws themselves bind these.
-    ///
-    /// The groups use a layout from `upload::material_bind_group_layout`, which is the function
-    /// that also makes the layout the tests' pipelines take as their material group
-    /// (`Pipelines::material_layout`). wgpu treats identical layouts as compatible, so a group made
-    /// here binds to those pipelines.
-    #[cfg(test)]
-    pub(crate) fn material_groups(&self, device: &wgpu::Device) -> Vec<wgpu::BindGroup> {
-        use worldrunner_render_program::runtime::{ImportedResource, ImportedTexture};
-
-        let layout = crate::upload::material_bind_group_layout(device);
-        self.tables
-            .iter()
-            .map(|table| {
-                let lent = |name: &str| {
-                    table
-                        .get(&named(name))
-                        .unwrap_or_else(|| panic!("a material lends {name}"))
-                };
-                let buffer = |name: &str| match lent(name) {
-                    ImportedResource::Buffer(buffer) => buffer,
-                    other => panic!("{name} is lent as {other:?}, not a buffer"),
-                };
-                let ImportedResource::Sampler(sampler) = lent(semantic::SAMPLER) else {
-                    panic!("the sampler is lent as a sampler");
-                };
-                let views = MAP_SEMANTICS.map(|name| match lent(name) {
-                    ImportedResource::Texture(ImportedTexture { view, .. }) => view,
-                    other => panic!("{name} is lent as {other:?}, not a texture view"),
-                });
-                crate::upload::extended_material_group(
-                    device,
-                    &layout,
-                    buffer(semantic::MATERIAL),
-                    crate::upload::MaterialTextureBindings {
-                        maps: [views[0], views[1], views[2], views[3], views[4]],
-                        extra: [views[5], views[6], views[7]],
-                    },
-                    sampler,
-                    buffer(semantic::CONTACT_HEIGHTS),
-                )
-            })
-            .collect()
-    }
-
     /// Adds the materials an append made resident.
-    pub(crate) fn extend(&mut self, tables: Vec<ImportTable>) {
-        let lent: Vec<_> = tables.into_iter().map(|table| self.lend(table)).collect();
-        self.tables.extend(lent);
+    pub(crate) fn extend(&mut self, materials: Vec<LentMaterial>) {
+        for material in materials {
+            self.caster_reads.push(casting::read(&material.uniform));
+            let lent = self.lend(material.table);
+            self.tables.push(lent);
+        }
+        self.caster_classes = casting::classes(&self.caster_reads, &self.tables);
     }
 
     /// Takes the resources a material is now bound to, and forgets the sets and pipelines made
     /// from the old ones.
     pub(crate) fn replace(&mut self, material: usize, table: ImportTable) {
         self.tables[material] = self.lend(table);
+        self.caster_classes = casting::classes(&self.caster_reads, &self.tables);
         self.sets
             .get_mut()
             .retain(|(_, owner, _), _| *owner != material);
@@ -220,6 +195,28 @@ impl PreparedObjects {
             .get_mut()
             .retain(|(_, _, owner, _), _| *owner != material);
         self.prepared.get_mut().clear();
+    }
+
+    /// The pipeline index and material that a draw of `pipeline` and `material` records with in
+    /// the passes of `context`. A forward pass records every draw as it is. A caster records the
+    /// pipeline of the key it casts as, and an unmasked draw the material it reads as, so that
+    /// materials the caster reads alike share one group and sort into one run.
+    pub(crate) fn recorded_as(
+        &self,
+        context: &Context,
+        pipeline: usize,
+        material: usize,
+    ) -> (usize, usize) {
+        if !context.is_caster() {
+            return (pipeline, material);
+        }
+        let key = caster_key(PipelineKey::ALL[pipeline]);
+        let material = if key.masked {
+            material
+        } else {
+            self.caster_classes[material]
+        };
+        (key.index(), material)
     }
 
     /// The prepared pipeline of the pair, made on first use and found in a map afterwards.
@@ -276,7 +273,8 @@ impl PreparedObjects {
             return Ok(());
         }
         for &(index, material, geometry) in pairs.iter() {
-            self.pipeline(context, (index, material), geometry)?;
+            let recorded = self.recorded_as(context, index, material);
+            self.pipeline(context, recorded, geometry)?;
         }
         let mut prepared = self.prepared.borrow_mut();
         prepared.retain(|list| list.id != id && list.context.alive());
@@ -286,12 +284,6 @@ impl PreparedObjects {
             pairs: Rc::clone(pairs),
         });
         Ok(())
-    }
-
-    /// How many pipelines were asked for, whether found or made.
-    #[cfg(test)]
-    pub(crate) fn lookups(&self) -> usize {
-        self.lookups.get()
     }
 
     /// Prepares the material sets of every material for the runtime of `context`, so that the
@@ -334,7 +326,7 @@ impl PreparedObjects {
             &PipelineDraw {
                 program: &program,
                 state: &state,
-                layout: &layout,
+                layout,
                 bindings: &[],
                 imports: &[],
                 sets: &[&sets[&set_key].1],

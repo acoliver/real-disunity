@@ -18,7 +18,7 @@ fn host(budget: u64) -> crate::RetainedHost {
 fn windowless_startup_uses_custom_budget_and_preserves_typed_rejection() {
     let mut host = host(256 * 1024 * 1024);
     assert!(
-        matches!(pollster::block_on(Renderer::windowless(&mut host)),
+        matches!(pollster::block_on(Renderer::windowless(&mut host, None)),
         Err(ViewerError::Configuration(ConfigurationError::Budget { required, budget }))
         if required > budget && budget == 256 * 1024 * 1024)
     );
@@ -27,7 +27,7 @@ fn windowless_startup_uses_custom_budget_and_preserves_typed_rejection() {
 #[test]
 fn windowless_custom_budget_survives_resize_settings_and_single_sample_recipe() {
     let mut host = host(300 * 1024 * 1024);
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     renderer.resize([16, 8]).unwrap();
     host.input(crate::RetainedInput::Resized([16, 8]));
     assert!(renderer.render_retained(&mut host).unwrap());
@@ -89,7 +89,7 @@ fn native_rcas_settings_publish_once_with_an_earlier_frame_in_flight() {
         tone_map: crate::ToneMap::Reinhard,
         rcas,
     };
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     let settings = renderer.presentation.scheduler.configuration().clone();
     let mut pair = settings.allocations();
     pair.extend(settings.allocations());

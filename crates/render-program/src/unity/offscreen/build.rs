@@ -1,5 +1,5 @@
-//! The ways to build a frame: the one that counts what the frame writes, the one that also names
-//! the record that refused it, and the one that counts nothing.
+//! The two ways to plan a frame: building it, which counts what it writes and names the record
+//! that refused it, and checking it, which counts nothing.
 
 use super::{
     OffscreenError, OffscreenFrame, OffscreenOperations, OffscreenState, ProgramArena,
@@ -16,23 +16,10 @@ impl OffscreenState {
     /// # Errors
     /// Fails by name on a record that names something the frame or the state lacks, a pass or
     /// variant the shader has none of, a vertex channel the mesh lacks, a copy that does not fit
-    /// and a format this renderer does not draw into. Nothing of the frame is kept.
+    /// and a format this renderer does not draw into. Nothing of the frame is kept. The
+    /// [`Refusal`] also says which record of the frame caused it when the state met the error
+    /// while planning one.
     pub fn build(
-        &mut self,
-        runtime: &mut ProgramRuntime,
-        arena: &ProgramArena,
-        frame: &OffscreenFrame,
-    ) -> Result<OffscreenOperations, OffscreenError> {
-        self.build_naming_record(runtime, arena, frame)
-            .map_err(|refusal| refusal.error)
-    }
-
-    /// As [`build`](Self::build), and a refusal says which record of the frame caused it when the
-    /// state met the error while planning one.
-    ///
-    /// # Errors
-    /// The errors of [`build`](Self::build), with the record in the [`Refusal`].
-    pub fn build_naming_record(
         &mut self,
         runtime: &mut ProgramRuntime,
         arena: &ProgramArena,
@@ -49,7 +36,7 @@ impl OffscreenState {
     /// frame it then runs is the one that counts.
     ///
     /// # Errors
-    /// The errors of [`build`](Self::build).
+    /// The errors of [`build`](Self::build), without the record.
     pub fn check(
         &mut self,
         runtime: &mut ProgramRuntime,

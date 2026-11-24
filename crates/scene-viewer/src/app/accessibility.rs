@@ -14,10 +14,10 @@ impl App<'_> {
             );
         }
         window.set_visible(true);
-        self.renderer = Some(pollster::block_on(Renderer::from_source(
+        self.renderer = Some(pollster::block_on(Renderer::from_host(
             event_loop.owned_display_handle(),
             window,
-            self.content.source(),
+            self.content.host(),
             self.shared.take(),
         ))?);
         Ok(())

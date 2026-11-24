@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod test_hooks;
 use std::cell::RefCell;
 #[cfg(test)]
 use std::ops::Index;
@@ -58,7 +60,10 @@ pub(super) struct Draw {
     pub material: usize,
     /// The vertex format of the level the draw reads, which selects the program and layout.
     pub geometry: GeometryLayout,
+    /// The indices of the draw in the index buffer the walk named, which may hold other levels.
     pub indices: Range<u32>,
+    /// The vertex a level's indices count from in the vertex buffer the walk named.
+    pub base_vertex: i32,
     pub instances: Range<u32>,
 }
 
@@ -120,7 +125,7 @@ where
 
     fn indices(&mut self, indices: &Buffer) {
         self.pass
-            .set_index_buffer(indices, wgpu::IndexFormat::Uint32);
+            .set_index_buffer(indices, super::mesh_arena::INDEX_FORMAT);
     }
 
     fn draw(&mut self, draw: Draw) {
@@ -139,7 +144,8 @@ where
             self.pass
                 .set_bind_group(MATERIAL_GROUP, &self.materials[draw.material]);
         }
-        self.pass.draw_indexed(draw.indices, 0, draw.instances);
+        self.pass
+            .draw_indexed(draw.indices, draw.base_vertex, draw.instances);
     }
 }
 
@@ -151,32 +157,6 @@ pub(super) struct ObjectView {
 }
 
 impl SceneGpu {
-    /// Records the view's objects with render pipelines the caller built, one for each pipeline
-    /// index, and a bind group for each material (see
-    /// [`PreparedObjects::material_groups`](crate::object::prepared::PreparedObjects::material_groups)).
-    /// Only tests draw this way; the scene's passes use
-    /// [`draw_objects_prepared`](Self::draw_objects_prepared).
-    #[cfg(test)]
-    pub(crate) fn draw_objects(
-        &self,
-        pass: &mut RenderPass<'_>,
-        frame_group: &BindGroup,
-        (pipelines, materials): (
-            &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
-            &[BindGroup],
-        ),
-        shadow_matrix: Option<(u32, glam::Mat4)>,
-    ) -> DrawnObjects {
-        let view = self.begin_objects(pass, frame_group, shadow_matrix);
-        let mut sink = FixedSink::new(pass, pipelines, materials);
-        let objects = self.record_selection(
-            &mut sink,
-            (shadow_matrix, &view.frame),
-            &view.selection.ranges,
-        );
-        self.end_objects(view, shadow_matrix, objects)
-    }
-
     /// Selects the view's objects and binds the frame group, which both ways of recording them
     /// do before the first draw.
     pub(super) fn begin_objects<P: PassCommands + ?Sized>(
@@ -261,12 +241,12 @@ impl SceneGpu {
     ) {
         let (_, mesh, _) = range.key;
         let lod = &self.meshes[mesh].lods[range.lod];
-        sink.vertices(&lod.vertices);
-        self.record_lod_slots(sink, range, range.lod, drawn);
+        sink.vertices(lod.vertices.buffer());
+        self.record_lod_slots(sink, range, (range.lod, lod.vertices.base_vertex()), drawn);
         if let Some(vertices) = &lod.transition {
-            sink.vertices(vertices);
+            sink.vertices(vertices.buffer());
             // The complement belongs to the preceding level, including its materials.
-            self.record_lod_slots(sink, range, range.lod - 1, drawn);
+            self.record_lod_slots(sink, range, (range.lod - 1, vertices.base_vertex()), drawn);
         }
     }
 
@@ -274,13 +254,14 @@ impl SceneGpu {
         &self,
         sink: &mut impl DrawSink,
         range: &SelectedRange,
-        level: usize,
+        (level, base_vertex): (usize, i32),
         drawn: &mut ObjectDraws,
     ) {
         let instances = u64::from(range.slots.end - range.slots.start);
         let (pipeline, mesh, material) = range.key;
         let lod = &self.meshes[mesh].lods[level];
-        sink.indices(&lod.indices);
+        sink.indices(lod.indices.buffer());
+        let first = lod.indices.first();
         if let Some(slots) = &self.mesh_selection[mesh].material_slots[level] {
             for slot in slots {
                 let material = slot.material().raw() as usize;
@@ -288,7 +269,8 @@ impl SceneGpu {
                     pipeline: self.instances.pipelines[material],
                     material,
                     geometry: lod.layout,
-                    indices: slot.indices(),
+                    indices: first + slot.indices().start..first + slot.indices().end,
+                    base_vertex,
                     instances: range.slots.clone(),
                 });
                 drawn.draw(self.resource_counters.impostors[material], instances);
@@ -298,7 +280,8 @@ impl SceneGpu {
                 pipeline,
                 material,
                 geometry: lod.layout,
-                indices: 0..lod.index_count,
+                indices: first..first + lod.index_count,
+                base_vertex,
                 instances: range.slots.clone(),
             });
             drawn.draw(self.resource_counters.impostors[material], instances);

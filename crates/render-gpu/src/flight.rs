@@ -218,6 +218,17 @@ impl FrameAdmission {
             .map(|pending| pending.ticket.clone())
     }
 
+    /// Whether `try_acquire` would admit a frame now, after retiring completed submissions.
+    pub fn has_free_slot(&self) -> bool {
+        self.retire();
+        self.state
+            .lock()
+            .unwrap()
+            .occupied
+            .iter()
+            .any(|occupied| !*occupied)
+    }
+
     pub fn is_idle(&self) -> bool {
         self.retire();
         !self
@@ -247,9 +258,11 @@ mod tests {
                     AdmissionError::WouldBlock
                 );
             }
+            assert!(!flight.has_free_slot());
             let released = reservations.pop().unwrap();
             let slot = released.slot();
             drop(released);
+            assert!(flight.has_free_slot());
             assert_eq!(flight.try_acquire().unwrap().slot(), slot);
             drop(reservations);
             assert!(flight.is_idle());

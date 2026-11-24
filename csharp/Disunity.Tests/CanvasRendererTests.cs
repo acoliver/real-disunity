@@ -1,4 +1,5 @@
 using Disunity.Hosting;
+using Disunity.Native;
 using UnityEngine;
 using static GraphicsTestSupport;
 using EngineObject = UnityEngine.Object;
@@ -24,6 +25,8 @@ internal static class CanvasRendererTests
             Console.WriteLine("PASS: CanvasRenderer returns the mesh that was set, takes null and clears");
             Materials();
             Console.WriteLine("PASS: CanvasRenderer materials, pop materials, counts and SetMaterial(Material, Texture)");
+            WorldMaterialOfSlotZero();
+            Console.WriteLine("PASS: CanvasRenderer.SetMaterial sends the world material of slot 0 to the UI draw, and nothing for an engine shader or another slot");
             InheritedAlpha();
             Console.WriteLine("PASS: CanvasRenderer.GetInheritedAlpha multiplies the groups above and honors ignoreParentGroups");
             Hierarchy();
@@ -158,6 +161,59 @@ internal static class CanvasRendererTests
         Ensure(renderer.materialCount == 1 && ReferenceEquals(renderer.GetMaterial(), second) && ReferenceEquals(renderer.MainTexture, texture), "SetMaterial(Material, Texture) sets material 0, count 1 and the texture");
         renderer.SetMaterial(null, 0);
         Ensure(renderer.GetMaterial() is null && renderer.materialCount == 1, "null clears the slot");
+    }
+
+    private static unsafe DisunityUiDraw[] UiDraws()
+    {
+        var world = DisunityHost.WorldHandle;
+        var header = new DisunityPresentation();
+        DisunityHost.ThrowIfError(NativeBindings.disunity_presentation_prepare(world, 80, 40, 18, &header));
+        uint draws, textures;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_presentation_ui_count(world, &draws, &textures));
+        var found = new DisunityUiDraw[draws];
+        for (uint index = 0; index < draws; index++)
+        {
+            var quad = new DisunityQuad();
+            fixed (DisunityUiDraw* meta = &found[index])
+                DisunityHost.ThrowIfError(NativeBindings.disunity_presentation_ui_draw(world, index, meta, &quad));
+        }
+        return found;
+    }
+
+    private static CanvasRenderer NewGraphic()
+    {
+        DisunityHost.CreateGameObject().AddComponent<Camera>();
+        var canvas = DisunityHost.CreateGameObject();
+        canvas.AddComponent<RectTransform>();
+        canvas.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+        var element = DisunityHost.CreateGameObject();
+        element.AddComponent<RectTransform>();
+        element.transform.SetParent(canvas.transform, false);
+        var renderer = element.AddComponent<CanvasRenderer>();
+        var mesh = new Mesh();
+        mesh.vertices = [new Vector3(-4, -4, 0), new Vector3(-4, 4, 0), new Vector3(4, 4, 0), new Vector3(4, -4, 0)];
+        mesh.triangles = [0, 1, 2, 2, 3, 0];
+        renderer.SetMesh(mesh);
+        renderer.materialCount = 2;
+        return renderer;
+    }
+
+    private static void WorldMaterialOfSlotZero()
+    {
+        var renderer = NewGraphic();
+        var game = new Material(DisunityHost.DeclareShader("Test/CanvasRenderer/Game", new ShaderDeclaration(3000, 1, 1, ["Pass"]), _ => { }, "shaders.bundle", 12));
+        var engine = new Material(Material.SpriteUnlit);
+        Ensure(UiDraws().Single().material == 0, "a graphic without a material names none");
+        renderer.SetMaterial(game, 0);
+        var named = UiDraws().Single();
+        Ensure(named.material == game.WorldLink.Id && named.material_generation != 0, "a material on a game shader reaches the UI draw by its world material");
+        renderer.SetMaterial(game, 1);
+        Ensure(UiDraws().Single().material == game.WorldLink.Id, "slot 1 sends no world material and changes nothing");
+        renderer.SetMaterial(engine, 0);
+        Ensure(UiDraws().Single().material == 0, "a material on an engine shader is drawn natively");
+        renderer.SetMaterial(game, 0);
+        renderer.SetMaterial(null, 0);
+        Ensure(UiDraws().Single().material == 0, "clearing slot 0 clears the world material");
     }
 
     private static void InheritedAlpha()

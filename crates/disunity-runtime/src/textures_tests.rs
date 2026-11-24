@@ -59,6 +59,17 @@ unsafe extern "C" fn stored_plain(
     bytes: *mut u8,
     capacity: u32,
 ) -> DisunityResult {
+    answer(2, 0, info, bytes, capacity);
+    OK
+}
+
+unsafe extern "C" fn stored_unstated(
+    _: u64,
+    _: u64,
+    info: *mut DisunityTextureInfo,
+    bytes: *mut u8,
+    capacity: u32,
+) -> DisunityResult {
     answer(0, 0, info, bytes, capacity);
     OK
 }
@@ -117,7 +128,7 @@ fn the_players_texture_lookup_returns_the_layers_dimension_and_format_of_an_arra
 }
 
 #[test]
-fn a_record_that_states_no_dimension_is_a_plain_2d_texture() {
+fn a_2d_record_is_a_plain_2d_texture() {
     let texture = lookup(stored_plain).unwrap().unwrap();
     assert_eq!(
         (texture.depth, texture.dimension, texture.graphics_format),
@@ -142,6 +153,21 @@ fn a_dimension_code_the_host_does_not_know_is_an_error_naming_the_texture() {
             HostError::TextureShape {
                 identity,
                 dimension: 9
+            } if identity == 1 << 40
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_record_that_states_no_dimension_is_an_error_naming_the_texture() {
+    let error = lookup(stored_unstated).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            HostError::TextureShape {
+                identity,
+                dimension: 0
             } if identity == 1 << 40
         ),
         "{error:?}"

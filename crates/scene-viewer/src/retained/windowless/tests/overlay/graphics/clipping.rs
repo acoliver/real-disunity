@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::BTreeMap;
+use worldrunner_world_simulation::ui::UiTexture;
 
 #[test]
 fn rotated_graphic_and_text_cannot_paint_outside_renderer_clip_after_resize() {
@@ -34,7 +35,7 @@ fn rotated_graphic_and_text_cannot_paint_outside_renderer_clip_after_resize() {
     ui.texts.push(text);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     for size in [[64, 64], [48, 32]] {
         run.resize(size).unwrap();
         let mut empty = ui.clone();
@@ -62,7 +63,7 @@ fn rotated_graphic_and_text_cannot_paint_outside_renderer_clip_after_resize() {
 fn image_identity_is_resolved_and_sampled_in_the_overlay_stage() {
     let (world, _) = graphic_world();
     let mut ui = extracted(&world);
-    ui.graphics[0].graphic.texture = Some(77);
+    ui.graphics[0].graphic.texture = Some(UiTexture::Image(77));
     assert!(UiOverlay::new(ui.clone()).is_err());
     let textures = BTreeMap::from([(
         77,
@@ -79,7 +80,7 @@ fn image_identity_is_resolved_and_sampled_in_the_overlay_stage() {
     let overlay = UiOverlay::with_textures(ui, &textures).unwrap();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     // Present generation 0 before the UI update, so its frame reports the scene's initial uploads.
     capture(&mut run, &events);
     run.host_mut()
@@ -95,7 +96,7 @@ fn empty_or_offscreen_clips_draw_nothing_and_are_not_counted() {
     let (world, _) = graphic_world();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     for clip in [[8, 8, 0, 16], [100, 100, 16, 16]] {
         let mut ui = extracted(&world);
@@ -121,7 +122,7 @@ fn viewport_and_per_draw_clips_bound_identical_rectangles_independently() {
     ui.graphics.push(front);
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     run.resize([96, 64]).unwrap();
     let baseline = capture(&mut run, &events).1;
     apply(&mut run, ui);

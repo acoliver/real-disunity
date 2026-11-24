@@ -91,21 +91,17 @@ impl SceneGpu {
             .map_or((0, 0), |terrain| terrain.prepared.kept())
     }
 
-    /// Selects which stock passes draw the terrain. The renderer sets it from its
-    /// configuration whenever it takes the scene's inputs, so every pass of a frame agrees.
-    pub(crate) fn set_terrain_draws(&self, draws: super::TerrainDraws) {
-        self.terrain_draws.set(draws);
+    /// Records whether a game feature draws the terrain surface. The renderer sets it from its
+    /// game inventory whenever it takes the scene's inputs, so every pass of a frame agrees.
+    pub(crate) fn set_terrain_surface_replaced(&self, replaced: bool) {
+        self.terrain_surface_replaced.set(replaced);
     }
 
-    /// Whether the camera passes draw the terrain: the opaque colour pass, the G-buffer and
-    /// depth prepasses, the metadata prefixes and the capture terms.
+    /// Whether the camera passes draw the terrain: the opaque colour pass, the depth prepass,
+    /// the metadata prefixes and the capture terms. The shadow casters draw it whatever a game
+    /// draws.
     pub(crate) fn draws_terrain_in_camera_passes(&self) -> bool {
-        self.terrain_draws.get().draws_terrain_in_camera_passes()
-    }
-
-    /// Whether the shadow casters draw the terrain into the cascades.
-    pub(crate) fn casts_terrain_shadows(&self) -> bool {
-        self.terrain_draws.get().casts_terrain_shadows()
+        !self.terrain_surface_replaced.get()
     }
 
     /// The surface source the scene's terrain is drawn with.

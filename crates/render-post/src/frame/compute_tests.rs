@@ -4,6 +4,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_gpu::submission::capture::{
+    CaptureError, CaptureWrites, WriteError, WriteKey,
+};
+
+use crate::contracts::ContractError;
 use crate::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, CopyOutput,
     DrawContext, FeatureDeclaration, FeaturePass, FrameConfig, FrameError, FramePlan, GamePlace,
@@ -376,6 +382,7 @@ fn run(items: Vec<Item>) -> (Result<(), FrameError>, Vec<String>) {
         FrameConfig::new(SIZE, output, 1),
         Resources::default(),
         CopyOutput::new(&rig.device, output),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let (passes, features) = frame();
@@ -523,5 +530,121 @@ fn an_item_whose_commands_write_another_level_than_it_declares_is_refused() {
             declared: vec![chain(1)],
             written: vec![chain(2)],
         })
+    );
+}
+
+/// Encodes `frame()` with `dispatches()` staged as the suffix of a capture whose contract
+/// declares the writes to the seed and the output, and to the chain only when `own_chain`.
+/// Returns what the capture said, the key of the chain's allocation and the log of what the
+/// frame recorded.
+fn captured(own_chain: bool) -> (Result<(), CaptureError<FrameError>>, WriteKey, Vec<String>) {
+    let rig = Rig::new();
+    let output = wgpu::TextureFormat::Rgba8Unorm;
+    let mut chain = PostChain::new(
+        &rig.device,
+        FrameConfig::new(SIZE, output, 1),
+        Resources::default(),
+        CopyOutput::new(&rig.device, output),
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
+    let mut key = |texture: &wgpu::Texture| chain.capture_write_keys(&[texture]).unwrap()[0];
+    let (seed_key, out_key, chain_key) = (key(&rig.seed), key(&rig.out), key(&rig.chain));
+    let mut owned = vec![seed_key, out_key];
+    if own_chain {
+        owned.push(chain_key);
+    }
+    let publication = WriteKey::Resident(1);
+    let suffix: Vec<_> = owned.iter().copied().chain([publication]).collect();
+    let contract = CaptureWrites::new([], suffix, owned).unwrap();
+
+    let (passes, features) = frame();
+    let views = rig.views();
+    let log = Log::default();
+    let feature = |name, items| Feature {
+        name,
+        log: log.clone(),
+        items,
+        chain: rig.chain.clone(),
+    };
+    let (mut writer, mut stager, mut reader) = (
+        feature("writer", Vec::new()),
+        feature("stager", dispatches()),
+        feature("reader", Vec::new()),
+    );
+    let mut borrowed: Vec<_> = features
+        .into_iter()
+        .zip([&mut writer, &mut stager, &mut reader])
+        .map(|(declaration, prepared)| BorrowedFeature {
+            declaration,
+            prepared: prepared as &mut dyn PreparedFeature,
+        })
+        .collect();
+    let authority = SubmissionAuthority::new(rig.queue.clone());
+    let continuation = authority
+        .begin_capture(
+            &rig.device,
+            contract,
+            (),
+            |_, _, ()| Ok::<_, FrameError>(()),
+        )
+        .unwrap()
+        .submit()
+        .unwrap();
+    let result = continuation.resume(
+        &rig.device,
+        |_, _| Ok::<_, FrameError>(()),
+        |encoder, edits, (), ()| {
+            edits.stage_write(publication, || {}).unwrap();
+            chain.encode_geometry(
+                &rig.device,
+                encoder,
+                &FramePlan {
+                    passes: &passes,
+                    views: &views,
+                    requested: &[],
+                    operations: &[],
+                },
+                &mut borrowed,
+            )
+        },
+    );
+    let outcome = match result {
+        Ok(suffix) => suffix
+            .submit()
+            .unwrap()
+            .finish(&rig.device, |_, _| Ok::<_, ()>(()))
+            .map_err(|_| unreachable!("the capture finishes")),
+        Err(error) => {
+            authority.drain_captures(&rig.device).unwrap();
+            Err(error)
+        }
+    };
+    drop(borrowed);
+    let logged = log.borrow().clone();
+    (outcome, chain_key, logged)
+}
+
+#[test]
+fn a_compute_pass_writes_in_a_capture_only_the_allocations_the_capture_declares() {
+    let (owned, _, log) = captured(true);
+    assert!(owned.is_ok(), "the capture declares every write: {owned:?}");
+    assert!(
+        log.contains(&"compute: mip 2".to_owned()),
+        "the compute pass recorded: {log:?}"
+    );
+
+    let (refused, chain_key, log) = captured(false);
+    // The frame's encoding refuses the undeclared write, so the capture's suffix never runs.
+    let Err(CaptureError::Preparation(FrameError::ResourceContract(ContractError::CaptureWrite(
+        WriteError::Undeclared(undeclared),
+    )))) = refused
+    else {
+        panic!("the compute pass's write of the chain is not declared: {refused:?}");
+    };
+    assert_eq!(undeclared, chain_key);
+    assert!(
+        !log.iter().any(|entry| entry.starts_with("compute:")),
+        "nothing was recorded in the compute pass: {log:?}"
     );
 }

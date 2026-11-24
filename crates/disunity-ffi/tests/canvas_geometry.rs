@@ -1,10 +1,13 @@
 //! The mesh a canvas renderer draws: write validation, read-back, and the quads a frame shows.
 use worldrunner_disunity_ffi::{
-    abi::*, camera::*, canvas_geometry::*, canvas_renderer::*, hierarchy::*, presentation::*,
-    scheduling::*, sprites::*, textures::FIRST_PLAYER_TEXTURE, ui::*,
+    abi::*, camera::*, canvas_geometry::*, canvas_renderer::*, graphics::*, hierarchy::*,
+    presentation::*, scheduling::*, sprites::*, textures::FIRST_PLAYER_TEXTURE, ui::*,
 };
 
 const PLAYER: u64 = FIRST_PLAYER_TEXTURE;
+/// The texture kinds of `disunity_canvas_renderer_texture_write`.
+const IMAGE: u32 = 0;
+const TARGET: u32 = 1;
 
 fn vertex(x: f32, y: f32, u: f32, v: f32) -> DisunityUiVertex {
     DisunityUiVertex {
@@ -48,6 +51,16 @@ fn component(world: u64, object: u64, kind: u32) -> u64 {
     handle
 }
 
+/// A canvas created without a mode is a world canvas; the frame under test is the screen's.
+fn overlay(world: u64, canvas: u64) {
+    let mut record = DisunityCanvas::default();
+    unsafe {
+        assert_eq!(disunity_canvas_read(world, canvas, &mut record).code, 0);
+        record.mode = 0;
+        assert_eq!(disunity_canvas_write(world, canvas, &record).code, 0);
+    }
+}
+
 fn scene() -> Scene {
     let (mut world, mut camera_object, mut camera) = (0, 0, 0);
     let (mut canvas, mut element, mut renderer) = (0, 0, 0);
@@ -80,7 +93,8 @@ fn scene() -> Scene {
             0
         );
         component(world, canvas, 0);
-        component(world, canvas, 1);
+        let screen = component(world, canvas, 1);
+        overlay(world, screen);
         component(world, element, 0);
         assert_eq!(
             disunity_canvas_renderer_create(world, element, &mut renderer).code,
@@ -149,7 +163,7 @@ fn a_written_mesh_reads_back_with_its_texture() {
     let scene = scene();
     assert_eq!(write(&scene, &quad(), &INDICES).code, 0);
     assert_eq!(
-        disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER + 2).code,
+        disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER + 2, IMAGE).code,
         0
     );
     let held = info(&scene);
@@ -244,8 +258,9 @@ fn null_pointers_are_rejected_for_nonzero_counts() {
 #[test]
 fn a_texture_identity_below_the_player_range_is_rejected() {
     let scene = scene();
-    let write =
-        |identity| disunity_canvas_renderer_texture_write(scene.world, scene.renderer, identity);
+    let write = |identity| {
+        disunity_canvas_renderer_texture_write(scene.world, scene.renderer, identity, IMAGE)
+    };
     assert_ne!(write(5).code, 0);
     assert_eq!(write(PLAYER).code, 0);
     assert_eq!(write(0).code, 0);
@@ -256,7 +271,7 @@ fn a_texture_identity_below_the_player_range_is_rejected() {
 fn a_frame_shows_the_meshs_quad_with_its_texture_rectangle() {
     let scene = scene();
     assert_eq!(write(&scene, &quad(), &INDICES).code, 0);
-    disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER + 7);
+    disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER + 7, IMAGE);
     let quads = frame(&scene);
     assert_eq!(quads.len(), 1);
     let shown = quads[0];
@@ -282,7 +297,7 @@ fn clearing_the_managed_mesh_through_the_record_clears_the_geometry_only() {
     let mut record = DisunityCanvasRenderer::default();
     unsafe {
         disunity_canvas_renderer_read(scene.world, scene.renderer, &mut record);
-        disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER);
+        disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER, IMAGE);
         record.mesh = 8;
         assert_eq!(
             disunity_canvas_renderer_write(scene.world, scene.renderer, &record).code,
@@ -299,4 +314,76 @@ fn clearing_the_managed_mesh_through_the_record_clears_the_geometry_only() {
     unsafe { disunity_canvas_renderer_write(scene.world, scene.renderer, &record) };
     let held = info(&scene);
     assert_eq!((held.texture, held.vertex_count), (PLAYER, 0));
+}
+
+fn render_texture(world: u64) -> u64 {
+    let desc = DisunityRenderTexture {
+        width: 8,
+        height: 4,
+        format: 8,
+        mip_count: 1,
+        filter: 1,
+        aniso_level: 1,
+        dimension: 2,
+        volume_depth: 1,
+        ..Default::default()
+    };
+    let mut id = 0;
+    unsafe {
+        assert_eq!(
+            disunity_render_texture_create(world, &desc, &mut id).code,
+            0
+        )
+    };
+    id
+}
+
+#[test]
+fn a_render_texture_target_reads_back_with_its_kind_and_id() {
+    let scene = scene();
+    let target = render_texture(scene.world);
+    let written =
+        disunity_canvas_renderer_texture_write(scene.world, scene.renderer, target, TARGET);
+    assert_eq!(written.code, 0);
+    let held = info(&scene);
+    assert_eq!((held.texture, held.texture_kind), (target, TARGET));
+    disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER, IMAGE);
+    assert_eq!(info(&scene).texture_kind, IMAGE);
+}
+
+#[test]
+fn texture_write_refuses_a_target_that_does_not_exist() {
+    let scene = scene();
+    let write = |identity| {
+        disunity_canvas_renderer_texture_write(scene.world, scene.renderer, identity, TARGET)
+    };
+    assert_ne!(write(0).code, 0, "no render texture has identity 0");
+    assert_ne!(
+        write(PLAYER).code,
+        0,
+        "a stored texture identity is not a render texture"
+    );
+    let target = render_texture(scene.world);
+    assert_eq!(disunity_render_texture_destroy(scene.world, target).code, 0);
+    assert_ne!(write(target).code, 0, "a destroyed render texture");
+    assert_eq!(info(&scene).texture, 0);
+}
+
+#[test]
+fn texture_write_refuses_an_unknown_kind() {
+    let scene = scene();
+    let write =
+        |kind| disunity_canvas_renderer_texture_write(scene.world, scene.renderer, PLAYER, kind);
+    assert_ne!(write(2).code, 0, "coverage identities belong to text");
+    assert_ne!(write(u32::MAX).code, 0);
+    assert_eq!(info(&scene).texture, 0);
+}
+
+#[test]
+fn a_frame_leaves_a_render_texture_graphic_out_of_the_sprite_quads() {
+    let scene = scene();
+    assert_eq!(write(&scene, &quad(), &INDICES).code, 0);
+    let target = render_texture(scene.world);
+    disunity_canvas_renderer_texture_write(scene.world, scene.renderer, target, TARGET);
+    assert!(frame(&scene).is_empty());
 }

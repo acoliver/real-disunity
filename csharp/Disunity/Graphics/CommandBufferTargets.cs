@@ -106,14 +106,15 @@ public sealed partial class CommandBuffer
 
     private const string BlitMember = "CommandBuffer.Blit";
 
-    /// <summary>A texture source is a <see cref="Texture2D"/> with pixels, a render texture or null, as for <see cref="Graphics.Blit(Texture, RenderTexture)"/>.</summary>
+    /// <summary>A texture source is a <see cref="Texture2D"/>, <see cref="Texture2DArray"/>, <see cref="Cubemap"/> or <see cref="Texture3D"/> the
+    /// world can send, a render texture or null, as for <see cref="Graphics.Blit(Texture, RenderTexture)"/>.</summary>
     private void BlitTexture(Texture? source, RenderTargetIdentifier dest, Material? mat, int pass) =>
         RecordBlit(() => WorldGraphics.RequireTexture(source, BlitMember, "source"), dest, mat, pass);
 
     private void BlitTarget(RenderTargetIdentifier source, RenderTargetIdentifier dest, Material? mat, int pass)
     {
         var from = CommandTarget.Of(source, BlitMember).AsTexture(BlitMember);
-        RecordBlit(from.ToTexture, dest, mat, pass);
+        RecordBlit(() => from.ToSource(BlitMember), dest, mat, pass);
     }
 
     private void RecordBlit(Func<(uint Kind, ulong Texture)> source, RenderTargetIdentifier dest, Material? mat, int pass)
@@ -132,6 +133,6 @@ public sealed partial class CommandBuffer
         var full = "CommandBuffer.CopyTexture";
         var from = CommandTarget.Of(src, full).AsTexture(full);
         var to = CommandTarget.Of(dst, full).AsWorkTarget(full);
-        Record(() => WorldGraphics.RecordCopy(from.ToTexture(), (uint)srcElement, (uint)srcMip, to.ToWorkTarget(), (uint)dstElement, (uint)dstMip));
+        Record(() => WorldGraphics.RecordCopy(from.ToSource(full), (uint)srcElement, (uint)srcMip, to.ToWorkTarget(), (uint)dstElement, (uint)dstMip));
     }
 }

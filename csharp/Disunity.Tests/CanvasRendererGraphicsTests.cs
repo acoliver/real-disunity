@@ -18,6 +18,11 @@ internal static class CanvasRendererGraphicsTests
             Console.WriteLine("PASS: CanvasRenderer.SetMesh(null) and Clear drop the native geometry");
             TexturesGiveTheirIdentity();
             Console.WriteLine("PASS: CanvasRenderer.SetTexture and SetMaterial record the renderer identity of a Texture2D");
+            ARenderTextureIsSentAsATargetWithItsWorldId();
+            ADestroyedRenderTextureDrawsPlainColour();
+            AMaterialThatWritesNoColourHidesARenderTexture();
+            ATexture3DIsStillUndrawn();
+            Console.WriteLine("PASS: a CanvasRenderer over a RenderTexture is sent as a target with its world id; a destroyed one, a hiding material and a 3D texture are not");
             APlaceholderGlyphAtlasHasNoTexelsToDraw();
             Console.WriteLine("PASS: a CanvasRenderer drawing a one-texel alpha texture (an unfilled dynamic font atlas) gets an identity with no texels");
             AMaterialThatWritesNoColourHidesTheQuads();
@@ -115,15 +120,68 @@ internal static class CanvasRendererGraphicsTests
         var given = new Texture2D(2, 4);
         renderer.SetMaterial(material, given);
         Ensure(Read(renderer).Info.texture == given.RendererIdentity, "a given texture wins over the material's");
+    }
+
+    private const uint ImageKind = 0, TargetKind = 1;
+
+    private static void ARenderTextureIsSentAsATargetWithItsWorldId()
+    {
+        var renderer = NewRenderer();
         var stored = new RenderTexture(4, 4, 0);
         renderer.SetTexture(stored);
-        var target = Read(renderer).Info.texture;
-        Ensure(target >= DisunityHost.FirstPlayerTextureIdentity && target != undrawn && DisunityHost.PlayerTexture(target) is null,
-            "a render texture gets its own identity with no texels");
+        var held = Read(renderer).Info;
+        Ensure(held.texture_kind == TargetKind && held.texture == stored.WorldId, "a render texture is sent as a target with the id the world holds");
         renderer.SetTexture(null);
+        var plain = Read(renderer).Info;
+        Ensure(plain.texture == 0 && plain.texture_kind == ImageKind, "no texture draws plain colour, as an image kind");
         renderer.SetTexture(stored);
-        Ensure(Read(renderer).Info.texture == target, "a render texture keeps its identity");
+        Ensure(Read(renderer).Info.texture == stored.WorldId, "a render texture keeps its id");
+        var material = new Material(Material.SpriteUnlit);
+        material.mainTexture = stored;
+        renderer.SetTexture(null);
+        renderer.SetMaterial(material, null);
+        var fromMaterial = Read(renderer).Info;
+        Ensure(fromMaterial.texture_kind == TargetKind && fromMaterial.texture == stored.WorldId, "the material's render texture is drawn when no texture is given");
         EngineObject.DestroyImmediate(stored);
+    }
+
+    private static void ADestroyedRenderTextureDrawsPlainColour()
+    {
+        var renderer = NewRenderer();
+        var stored = new RenderTexture(4, 4, 0);
+        var material = new Material(Material.SpriteUnlit);
+        material.mainTexture = stored;
+        renderer.SetMaterial(material, null);
+        Ensure(Read(renderer).Info.texture_kind == TargetKind, "the material's render texture is drawn while it lives");
+        EngineObject.DestroyImmediate(stored);
+        renderer.SetMaterial(material, null);
+        var held = Read(renderer).Info;
+        Ensure(held.texture == 0 && held.texture_kind == ImageKind, "a destroyed render texture draws plain colour");
+    }
+
+    private static void AMaterialThatWritesNoColourHidesARenderTexture()
+    {
+        var renderer = NewRenderer();
+        var hidden = new Material(Canvas.GetDefaultCanvasMaterial());
+        hidden.SetInt("_ColorMask", 0);
+        renderer.materialCount = 1;
+        renderer.SetMaterial(hidden, 0);
+        var stored = new RenderTexture(4, 4, 0);
+        renderer.SetTexture(stored);
+        var held = Read(renderer).Info;
+        Ensure(held.texture_kind == ImageKind && held.texture >= DisunityHost.FirstPlayerTextureIdentity && DisunityHost.PlayerTexture(held.texture) is null,
+            "a render texture drawn through a material with colour mask 0 is left out");
+        EngineObject.DestroyImmediate(stored);
+    }
+
+    private static void ATexture3DIsStillUndrawn()
+    {
+        var renderer = NewRenderer();
+        var volume = new Texture3D(2, 2, 2, TextureFormat.RGBA32, false);
+        renderer.SetTexture(volume);
+        var held = Read(renderer).Info;
+        Ensure(held.texture_kind == ImageKind && held.texture >= DisunityHost.FirstPlayerTextureIdentity && DisunityHost.PlayerTexture(held.texture) is null,
+            "a 3D texture has no pixels a quad can sample, so its quads are left out");
     }
 
     private static void APlaceholderGlyphAtlasHasNoTexelsToDraw()

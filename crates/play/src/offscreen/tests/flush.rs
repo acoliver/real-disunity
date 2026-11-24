@@ -16,12 +16,11 @@ use worldrunner_world_simulation::graphics::{
     ShaderProperties,
 };
 use worldrunner_world_simulation::presentation::Camera;
-use worldrunner_world_simulation::{MeshRenderer, World};
+use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
 use super::super::adapter::OffscreenAdapter;
 use super::super::compute::ComputeAdapter;
 use super::super::defaults::{DefaultTexture, StandInLook};
-use super::super::depth_range::DepthRange;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
@@ -105,20 +104,6 @@ fn host_over(directory: &Path, adapter: OffscreenAdapter, gpu: super::gpu::Gpu) 
     )
 }
 
-#[test]
-fn the_host_draws_with_the_depth_range_of_its_settings() {
-    let directory = tempfile::tempdir().unwrap();
-    for depth in [DepthRange::Forward, DepthRange::Reversed] {
-        let settings = Settings::default().with_depth(depth);
-        let host = host_with(directory.path(), settings);
-        assert_eq!(host.reversed_depth(), depth.reversed(), "{depth:?}");
-    }
-    assert!(
-        !host(directory.path()).reversed_depth(),
-        "a plain host stays forward"
-    );
-}
-
 /// A camera that clears to `CLEAR` in red and draws `DRAWN` over the left half of its target.
 pub(super) fn camera_render(world: &mut World, into: RenderTextureId) {
     camera_render_of(world, into, "camera");
@@ -126,6 +111,31 @@ pub(super) fn camera_render(world: &mut World, into: RenderTextureId) {
 
 /// As `camera_render`, with the shader the file `shader_file` names.
 fn camera_render_of(world: &mut World, into: RenderTextureId, shader_file: &str) {
+    let camera = camera_and_renderer(world, shader_file);
+    record_render(world, camera, into);
+}
+
+/// One camera render into each of `into`, after a camera and a renderer was made for each: every
+/// render draws every renderer, as a renderer exists when the render is recorded.
+pub(super) fn camera_renders(world: &mut World, into: &[RenderTextureId]) {
+    let cameras: Vec<_> = into
+        .iter()
+        .map(|_| camera_and_renderer(world, "camera"))
+        .collect();
+    for (camera, target) in cameras.into_iter().zip(into) {
+        record_render(world, camera, *target);
+    }
+}
+
+fn record_render(world: &mut World, camera: ComponentHandle, target: RenderTextureId) {
+    world
+        .record_offscreen(OffscreenWork::CameraRender { camera, target })
+        .unwrap();
+}
+
+/// A camera that clears to `CLEAR` in red, and a renderer that draws `DRAWN` over the left half of
+/// the target with the shader the file `shader_file` names.
+fn camera_and_renderer(world: &mut World, shader_file: &str) -> ComponentHandle {
     let camera = camera(
         world,
         Camera {
@@ -153,12 +163,7 @@ fn camera_render_of(world: &mut World, into: RenderTextureId, shader_file: &str)
         ..MeshRenderer::default()
     };
     renderer_with(world, (0, true), MESH, placed);
-    world
-        .record_offscreen(OffscreenWork::CameraRender {
-            camera,
-            target: into,
-        })
-        .unwrap();
+    camera
 }
 
 /// A compute shader the kernels are found for, scaling by `SCALE`.
@@ -457,7 +462,7 @@ fn the_trace_reads_as_report_lines() {
             "    after the operations before the dispatch: 16 texels, 16 non-zero, values [0.25, 0.5]",
             "    right before the dispatch: 16 texels, 16 non-zero, values [0.25, 0.5]",
             "    camera CameraId(0) drew 1 into color Some(R16Float) depth None, states \
-             [(\"cull None, depth test LessEqual write true, color mask RGBA, blend off\", 1)], \
+             [(\"cull None, depth test GreaterEqual write true, color mask RGBA, blend off\", 1)], \
              without a value []",
             "    setup: viewport [4, 4], color clear [0.25, 0.0, 1.0, 1.0] (Some(R16Float)), depth \
              no depth (None)",
@@ -589,7 +594,7 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
         report.missing_textures,
         BTreeMap::from([("_Albedo".to_owned(), 1)])
     );
-    assert_eq!(report.undeclared_defaults, BTreeMap::new());
+    assert_eq!(report.stand_ins.by_property, BTreeMap::new());
     assert_eq!(report.built, 1, "the camera render is kept");
     let texture = &report.traces[0].textures[0];
     assert_eq!(
@@ -617,8 +622,8 @@ fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_count
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(report.missing_textures, BTreeMap::new());
     assert_eq!(
-        report.undeclared_defaults,
-        BTreeMap::from([("_Albedo".to_owned(), 1)])
+        report.stand_ins.by_property,
+        BTreeMap::from([("_Albedo undeclared".to_owned(), 1)])
     );
     assert_eq!(report.built, 1, "the camera render is kept");
     let texture = &report.traces[0].textures[0];
@@ -633,7 +638,7 @@ fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_count
     // The Gamma pass paints the albedo times the tint over the left half. The grey texel is one
     // unorm byte, and the height map holds 16-bit floats, so the value is exact to one step of
     // those near 0.25, which is 2^-12.
-    let grey = f32::from(DefaultTexture::Grey.texture().bytes[0]) / 255.0;
+    let grey = f32::from(DefaultTexture::Grey.texture(StandInLook::Declared).bytes[0]) / 255.0;
     let step = SCALE / 4096.0;
     let predicted: Vec<f32> = (0..SIDE * SIDE)
         .map(|index| {
@@ -697,11 +702,8 @@ fn an_unset_texture_reads_the_white_its_shader_declares() {
     assert_eq!(heights, expected());
     assert_eq!(outcome.report.traces[0].textures[0].camera_draws, 1);
     assert_eq!(
-        outcome.report.unresolved_textures,
-        BTreeMap::from([(
-            "_Albedo: no texture set, the shader's default read".to_owned(),
-            1
-        )])
+        outcome.report.stand_ins.by_property,
+        BTreeMap::from([("_Albedo unset".to_owned(), 1)])
     );
 }
 
@@ -750,7 +752,7 @@ fn an_unset_texture_reads_the_bump_its_shader_declares() {
     );
     // The pass paints the albedo times the red tint, so the red of the bump texel, 128 of 255,
     // shows. The height map holds 16-bit floats, so the value is exact to one step of those.
-    let bump_red = f32::from(DefaultTexture::Bump.texture().bytes[0]) / 255.0;
+    let bump_red = f32::from(DefaultTexture::Bump.texture(StandInLook::Declared).bytes[0]) / 255.0;
     let step = SCALE / 4096.0;
     let predicted: Vec<f32> = (0..SIDE * SIDE)
         .map(|index| {

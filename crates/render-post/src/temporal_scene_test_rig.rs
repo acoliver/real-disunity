@@ -147,7 +147,14 @@ impl SceneRig {
             history: slot_history.clone(),
             lock_bank: slot_lock_bank.clone(),
         };
-        let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
+        let chain = PostChain::new(
+            &device,
+            config,
+            Resources::default(),
+            factory,
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
         let history = slot_history
             .lock()
             .unwrap()

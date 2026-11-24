@@ -1,4 +1,4 @@
-use super::super::live::Capture;
+use super::super::readback::Capture;
 use crate::{CaptureOutput, RetainedCaptureProducts, ViewerError};
 use worldrunner_render_post::{FrameConfig, Readback, contracts::AsyncReadback};
 use worldrunner_render_scene::{
@@ -277,7 +277,7 @@ impl Products {
                     scheduler.encode_term_capture(device, encoder, term, (&plain.gpu, None));
                 }
                 super::super::Resident::Shadowed(scene) => {
-                    scene.encode_term_capture_with(device, encoder, term, scheduler)?;
+                    scene.encode_term_capture(device, encoder, term, scheduler)?;
                 }
             }
         }

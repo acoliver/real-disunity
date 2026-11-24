@@ -500,7 +500,6 @@ pub struct SceneEffects {
     grading: SceneColorGrading,
     post: Box<[ScenePostStage]>,
     anti_alias: SceneAntiAlias,
-    pub(super) opaque_path: super::SceneOpaquePath,
 }
 
 impl SceneEffects {
@@ -589,7 +588,6 @@ impl SceneEffects {
             grading: parts.grading,
             post: parts.post.into_boxed_slice(),
             anti_alias: parts.anti_alias,
-            opaque_path: super::SceneOpaquePath::default(),
         };
         effects.validate()?;
         Ok(effects)

@@ -67,7 +67,9 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         var copy = parameters;
         var lights = VisibleLightSet.Collect(parameters);
         lock (Pending) Pending.Add(() => WorldGraphics.RecordCull(id, copy));
-        return new CullingResults { Handle = id, Lights = lights, Casters = new ShadowCasterSet(parameters) };
+        var planes = Enumerable.Range(0, parameters.cullingPlaneCount).Select(parameters.GetCullingPlane).ToArray();
+        var batches = BatchCull.Run(BatchCullingViewType.Camera, planes, parameters.cullingMask);
+        return new CullingResults { Handle = id, Lights = lights, Casters = new ShadowCasterSet(parameters), Batches = batches };
     }
     /// <summary>Queues a record that draws after it use the camera's view and projection matrices and target (its target texture, or the
     /// color and depth buffers <see cref="Camera.SetTargetBuffers(RenderBuffer, RenderBuffer)"/> set), read now. The
@@ -82,8 +84,8 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         var handle = camera.Handle;
         lock (Pending) Pending.Add(() => WorldGraphics.RecordSetupCamera(handle, view, projection, target, buffers));
     }
-    /// <summary>Does nothing: it makes canvas geometry available to the camera's culling, and the engine draws canvases
-    /// itself from the world's canvas renderers, so the pipeline has no geometry to ask for (the engine's choice).</summary>
+    /// <summary>Makes canvas geometry available to the camera's culling. The engine draws canvases from the world's canvas
+    /// renderers whether or not a pipeline asks, so there is no geometry to emit: the call checks that the camera is not null.</summary>
     public static void EmitGeometryForCamera(Camera camera) => ArgumentNullException.ThrowIfNull(camera);
 
     public void DrawSkybox(Camera camera) => throw Unsupported("DrawSkybox");
@@ -149,6 +151,7 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
             Id = WorldGraphics.CreateDrawList(cull, names, range.lowerBound, range.upperBound, (uint)filtering.layerMask,
                 filtering.renderingLayerMask, (uint)drawing.sortingSettings.criteria, (uint)drawing.perObjectData, materialId,
                 drawing.overrideMaterialPassIndex),
+            Batches = parameters.cullingResults.Batches is { } batches ? BatchListDraws.ForDrawing(batches, names, range, filtering.renderingLayerMask) : null,
         };
     }
 
@@ -174,11 +177,14 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
             var plane = split.GetCullingPlane(index);
             (planes[index * 4], planes[index * 4 + 1], planes[index * 4 + 2], planes[index * 4 + 3]) = (plane.normal.x, plane.normal.y, plane.normal.z, plane.distance);
         }
+        var batches = BatchCull.Run(BatchCullingViewType.Light, Enumerable.Range(0, split.cullingPlaneCount).Select(split.GetCullingPlane).ToArray(),
+            settings.cullingResults.Batches?.LayerMask ?? uint.MaxValue);
         SendPending();
         return new RendererList
         {
             Id = WorldGraphics.CreateShadowList(cull, settings.lightIndex, planes, split.cullingSphere, (uint)settings.objectsFilter,
                 (uint)settings.projectionType, settings.useRenderingLayerMaskTest),
+            Batches = BatchListDraws.ForShadows(batches),
         };
     }
 
@@ -203,7 +209,8 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         : rendererList.UiOverlay ? RendererListStatus.kRendererListEmpty
         : RendererListStatus.kRendererListPopulated;
 
-    /// <summary>Does nothing: the world builds a list when it is made, so there is nothing to prepare in the background.</summary>
+    /// <summary>The world builds a renderer list when <c>CreateRendererList</c> makes it, so every list is ready before this call and
+    /// there is no background work to start.</summary>
     public void PrepareRendererListsAsync(List<RendererList> rendererLists)
     {
     }

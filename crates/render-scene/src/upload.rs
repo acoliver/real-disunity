@@ -14,9 +14,6 @@ pub const FRAME_GROUP: u32 = 0;
 /// Bind group index carrying per-material state.
 pub const MATERIAL_GROUP: u32 = 1;
 
-/// Number of optional textures a material may omit.
-pub const OPTIONAL_TEXTURE_COUNT: usize = 4;
-
 /// The neutral texel bound where a material omits an optional texture.
 const PLACEHOLDER_TEXEL: [u8; 4] = [0xFF, 0xFF, 0xFF, 0xFF];
 
@@ -207,12 +204,7 @@ fn texture_layer<'a>(prepared: &'a PreparedTexture<'a>) -> TextureLayer<'a> {
     }
 }
 
-pub fn material_sampler(device: &Device) -> Sampler {
-    device.create_sampler(&material_sampler_descriptor(
-        worldrunner_render_plan::TextureAnisotropy::default(),
-    ))
-}
-
+/// The sampler materials read their textures with, at `anisotropy`.
 pub(crate) fn material_sampler_descriptor(
     anisotropy: worldrunner_render_plan::TextureAnisotropy,
 ) -> SamplerDescriptor<'static> {
@@ -283,13 +275,6 @@ pub(crate) fn texel_texture(
     .upload(device, queue, label, TextureUsages::empty())
     .expect("constant texture supported")
 }
-
-/// Uploads already-encoded bytes into a buffer of the requested usage.
-///
-/// Every caller in this crate encodes its own bytes, because the ban on
-/// unsafe code rules out casting a struct to a byte slice. That keeps the
-/// layout explicit in Rust and testable without a GPU.
-pub use worldrunner_render_gpu::resource::upload_buffer;
 
 #[cfg(test)]
 mod tests;

@@ -1,32 +1,40 @@
 namespace UnityEngine.Rendering;
 
 /// <summary>
-/// The recording members that set global shader values and keywords. The values go to the world's offscreen list at the place
-/// the buffer is executed and are not folded into the global shader state, so the host applies them in order with the other work. A
-/// property id that no name was ever registered for throws <see cref="ArgumentException"/> when it is recorded. A texture is a
-/// render texture or nothing; a temporary render texture or the camera target as a global texture throws
+/// The recording members that set global shader values and keywords. Executing the buffer (<see cref="Graphics.ExecuteCommandBuffer"/>
+/// or a context's <see cref="ScriptableRenderContext.Submit"/>) makes each write the way the matching <c>Shader.SetGlobal*</c> or
+/// <c>Shader.EnableKeyword</c> call does: it sets the managed global and the world's global shader state, so the value outlives
+/// the buffer and the take of work that ran it, and <c>Shader.GetGlobal*</c> reads it back. The world orders every direct write
+/// of a take among its records, a write after the last one included, and the take replays from the state before its first write,
+/// so the host still applies the value at its place among the buffer's other commands.
+/// A temporary render texture has no identity that outlives its take; a global set to one stays an ordered record of that take and
+/// changes neither the managed global nor the world's state. A property id that no name was ever registered for throws
+/// <see cref="ArgumentException"/> when it is recorded, and a name the world refuses (empty, or over 256 UTF-8 bytes) throws it when the
+/// buffer runs, before any global changes. A texture is a render texture, a texture asset (a <see cref="Texture2D"/>,
+/// <see cref="Texture2DArray"/>, <see cref="Cubemap"/> or <see cref="Texture3D"/>, which <c>Shader.SetGlobalTexture</c> takes as well, so a
+/// pipeline's reflection cube is set as any texture is), a temporary render texture or nothing; the camera target as a global texture throws
 /// <see cref="NotSupportedException"/>.
 /// </summary>
 public sealed partial class CommandBuffer
 {
-    public void SetGlobalFloat(string name, float value) => Global(name, () => WorldGraphics.RecordGlobalFloat(name, value));
+    public void SetGlobalFloat(string name, float value) => Global(name, () => Shader.SetGlobalFloat(name, value));
     public void SetGlobalFloat(int nameID, float value) => SetGlobalFloat(NameOf(nameID), value);
-    public void SetGlobalInt(string name, int value) => Global(name, () => WorldGraphics.RecordGlobalInt(name, value));
+    public void SetGlobalInt(string name, int value) => Global(name, () => Shader.SetGlobalInt(name, value));
     public void SetGlobalInt(int nameID, int value) => SetGlobalInt(NameOf(nameID), value);
-    public void SetGlobalInteger(string name, int value) => SetGlobalInt(name, value);
-    public void SetGlobalInteger(int nameID, int value) => SetGlobalInt(NameOf(nameID), value);
-    public void SetGlobalVector(string name, Vector4 value) => Global(name, () => WorldGraphics.RecordGlobalVector(name, value));
+    public void SetGlobalInteger(string name, int value) => Global(name, () => Shader.SetGlobalInteger(name, value));
+    public void SetGlobalInteger(int nameID, int value) => SetGlobalInteger(NameOf(nameID), value);
+    public void SetGlobalVector(string name, Vector4 value) => Global(name, () => Shader.SetGlobalVector(name, value));
     public void SetGlobalVector(int nameID, Vector4 value) => SetGlobalVector(NameOf(nameID), value);
-    public void SetGlobalColor(string name, Color value) => SetGlobalVector(name, value);
-    public void SetGlobalColor(int nameID, Color value) => SetGlobalVector(NameOf(nameID), value);
-    public void SetGlobalMatrix(string name, Matrix4x4 value) => Global(name, () => WorldGraphics.RecordGlobalMatrix(name, value));
+    public void SetGlobalColor(string name, Color value) => Global(name, () => Shader.SetGlobalColor(name, value));
+    public void SetGlobalColor(int nameID, Color value) => SetGlobalColor(NameOf(nameID), value);
+    public void SetGlobalMatrix(string name, Matrix4x4 value) => Global(name, () => Shader.SetGlobalMatrix(name, value));
     public void SetGlobalMatrix(int nameID, Matrix4x4 value) => SetGlobalMatrix(NameOf(nameID), value);
 
     public void SetGlobalTexture(string name, RenderTargetIdentifier value)
     {
         ThrowIfReleased();
         var target = CommandTarget.Of(value, "CommandBuffer.SetGlobalTexture").AsTexture("CommandBuffer.SetGlobalTexture");
-        Global(name, () => WorldGraphics.RecordGlobalTexture(name, target.ToTexture()));
+        Global(name, () => ApplyGlobalTexture(name, target));
     }
 
     public void SetGlobalTexture(int nameID, RenderTargetIdentifier value) => SetGlobalTexture(NameOf(nameID), value);
@@ -40,13 +48,32 @@ public sealed partial class CommandBuffer
     private void Keyword(string keyword, bool enabled)
     {
         ArgumentNullException.ThrowIfNull(keyword);
-        Record(() => WorldGraphics.RecordGlobalKeyword(keyword, enabled));
+        Record(() =>
+        {
+            WorldGraphics.CheckName(keyword, "CommandBuffer keyword");
+            if (enabled) Shader.EnableKeyword(keyword);
+            else Shader.DisableKeyword(keyword);
+        });
     }
 
-    private void Global(string name, Action send)
+    private void Global(string name, Action apply)
     {
         ArgumentNullException.ThrowIfNull(name);
-        Record(send);
+        Record(() =>
+        {
+            WorldGraphics.CheckName(name, "CommandBuffer.SetGlobal");
+            apply();
+        });
+    }
+
+    /// <summary>Sets a global texture when the buffer runs. A temporary render texture is the only target without a managed
+    /// <see cref="Texture"/> to hold, so it alone stays an ordered record of the take. A texture destroyed since the command was
+    /// recorded throws <see cref="InvalidOperationException"/> before anything is set.</summary>
+    private static void ApplyGlobalTexture(string name, CommandTarget target)
+    {
+        var texture = target.ToTexture();
+        if (texture.Kind == WorldGraphics.TextureTemporary) WorldGraphics.RecordGlobalTexture(name, texture);
+        else Shader.SetGlobalTexture(name, target.Texture);
     }
 
     private static string NameOf(int nameID) =>

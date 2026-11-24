@@ -96,13 +96,44 @@ fn a_shader_declares_a_default_for_each_number_vector_colour_and_integer_propert
 }
 
 #[test]
+fn a_linear_project_converts_the_rgb_of_a_colour_default_and_nothing_else() {
+    let shader = shader_with(vec![
+        property("_Tint", 0, [0.5, 0.0, 1.0, 0.5], 0),
+        property("_Place", 1, [0.5, 0.0, 1.0, 0.5], 0),
+        property("_Intensity", 2, [0.5, 0.0, 0.0, 0.0], 0),
+    ]);
+    let linear = declared_fill(&shader).in_colour_space(true);
+    let PropertyValue::Vector(tint) = &linear.values[0].1 else {
+        panic!("a colour default is a vector: {:?}", linear.values);
+    };
+    // 0.5 decodes to ((0.5 + 0.055) / 1.055)^2.4 = 0.214_041_14; 0 and 1 and the alpha stay.
+    assert_eq!(tint[1..], [0.0, 1.0, 0.5]);
+    assert!((tint[0] - 0.214_041_14).abs() < 1.0e-6, "{tint:?}");
+    assert_eq!(
+        linear.values[1..],
+        [
+            (
+                "_Place".to_owned(),
+                PropertyValue::Vector([0.5, 0.0, 1.0, 0.5])
+            ),
+            ("_Intensity".to_owned(), PropertyValue::Float(0.5)),
+        ]
+    );
+    assert_eq!(
+        declared_fill(&shader).in_colour_space(false),
+        declared_fill(&shader)
+    );
+}
+
+#[test]
 fn a_texture_the_material_lists_gives_its_scale_and_offset_as_scale_then_offset() {
     let found = properties(vec![WorldValue::Texture(
         "_Heightmap".into(),
         slot([2.0, 3.0], [0.25, 0.5]),
     )]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &ShaderFill::default(), &mut textures);
     assert_eq!(
         layer.values.get("_Heightmap_ST"),
@@ -125,7 +156,7 @@ fn a_slot_with_no_texture_still_gives_its_scale_and_offset() {
     let layer = fallback_layer(
         &found,
         &ShaderFill::default(),
-        &mut Textures::new(&render, &stored),
+        &mut Textures::new(&render, &stored, &BTreeMap::new()),
     );
     assert_eq!(
         layer.values.get("_Alphamap_ST"),
@@ -139,6 +170,7 @@ fn a_texture_the_shader_declares_and_the_material_lists_no_slot_for_gets_scale_o
     let fill = ShaderFill {
         textures: vec!["_Main".to_owned(), "_Listed".to_owned()],
         declared_textures: vec!["_Main".to_owned(), "_Listed".to_owned()],
+        colours: Vec::new(),
         values: Vec::new(),
     };
     let found = properties(vec![WorldValue::Texture(
@@ -146,7 +178,8 @@ fn a_texture_the_shader_declares_and_the_material_lists_no_slot_for_gets_scale_o
         slot([2.0, 2.0], [0.5, 0.5]),
     )]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &fill, &mut textures);
     assert_eq!(
         layer.values.get("_Main_ST"),
@@ -168,7 +201,8 @@ fn a_scale_and_offset_vector_the_material_sets_itself_is_left_to_it() {
         WorldValue::Vector("_Main_ST".into(), [9.0, 9.0, 9.0, 9.0]),
     ]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &ShaderFill::default(), &mut textures);
     assert!(layer.values.get("_Main_ST").is_none());
     assert!(textures.filled().is_empty());
@@ -179,6 +213,7 @@ fn the_shader_defaults_fill_what_the_material_leaves_unset_and_never_what_it_set
     let fill = ShaderFill {
         textures: Vec::new(),
         declared_textures: Vec::new(),
+        colours: Vec::new(),
         values: vec![
             ("_Intensity".to_owned(), PropertyValue::Float(0.75)),
             ("_Cutoff".to_owned(), PropertyValue::Float(0.5)),
@@ -194,7 +229,8 @@ fn the_shader_defaults_fill_what_the_material_leaves_unset_and_never_what_it_set
         WorldValue::Vector("_Both".into(), [2.0; 4]),
     ]);
     let (render, stored) = no_textures();
-    let mut textures = Textures::new(&render, &stored);
+    let refused = BTreeMap::new();
+    let mut textures = Textures::new(&render, &stored, &refused);
     let layer = fallback_layer(&found, &fill, &mut textures);
     assert_eq!(
         layer.values.get("_Intensity"),
@@ -252,6 +288,7 @@ fn a_frame_gives_each_material_a_fallback_layer_of_its_texture_scales_and_shader
             fill: ShaderFill {
                 textures: vec!["_Heightmap".to_owned(), "_Alphamap".to_owned()],
                 declared_textures: vec!["_Heightmap".to_owned(), "_Alphamap".to_owned()],
+                colours: Vec::new(),
                 values: vec![
                     ("_Intensity".to_owned(), PropertyValue::Float(1.5)),
                     ("_Cutoff".to_owned(), PropertyValue::Float(0.5)),

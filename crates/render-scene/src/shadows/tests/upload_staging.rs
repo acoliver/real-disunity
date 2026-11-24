@@ -2,7 +2,10 @@
 //! frame with walking units does. The ignored probes are informational: run them serially
 //! with `--ignored --nocapture`.
 use super::*;
+use crate::draw::PreparedScene;
 use crate::instances::InstanceHandle;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 use crate::{CameraPose, Viewport};
 use std::collections::VecDeque;
 
@@ -105,6 +108,7 @@ fn edit(renderer: &mut ShadowedScene, handles: &[InstanceHandle], frame: u64, st
 
 struct Flight {
     renderer: ShadowedScene,
+    scheduler: crate::compositor::FrameRenderer,
     handles: Vec<InstanceHandle>,
     target: OffscreenTarget,
     pending: VecDeque<wgpu::SubmissionIndex>,
@@ -114,17 +118,19 @@ impl Flight {
     fn new(context: &GpuContext, count: usize, viewport: Viewport) -> Self {
         let mut renderer = ShadowedScene::new(
             context,
-            &source(count),
+            PreparedScene::new(&source(count)).unwrap(),
             DirectionalShadowSettings {
                 half_extent_meters: 6.0,
                 depth_half_extent_meters: 6.0,
                 ..settings()
             },
+            ShadowedTarget::new(OffscreenTarget::COLOR_FORMAT, 1),
         )
         .unwrap();
         let handles = renderer.scene_mut().instance_handles().collect();
         Self {
             renderer,
+            scheduler: crate::compositor::FrameRenderer::new(context.device()),
             handles,
             target: OffscreenTarget::new(context.device(), viewport).unwrap(),
             pending: VecDeque::new(),
@@ -156,12 +162,15 @@ impl Flight {
             .select_frame_slot(usize::try_from(frame % 3).unwrap());
         let mut encoder = context.submission().begin(context.device()).unwrap();
         self.renderer
-            .encode(
+            .encode_with(
                 context,
                 &moving_view(frame, self.viewport),
-                &self.target.color_attachment(),
-                &self.target.depth_attachment(),
+                (
+                    &self.target.color_attachment(),
+                    &self.target.depth_attachment(),
+                ),
                 &mut encoder,
+                &mut self.scheduler,
             )
             .unwrap();
         self.pending.push_back(encoder.finish().submit().unwrap());
@@ -181,6 +190,7 @@ impl Flight {
         self.renderer.select_frame_slot(0);
         render_target(
             &mut self.renderer,
+            &mut self.scheduler,
             context,
             &moving_view(frame, self.viewport),
             &self.target,

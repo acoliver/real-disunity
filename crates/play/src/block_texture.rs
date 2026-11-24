@@ -3,7 +3,8 @@
 //!
 //! The managed engine stores a texture's rows bottom first; the presentation's sprite UVs count
 //! rows from the top. Turning a block-compressed image over reverses its block rows and the four
-//! texel rows inside each block.
+//! texel rows inside each block. A level shorter than four texels is one row of blocks that holds
+//! fewer rows, and turning it over reverses only the rows it holds.
 
 const BLOCK_TEXELS: usize = 4;
 const DDS_MAGIC: &[u8; 4] = b"DDS ";
@@ -13,6 +14,9 @@ const HEADER_FLAGS: u32 = 0x1 | 0x2 | 0x4 | 0x1000 | 0x8_0000;
 const PIXEL_FORMAT_BYTES: u32 = 32;
 const PIXEL_FORMAT_FOURCC: u32 = 0x4;
 const CAPS_TEXTURE: u32 = 0x1000;
+/// The mip count is present in the header, and the surface is a chain of levels.
+const FLAG_MIP_COUNT: u32 = 0x2_0000;
+const CAPS_MIPMAP_CHAIN: u32 = 0x8 | 0x40_0000;
 const RESOURCE_DIMENSION_TEXTURE2D: u32 = 3;
 
 /// The block layouts a player texture can have that the renderer draws.
@@ -53,17 +57,18 @@ impl BlockLayout {
         }
     }
 
-    fn flip_block(self, block: &mut [u8]) {
+    /// Turns a block over when it holds `rows` rows of texels, the first `rows` of its four.
+    fn flip_block(self, block: &mut [u8], rows: usize) {
         match self {
-            Self::Bc1 => flip_colour_indices(block),
-            Self::Bc4 => flip_alpha_indices(block),
+            Self::Bc1 => flip_colour_indices(block, rows),
+            Self::Bc4 => flip_alpha_indices(block, rows),
             // Turning a BC7 block over would re-encode its indices per mode and partition; BC7 is
             // only drawn decoded.
             Self::Bc7 => {}
             Self::Bc3 => {
                 let (alpha, colour) = block.split_at_mut(8);
-                flip_alpha_indices(alpha);
-                flip_colour_indices(colour);
+                flip_alpha_indices(alpha, rows);
+                flip_colour_indices(colour, rows);
             }
         }
     }
@@ -76,46 +81,54 @@ pub fn level_bytes(layout: BlockLayout, width: u32, height: u32) -> usize {
     blocks(width) * blocks(height) * layout.block_bytes()
 }
 
-/// Reverses the rows of a base level whose height is a multiple of four.
+/// Reverses the rows of a level `height` texels high, which is a multiple of four or less than
+/// four.
 #[must_use]
-pub fn flip_rows(layout: BlockLayout, width: u32, level: &[u8]) -> Vec<u8> {
+pub fn flip_rows(layout: BlockLayout, width: u32, height: u32, level: &[u8]) -> Vec<u8> {
     let row_bytes = (width as usize).div_ceil(BLOCK_TEXELS) * layout.block_bytes();
     let mut flipped = Vec::with_capacity(level.len());
     for row in level.chunks_exact(row_bytes).rev() {
         flipped.extend_from_slice(row);
     }
+    let rows = (height as usize).min(BLOCK_TEXELS);
     for block in flipped.chunks_exact_mut(layout.block_bytes()) {
-        layout.flip_block(block);
+        layout.flip_block(block, rows);
     }
     flipped
 }
 
 /// The four index bytes after the two endpoints each hold one texel row.
-fn flip_colour_indices(block: &mut [u8]) {
-    block[4..8].reverse();
+fn flip_colour_indices(block: &mut [u8], rows: usize) {
+    block[4..4 + rows].reverse();
 }
 
 /// After two endpoint bytes, sixteen 3-bit indices fill 48 bits, twelve bits a texel row.
-fn flip_alpha_indices(block: &mut [u8]) {
+fn flip_alpha_indices(block: &mut [u8], rows: usize) {
     let mut bits = 0_u64;
     for (index, byte) in block[2..8].iter().enumerate() {
         bits |= u64::from(*byte) << (8 * index);
     }
     let mut flipped = 0_u64;
-    for row in 0..4 {
-        flipped |= ((bits >> (12 * row)) & 0xFFF) << (12 * (3 - row));
+    for row in 0..rows {
+        flipped |= ((bits >> (12 * row)) & 0xFFF) << (12 * (rows - 1 - row));
     }
     for (index, byte) in block[2..8].iter_mut().enumerate() {
         *byte = low_byte(flipped >> (8 * index));
     }
 }
 
-/// A one-level DX10 DDS container around `payload`.
+/// A DX10 DDS container of a `width` by `height` texture whose `mips` levels, largest first, are
+/// `payload`, the first `base_bytes` of it the largest level.
 #[must_use]
-pub fn dx10_dds(width: u32, height: u32, dxgi: u32, payload: &[u8]) -> Vec<u8> {
+pub fn dx10_dds(
+    (width, height): (u32, u32),
+    dxgi: u32,
+    mips: u32,
+    (base_bytes, payload): (usize, &[u8]),
+) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(148 + payload.len());
     bytes.extend_from_slice(DDS_MAGIC);
-    let linear_size = u32::try_from(payload.len()).unwrap_or(u32::MAX);
+    let linear_size = u32::try_from(base_bytes).unwrap_or(u32::MAX);
     // Offsets 4 to 127: size, flags, height, width, linear size, depth, mips, 11 reserved words.
     let mut header = [0_u32; 31];
     header[0] = HEADER_BYTES;
@@ -123,11 +136,15 @@ pub fn dx10_dds(width: u32, height: u32, dxgi: u32, payload: &[u8]) -> Vec<u8> {
     header[2] = height;
     header[3] = width;
     header[4] = linear_size;
-    header[6] = 1;
+    header[6] = mips;
     header[18] = PIXEL_FORMAT_BYTES;
     header[19] = PIXEL_FORMAT_FOURCC;
     header[20] = u32::from_le_bytes(*b"DX10");
     header[26] = CAPS_TEXTURE;
+    if mips > 1 {
+        header[1] |= FLAG_MIP_COUNT;
+        header[26] |= CAPS_MIPMAP_CHAIN;
+    }
     for word in header {
         bytes.extend_from_slice(&word.to_le_bytes());
     }

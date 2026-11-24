@@ -240,7 +240,7 @@ const CELESTIAL_MASKED: &str = "fs_celestial_masked";
 /// impostor and the two lowest bits of its index (masked and double-sided): relief is flat in the
 /// map, and one sample has no coverage choice. Every key casts as the first key of its family, so
 /// the casters share eight pipelines among the keys.
-fn caster_key(key: PipelineKey) -> PipelineKey {
+pub(crate) fn caster_key(key: PipelineKey) -> PipelineKey {
     PipelineKey::ALL[usize::from(key.sampling.is_impostor()) * 16 + key.index() % 4]
 }
 
@@ -299,6 +299,12 @@ impl Context {
             vertex: RefCell::default(),
             programs: RefCell::default(),
         }))
+    }
+
+    /// Whether the context draws the shadow casters, which cast as fewer keys and materials than
+    /// the forward pass draws with.
+    pub(crate) fn is_caster(&self) -> bool {
+        matches!(self.0.description.entry, Entry::Caster(_))
     }
 
     pub(crate) fn id(&self) -> u64 {

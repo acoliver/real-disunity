@@ -3,12 +3,13 @@
 //! These are this crate's own types. A host adapter maps the world's export onto them; nothing
 //! here depends on the world.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::sync::Arc;
 
 use crate::ids::{CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId};
 use crate::layers::PropertyLayer;
+use crate::resources::BufferHandle;
 use crate::sampler::SamplerState;
 use crate::unity::shader::PassSelector;
 
@@ -179,6 +180,17 @@ pub struct Camera {
     pub values: PropertyLayer,
     /// The winding that counts as a front face, in framebuffer space.
     pub front_face: wgpu::FrontFace,
+    /// The renderers the camera draws, as the frame fixed them at the camera's record: those of
+    /// the set whose layer the mask also admits.
+    pub renderers: Arc<BTreeSet<RendererId>>,
+}
+
+impl Camera {
+    /// Whether the camera draws the renderer `id` on `layer`.
+    #[must_use]
+    pub fn draws(&self, id: RendererId, layer: u32) -> bool {
+        layer < 32 && self.culling_mask & (1 << layer) != 0 && self.renderers.contains(&id)
+    }
 }
 
 /// One mip of a render texture that a pass draws into.
@@ -228,6 +240,33 @@ pub struct Clear {
     pub stencil: Option<u32>,
 }
 
+/// The instances a list draw makes.
+#[derive(Clone, Debug)]
+pub enum Instances {
+    /// The sub-mesh repeated this many times with the renderer's own values: 1 draws it once and
+    /// 0 draws nothing. What differs between instances is read from the instance index.
+    Count(u32),
+    /// Instances whose data is in a raw buffer, drawn through the shader's DOTS instancing variant.
+    Dots(DotsBatch),
+}
+
+/// A batch of instances a game shader reads from a raw buffer, as the game's own code laid it out.
+/// The host copies the words and indexes below and binds the buffer; it does not read the buffer.
+#[derive(Clone, Debug)]
+pub struct DotsBatch {
+    /// The raw buffer the shader reads as `unity_DOTSInstanceData`.
+    pub buffer: BufferHandle,
+    /// The bytes of `buffer` the shader reads: the metadata offsets count from the window's
+    /// start, which a device binds only at its storage offset alignment.
+    pub window: Range<u64>,
+    /// The metadata word of each per-instance property the game set, by the property's name
+    /// (`unity_ObjectToWorld`, `_Color`). The word is the value the game gave the property's
+    /// metadata, copied as it is.
+    pub metadata: Vec<(String, u32)>,
+    /// The index of each instance to draw, in the order they draw.
+    pub visible: Vec<u32>,
+}
+
 /// One draw of a list: a sub-mesh slot of a renderer.
 #[derive(Clone, Debug)]
 pub struct ListDraw {
@@ -237,8 +276,8 @@ pub struct ListDraw {
     pub material: Option<MaterialId>,
     /// Which pass of the material's shader draws.
     pub pass: PassSelector,
-    /// How many instances of the sub-mesh the draw makes: 1 draws it once, and 0 draws nothing.
-    pub instances: u32,
+    /// The instances of the sub-mesh the draw makes.
+    pub instances: Instances,
     /// The values the list gives this draw alone, such as a light factor that depends on the
     /// culling result the draw came from. They win over the renderer's own `per_draw` values.
     pub per_draw: PropertyLayer,
@@ -260,11 +299,17 @@ pub struct DrawRaster {
     pub viewport: Option<[f32; 4]>,
     /// The constant and the slope-scaled terms of the depth bias, as the script gave them, in the
     /// depth convention of an unreversed buffer: a positive value moves the stored depth away from
-    /// the viewer, so a reversed buffer ([`set_reversed_depth`](super::OffscreenState::set_reversed_depth))
-    /// takes the negated values. The constant is rounded to whole units of the buffer's
+    /// the viewer, so the reversed buffer takes the negated values. The constant is rounded to whole units of the buffer's
     /// resolution. `[0.0, 0.0]` draws with the bias of the pass, which is none. The bias applies
     /// to triangles only; a line list is drawn without it.
     pub depth_bias: [f32; 2],
+    /// Whether the draws blend their alpha channel as coverage: a colour blend of source alpha
+    /// and one minus source alpha leaves the target holding the colour premultiplied by the
+    /// alpha and the alpha as the coverage of everything drawn (source one, destination one
+    /// minus source alpha), as it does over a backdrop that is cleared to transparent. A host
+    /// that later composites the target over another image needs that alpha. A colour blend
+    /// of any other kind keeps the pass's own alpha blend.
+    pub coverage_alpha: bool,
 }
 
 /// A list of draws into attachments.
@@ -356,6 +401,66 @@ pub enum Record {
     Globals(Arc<GlobalState>),
 }
 
+impl Record {
+    /// The kind of the record, as a report names it.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::CameraRender { .. } => "CameraRender",
+            Self::Blit { .. } => "Blit",
+            Self::CopyTexture { .. } => "CopyTexture",
+            Self::GenerateMips { .. } => "GenerateMips",
+            Self::Clear { .. } => "Clear",
+            Self::Draws(_) => "Draws",
+            Self::Procedural(_) => "Procedural",
+            Self::Globals(_) => "Globals",
+        }
+    }
+
+    /// The texture the record writes: a camera's, blit's or copy's target, the texture mips are
+    /// generated for, or the first colour attachment of a clear or a draw (its depth when it has
+    /// no colour). A record of globals writes none.
+    #[must_use]
+    pub fn target(&self) -> Option<TextureId> {
+        let attached = |target: &Attachments| {
+            target
+                .colors
+                .first()
+                .or(target.depth.as_ref())
+                .map(|attachment| attachment.texture)
+        };
+        match self {
+            Self::CameraRender { target, .. }
+            | Self::Blit { target, .. }
+            | Self::CopyTexture { target, .. } => Some(*target),
+            Self::GenerateMips { texture } => Some(*texture),
+            Self::Clear { target, .. } => attached(target),
+            Self::Draws(list) => attached(&list.target),
+            Self::Procedural(draw) => attached(&draw.target),
+            Self::Globals(_) => None,
+        }
+    }
+
+    /// The texture whose depth buffer the record rendered with: the depth attachment a clear, a
+    /// draw list or a procedural draw binds, which may be a texture of its own or the colour
+    /// target's, and the depth buffer of a camera's target. A blit, a copy, a mip generation and
+    /// a record of globals have none, and neither has a clear or a draw that binds no depth.
+    #[must_use]
+    pub fn depth_target(&self) -> Option<TextureId> {
+        let attached = |target: &Attachments| target.depth.as_ref().map(|depth| depth.texture);
+        match self {
+            Self::CameraRender { target, .. } => Some(*target),
+            Self::Clear { target, .. } => attached(target),
+            Self::Draws(list) => attached(&list.target),
+            Self::Procedural(draw) => attached(&draw.target),
+            Self::Blit { .. }
+            | Self::CopyTexture { .. }
+            | Self::GenerateMips { .. }
+            | Self::Globals(_) => None,
+        }
+    }
+}
+
 /// A range of a texture the scene samples after the offscreen work.
 #[derive(Clone, Debug)]
 pub struct ReadRange {
@@ -371,6 +476,9 @@ pub struct OffscreenFrame {
     pub main_texture: String,
     /// The mesh a blit draws: triangles with no index buffer, in clip space.
     pub blit_mesh: Option<MeshId>,
+    /// The values the host gives every blit with a material, above the material and the
+    /// globals: what `Graphics.Blit` itself sets, such as the transform of its quad.
+    pub blit_values: PropertyLayer,
     pub globals: PropertyLayer,
     pub global_keywords: Vec<String>,
     pub render_textures: Vec<RenderTextureSpec>,
@@ -385,13 +493,16 @@ pub struct OffscreenFrame {
     /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
     /// the Old World player makes with such a slot is drawn and counted instead of left out. The
     /// host uploads each as it does any source texture. A draw that reads one is counted by
-    /// property in
-    /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
+    /// property and reason in [`OffscreenOperations::stand_in_draws`](super::OffscreenOperations::stand_in_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
     /// before. Without a default for a dimension, which is the default, every slot of that
     /// dimension no layer sets is missing.
     pub undeclared_textures: UndeclaredTextures,
+    /// The indices into `records` after which the host reads the record's target, in colour and
+    /// depth. A read leaves the frame's work as it was; see
+    /// [`OffscreenOperations::take_taps`](super::OffscreenOperations::take_taps).
+    pub taps: Vec<usize>,
 }
 
 /// The texture an unset, undeclared slot reads, by the view dimension of the slot.
@@ -424,6 +535,7 @@ impl Default for OffscreenFrame {
         Self {
             main_texture: DEFAULT_MAIN_TEXTURE.to_owned(),
             blit_mesh: None,
+            blit_values: PropertyLayer::default(),
             globals: PropertyLayer::default(),
             global_keywords: Vec::new(),
             render_textures: Vec::new(),
@@ -434,6 +546,7 @@ impl Default for OffscreenFrame {
             later_reads: Vec::new(),
             probe: CameraProbe::default(),
             undeclared_textures: UndeclaredTextures::default(),
+            taps: Vec::new(),
         }
     }
 }
@@ -450,10 +563,9 @@ impl OffscreenFrame {
         match record {
             Record::CameraRender { camera, .. } => self.cameras.get(camera).map_or(0, |camera| {
                 self.renderers
-                    .values()
-                    .filter(|renderer| {
-                        renderer.layer < 32 && camera.culling_mask & (1 << renderer.layer) != 0
-                    })
+                    .iter()
+                    .filter(|(id, renderer)| camera.draws(**id, renderer.layer))
+                    .map(|(_, renderer)| renderer)
                     .map(|renderer| renderer.materials.len())
                     .sum()
             }),

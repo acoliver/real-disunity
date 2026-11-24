@@ -228,6 +228,18 @@ pub(super) fn texel_format(stored: &PlayerTexture, noun: &str) -> Result<u32, Pl
     })
 }
 
+/// The bytes of one texel of a stored texture that holds texels rather than blocks: one for
+/// `TextureFormat` 1, three for 3, and four for the others [`texel_format`] admits and for the
+/// four-byte `GraphicsFormat`s 87 and 88. A caller refuses every other format before it counts.
+pub(super) fn texel_bytes(stored: &PlayerTexture) -> usize {
+    match (stored.graphics_format, stored.format) {
+        (FOUR_BYTE_ARRAY | FOUR_BYTE_DATA, _) => 4,
+        (_, 1) => 1,
+        (_, 3) => 3,
+        _ => 4,
+    }
+}
+
 /// The layers of `stored` as the device takes them: the stored bytes, when each layer is the whole
 /// chain of its levels in `layout`, which for blocks needs a device that samples them and a base
 /// level of whole blocks.
@@ -294,11 +306,7 @@ fn layer_rgba8(
     layer: &[u8],
     mips: u32,
 ) -> Result<Vec<u8>, PlayerTextureError> {
-    let per_texel = match stored.format {
-        1 => 1,
-        3 => 3,
-        _ => 4,
-    };
+    let per_texel = texel_bytes(stored);
     let side = |side: u32, level: u32| side.checked_shr(level).unwrap_or(0).max(1);
     let sizes: Vec<[u32; 2]> = (0..mips)
         .map(|level| [side(stored.width, level), side(stored.height, level)])

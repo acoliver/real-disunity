@@ -22,7 +22,13 @@ impl Driver {
             )
             .unwrap();
         world
-            .add_component(object, ComponentDesc::Canvas(Canvas::default()))
+            .add_component(
+                object,
+                ComponentDesc::Canvas(Canvas {
+                    mode: CanvasMode::ScreenSpaceOverlay,
+                    ..Canvas::default()
+                }),
+            )
             .unwrap();
         let mut fonts = FontBook::new(UiLimits::default()).unwrap();
         let run = TextRun::new(fonts.register(ui_font::font()).unwrap());

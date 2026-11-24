@@ -488,7 +488,13 @@ impl GameResources {
     ) -> Result<Import, GameResourceError> {
         let store = self.store.borrow();
         let declared = self.texture(&store, texture)?;
-        import_level(&declared.label, &declared.texture, semantic, level, access)
+        import_level(
+            &declared.label,
+            &declared.texture,
+            semantic,
+            level,
+            (access, wgpu::TextureViewDimension::D2),
+        )
     }
 
     /// The sampler for the binding sourced from `semantic`.

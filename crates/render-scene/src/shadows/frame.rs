@@ -1,7 +1,9 @@
+use crate::compositor::ColorDepth;
+
 use super::{
-    AttachmentView, BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext,
-    SceneEffects, SceneGpu, ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene,
-    cascades, lent, light_frame, refresh, resources, sdsm, terrain_caster,
+    BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext, SceneEffects, SceneGpu,
+    ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene, cascades, lent, light_frame,
+    refresh, resources, sdsm, terrain_caster,
 };
 
 #[path = "compaction.rs"]
@@ -16,6 +18,37 @@ struct ShadowFrameResources<'a> {
     effects: &'a SceneEffects,
     settings: DirectionalShadowSettings,
     shadows_enabled: bool,
+    /// Player offscreen work the frame admitted, run before its first pass.
+    offscreen: Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
+}
+
+/// The renderer a frame schedules through, and the depth range and fit to cascade by, when
+/// the frame is depth-fitted. Empty depth evidence clears all maps and disables receiver
+/// sampling; the ordinary frame retains its original schedule.
+pub(super) struct FitInput<'a> {
+    pub(super) scheduler: &'a mut crate::compositor::FrameRenderer,
+    pub(super) fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
+}
+
+/// What the cascade preparation encodes into and looks through.
+struct ShadowWorkContext<'a> {
+    context: &'a GpuContext,
+    view: &'a SceneView,
+    encoder: &'a mut wgpu::CommandEncoder,
+}
+
+/// The device context and the encoder the schedule's contour planning records against.
+#[derive(Clone, Copy)]
+struct ContextEncoder<'a> {
+    context: &'a GpuContext,
+    encoder: &'a wgpu::CommandEncoder,
+}
+
+/// The scene state a shadow schedule is completed from.
+#[derive(Clone, Copy)]
+struct ScheduledScene<'a> {
+    gpu: &'a SceneGpu,
+    frame: &'a SceneFrame,
 }
 
 struct SceneFrame {
@@ -34,7 +67,6 @@ struct ShadowScheduleWork<'a> {
     shadow: ShadowWork,
     groups: crate::scene_metadata::receiver::SetTwo,
     schedule: crate::compositor::ShadowSchedule,
-    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
     contour: Option<crate::draw::ContourDraw>,
     map: &'a ShadowMap,
 }
@@ -44,22 +76,16 @@ impl ShadowedScene {
         &mut self,
         context: &GpuContext,
         view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
+        attachments: ColorDepth<'_>,
         encoder: &mut wgpu::CommandEncoder,
-        input: (
-            Option<&mut crate::compositor::FrameRenderer>,
-            Option<(sdsm::DepthRange, sdsm::RangeFit)>,
-        ),
+        input: FitInput<'_>,
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
+        let FitInput { scheduler, fitting } = input;
         let offscreen = crate::compositor::offscreen::take_offscreen(&mut self.gpu, encoder)?;
-        let scheduler = input.0.as_deref().unwrap_or(&self.scheduler);
-        scheduler.validate_opaque_depth(attachments.1)?;
-        scheduler.validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
         self.update_caster_pipelines(context);
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
-        let (scheduler, fitting) = input;
-        let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         let mut resources = ShadowFrameResources {
             gpu: &mut self.gpu,
             pipelines: &self.pipelines,
@@ -69,27 +95,35 @@ impl ShadowedScene {
             effects: &self.effects,
             settings: self.settings,
             shadows_enabled: self.shadows_enabled,
+            offscreen,
         };
         let scene =
             resources.prepare_scene_frame(context, view, attachments, encoder, scheduler)?;
         let shadow = resources.prepare_shadow_work(
-            (context, view, encoder),
+            ShadowWorkContext {
+                context,
+                view,
+                encoder,
+            },
             &scene.frame,
             fitting,
             &mut next_refresh,
-            attachments.0.size(),
+            attachments.color.size(),
         )?;
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
         map.retain(encoder)?;
         let work = shadow.complete_shadow_schedule(
-            (context, encoder),
+            ContextEncoder { context, encoder },
             attachments,
             scheduler,
-            (&*resources.gpu, &scene),
+            ScheduledScene {
+                gpu: &*resources.gpu,
+                frame: &scene,
+            },
             map,
         )?;
-        resources.encode_schedule(context, encoder, scheduler, scene, (work, offscreen))?;
+        resources.encode_schedule(context, encoder, scheduler, scene, work)?;
         if let Some(map) = replacement {
             self.map = map;
         }
@@ -103,11 +137,11 @@ impl ShadowFrameResources<'_> {
         &mut self,
         context: &GpuContext,
         view: &SceneView,
-        attachments: (&AttachmentView, &AttachmentView),
+        attachments: ColorDepth<'_>,
         encoder: &mut wgpu::CommandEncoder,
         scheduler: &mut crate::compositor::FrameRenderer,
     ) -> Result<SceneFrame, ShadowError> {
-        let (color, depth) = attachments;
+        let ColorDepth { color, depth } = attachments;
         ShadowedScene::validate_scheduler(scheduler, self.pipelines, self.effects)?;
         scheduler.prepare_receiver_gradients(
             context.device(),
@@ -124,7 +158,6 @@ impl ShadowFrameResources<'_> {
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
         scheduler.publish_game_terrain(self.gpu, &frame, color.size());
-        scheduler.match_producer_velocity(context.device(), selected.writes_velocity());
         self.gpu
             .track_previous_transforms(selected.writes_velocity());
         let screen = scheduler.geometry_for_depth(depth_mode);
@@ -146,13 +179,17 @@ impl ShadowFrameResources<'_> {
 
     fn prepare_shadow_work(
         &self,
-        context_view_encoder: (&GpuContext, &SceneView, &mut wgpu::CommandEncoder),
+        work_context: ShadowWorkContext<'_>,
         frame: &FrameUniform,
         fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
         next_refresh: &mut refresh::RefreshCache,
         size: [u32; 2],
     ) -> Result<ShadowWork, ShadowError> {
-        let (context, view, encoder) = context_view_encoder;
+        let ShadowWorkContext {
+            context,
+            view,
+            encoder,
+        } = work_context;
         let mut cascades = ShadowedScene::prepare_cascades(
             (self.gpu, self.effects, self.settings),
             view,
@@ -182,17 +219,13 @@ impl ShadowFrameResources<'_> {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: &mut crate::compositor::FrameRenderer,
         scene: SceneFrame,
-        work: (
-            ShadowScheduleWork<'_>,
-            Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
-        ),
+        work: ShadowScheduleWork<'_>,
     ) -> Result<(), ShadowError> {
-        let (work, offscreen) = work;
+        let offscreen = self.offscreen.take();
         let ShadowScheduleWork {
             shadow,
             groups,
             schedule,
-            deferred,
             contour,
             map,
         } = work;
@@ -205,11 +238,7 @@ impl ShadowFrameResources<'_> {
             )
         });
         let mut feature = ShadowFeature {
-            publications: scheduler.draw_publications(),
-            renders: scheduler
-                .gbuffer
-                .as_ref()
-                .is_some_and(crate::gbuffer::Gbuffer::renders),
+            publications: crate::draw::DrawPublications::default(),
             screen: scene.screen,
             contour,
             gpu: self.gpu,
@@ -224,9 +253,8 @@ impl ShadowFrameResources<'_> {
             shadow_uniform: &map.uniform,
             settings: self.settings,
             sampling: self.effects.shadows().sampling(),
-            deferred,
         };
-        scheduler.encode_frame_with(
+        scheduler.encode_frame(
             context.device(),
             encoder,
             (&schedule.passes, &schedule.views),
@@ -246,14 +274,15 @@ impl ShadowFrameResources<'_> {
 impl ShadowWork {
     fn complete_shadow_schedule<'a>(
         self,
-        context: (&GpuContext, &wgpu::CommandEncoder),
-        attachments: (&AttachmentView, &AttachmentView),
+        context: ContextEncoder<'_>,
+        attachments: ColorDepth<'_>,
         scheduler: &mut crate::compositor::FrameRenderer,
-        scene: (&SceneGpu, &SceneFrame),
+        scene: ScheduledScene<'_>,
         map: &'a ShadowMap,
     ) -> Result<ShadowScheduleWork<'a>, ShadowError> {
-        let (context, encoder) = context;
-        let ((color, depth), (gpu, scene)) = (attachments, scene);
+        let ContextEncoder { context, encoder } = context;
+        let ColorDepth { color, depth } = attachments;
+        let ScheduledScene { gpu, frame: scene } = scene;
         let card_depth = scene.selected.card_reject().then_some(depth);
         let groups = map.receiver_groups(scheduler, context.device(), card_depth);
         let mut schedule = crate::compositor::ShadowSchedule::new(
@@ -263,12 +292,11 @@ impl ShadowWork {
             &scene.selected,
             self.refresh,
         )?;
-        let deferred = schedule.complete(
+        schedule.complete(
             scheduler,
             (gpu, &scene.selected),
             (context.device(), color.size()),
             (scene.depth_mode, card_depth.is_some()),
-            (depth.texture(), &scene.frame),
         )?;
         let contour = scheduler.plan_contours(
             (context.device(), encoder),
@@ -284,7 +312,6 @@ impl ShadowWork {
             shadow: self,
             groups,
             schedule,
-            deferred,
             contour,
             map,
         })
@@ -293,7 +320,6 @@ impl ShadowWork {
 
 struct ShadowFeature<'a> {
     publications: crate::draw::DrawPublications,
-    renders: bool,
     screen: Option<crate::scene_metadata::Geometry>,
     contour: Option<crate::draw::ContourDraw>,
     gpu: &'a mut SceneGpu,
@@ -308,7 +334,6 @@ struct ShadowFeature<'a> {
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-    deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 
 impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
@@ -368,33 +393,16 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         match context.slot {
-            worldrunner_render_post::PassSlot::OpaqueGbuffer => self.draw_gbuffer(pass),
-            worldrunner_render_post::PassSlot::DepthNormalPrepass if self.renders => {
-                self.draw_gbuffer(pass);
-            }
             worldrunner_render_post::PassSlot::DepthNormalPrepass => self.draw_prepass(pass),
             worldrunner_render_post::PassSlot::ShadowCasters(index) => {
                 self.draw_casters(pass, index);
             }
-            slot => self.draw_color(pass, slot),
+            _ => self.draw_color(pass),
         }
     }
 }
 
 impl ShadowFeature<'_> {
-    fn draw_gbuffer(&self, pass: &mut wgpu::RenderPass<'_>) {
-        if self.renders {
-            self.publications.prepass();
-        }
-        let screen = self.screen.as_ref().expect("declared G-buffer producer");
-        let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
-        let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
-        if self.renders {
-            self.publications
-                .record_gbuffer(draw, true, self.pipelines.has_ao_receiver());
-        }
-    }
-
     fn draw_prepass(&self, pass: &mut wgpu::RenderPass<'_>) {
         self.publications.prepass();
         let screen = self.screen.as_ref().expect("declared prepass");
@@ -427,7 +435,7 @@ impl ShadowFeature<'_> {
         self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
     }
 
-    fn draw_color(&self, pass: &mut wgpu::RenderPass<'_>, slot: worldrunner_render_post::PassSlot) {
+    fn draw_color(&self, pass: &mut wgpu::RenderPass<'_>) {
         if let Some(screen) = &self.screen {
             pass.set_bind_group(
                 3,
@@ -439,21 +447,10 @@ impl ShadowFeature<'_> {
             );
         }
         pass.set_bind_group(2, &self.shadow_groups.object, &[]);
-        if slot == worldrunner_render_post::PassSlot::OpaqueLighting {
-            let inputs = self.deferred.as_ref().expect("declared lighting pass");
+        self.publications.record_color(
+            self.gpu,
             self.gpu
-                .draw_deferred_lighting(pass, self.pipelines, inputs);
-        } else if self.renders {
-            self.publications.record_remainder(
-                self.gpu,
-                self.gpu.draw_forward_remainder(pass, self.pipelines),
-            );
-        } else {
-            self.publications.record_color(
-                self.gpu,
-                self.gpu
-                    .draw_shadowed(pass, self.pipelines, &self.shadow_groups.terrain),
-            );
-        }
+                .draw_shadowed(pass, self.pipelines, &self.shadow_groups.terrain),
+        );
     }
 }

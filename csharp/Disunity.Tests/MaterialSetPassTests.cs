@@ -36,7 +36,7 @@ internal static unsafe class MaterialSetPassTests
 
     private static Material Declared(string shader, int passes, string name)
     {
-        var material = new Material(DisunityHost.RegisterShader(shader).Declare(2000, passes, 1)) { name = name };
+        var material = new Material(DisunityHost.DeclareShader(shader, new ShaderDeclaration(2000, passes, 1), _ => { })) { name = name };
         _ = material.WorldLink;
         return material;
     }
@@ -85,7 +85,7 @@ internal static unsafe class MaterialSetPassTests
     {
         var kept = Declared("Test/SetPass/Kept", 1, "Kept");
         Expect.That(kept.SetPass(0), "an earlier pass is active");
-        var fresh = new Material(DisunityHost.RegisterShader("Test/SetPass/Fresh").Declare(2000, 3, 1));
+        var fresh = new Material(DisunityHost.DeclareShader("Test/SetPass/Fresh", new ShaderDeclaration(2000, 3, 1), _ => { }));
         using (var log = new LogRecorder())
             Expect.That(!fresh.SetPass(3) && log.Messages.Count == 1, "pass 3 of 3 is refused and logged");
         Expect.That(Active().material == kept.WorldLink.Id, "a refused pass leaves the earlier active pass");

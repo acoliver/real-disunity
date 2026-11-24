@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptedFit, AdoptionPolicy, SdsmSettings};
 
 #[test]
@@ -6,7 +7,7 @@ fn gpu_capture_preserves_interactive_contraction_history_and_immediate_expansion
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     renderer
         .set_depth_fitting(
             &context,
@@ -35,7 +36,7 @@ fn gpu_capture_preserves_interactive_contraction_history_and_immediate_expansion
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                (Some(frame), capture),
+                (Some(frame), capture, &[]),
                 &mut scheduler,
             )
             .unwrap();
@@ -66,7 +67,7 @@ fn gpu_fixed_clock_contraction_ignores_host_delay_and_resets_on_rewind() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     renderer
         .set_depth_fitting(
             &context,
@@ -90,16 +91,14 @@ fn gpu_fixed_clock_contraction_ignores_host_delay_and_resets_on_rewind() {
     let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let mut render = |frame, millis, scale| {
         scale_receiver(&mut renderer, scale);
-        scheduler
-            .set_frame_time_duration(Duration::from_millis(millis))
-            .unwrap();
+        scheduler.set_frame_time(Duration::from_millis(millis));
         let fit = scheduler
             .encoding()
             .render_depth_fitted(
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                (Some(frame), false),
+                (Some(frame), false, &[]),
                 &mut renderer,
             )
             .unwrap();

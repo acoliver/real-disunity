@@ -3,7 +3,7 @@
 //! persistent one, has to be part of the capture's write contract in every frame, including the
 //! ones that read persistent contents an earlier frame left.
 use super::common::{self, texture_binding};
-use super::fixture::{FORMAT, Rig, SIZE, quad_scene, view};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE, quad_scene, view};
 use super::prepared;
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
@@ -11,21 +11,22 @@ use worldrunner_render_plan::{
     RenderScene, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading,
     SceneDirection, SceneEffects, SceneEffectsParts, SceneShadowCascades, SceneSky, SceneSun,
 };
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, Import, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
 };
 use worldrunner_render_program::state::RasterState;
+use worldrunner_render_scene::draw::PreparedScene;
+use worldrunner_render_scene::shadows::ShadowedTarget;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, FrameCameraHandle, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses,
         GameTargets, PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
     },
     shadows::{
         DirectionalShadowSettings, ShadowedScene,
@@ -417,7 +418,7 @@ pub fn shadowed_with(inventory: GamePasses, features: wgpu::Features) -> (Rig, S
     let rig = Rig::with_features(&quad_scene(), SIZE, features, |settings| {
         settings.game_passes = inventory;
     });
-    let scene = fitted(&rig, &lit_scene(), FORMAT);
+    let scene = fitted(&rig, &lit_scene(), SCENE_FORMAT);
     (rig, scene)
 }
 
@@ -428,9 +429,9 @@ pub(super) fn fitted(
     source: &RenderScene,
     format: wgpu::TextureFormat,
 ) -> ShadowedScene {
-    let mut scene = ShadowedScene::with_target(
+    let mut scene = ShadowedScene::new(
         &rig.context,
-        source,
+        PreparedScene::new(source).unwrap(),
         DirectionalShadowSettings {
             focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
             half_extent_meters: 4.0,
@@ -440,8 +441,7 @@ pub(super) fn fitted(
             normal_bias_meters: 0.01,
             refresh_policy: worldrunner_render_scene::shadows::CascadeRefreshPolicy::default(),
         },
-        format,
-        1,
+        ShadowedTarget::new(format, 1),
     )
     .unwrap();
     scene
@@ -464,17 +464,11 @@ pub(super) fn fitted(
     scene
 }
 
-/// Captures one frame with the rig's renderer and returns its colour.
+/// Captures one frame with the rig's renderer and returns its output, which shows the scene
+/// colour unchanged.
 pub(super) fn capture(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) -> Vec<[u8; 4]> {
     capture_fit(rig, scene, frame);
-    let mut encoder = rig
-        .context
-        .submission()
-        .begin(rig.context.device())
-        .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
-    encoder.finish().submit().unwrap();
-    rig.read(rig.renderer.targets().texture())
+    rig.output()
 }
 
 /// Captures one frame with the rig's renderer and returns the fit it adopted.
@@ -491,7 +485,7 @@ pub(super) fn capture_fit(rig: &mut Rig, scene: &mut ShadowedScene, frame: u64) 
             &rig.context,
             &view(SIZE),
             (&color, &depth),
-            (Some(frame), true),
+            (Some(frame), true, &[]),
             scene,
         )
         .unwrap_or_else(|error| panic!("capture of frame {frame}: {error:?}"));

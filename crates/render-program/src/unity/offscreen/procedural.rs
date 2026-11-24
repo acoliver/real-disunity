@@ -31,7 +31,7 @@ pub(super) fn procedural_step(
     let target = list_steps::usable(svc, draw.target.clone())?;
     let signature = list_steps::signature(svc, &target)?;
     let size = list_steps::target_size(svc, &target)?;
-    let raster = raster::resolve(&draw.raster, size, svc.reversed_depth);
+    let raster = raster::resolve(&draw.raster, size);
     let material = frame
         .materials
         .get(&draw.material)
@@ -60,6 +60,7 @@ pub(super) fn procedural_step(
             keywords: keywords(material, globals),
             selector: selector.clone(),
             layers: Layers::new(&layers),
+            dots: None,
         };
         let mark = svc.constants.mark();
         let planned = generated(svc, &spec, draw, signature)

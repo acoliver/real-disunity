@@ -75,7 +75,8 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let pipelines = crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float);
+    let pipelines =
+        crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float, 1).unwrap();
     let mut rig = Rig::moving(
         &context,
         &pipelines,
@@ -91,7 +92,7 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
     let mut compared = 0;
     for (index, (matrix, name, covers)) in cascades().into_iter().enumerate() {
         let cascade = (u32::try_from(index).unwrap(), matrix);
-        let buffer = crate::upload::upload_buffer(
+        let buffer = worldrunner_render_gpu::resource::upload_buffer(
             device,
             context.queue(),
             "capture caster frame",
@@ -140,13 +141,14 @@ fn ribbon_map(
     scene: &worldrunner_render_plan::RenderScene,
 ) -> Vec<u8> {
     let device = context.device();
-    let pipelines = crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float);
+    let pipelines =
+        crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float, 1).unwrap();
     let mut rig = Rig::moving(context, &pipelines, scene, false);
     let sampling = worldrunner_render_plan::SceneShadowSampling::default();
     let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
     rig.gpu.prepare_object_context(&live).unwrap();
     let matrix = ribbon_light();
-    let buffer = crate::upload::upload_buffer(
+    let buffer = worldrunner_render_gpu::resource::upload_buffer(
         device,
         context.queue(),
         "skinned caster frame",
@@ -178,4 +180,115 @@ fn skinned_casters_write_the_posed_depth() {
         ribbon_map(&context, &skinning(400)),
         "joint 1 moves the right quad"
     );
+}
+
+/// The commands one cascade's casters record for `scene`.
+fn recorded_casters(
+    scene: &worldrunner_render_plan::RenderScene,
+) -> super::super::cost_tests::Counted {
+    let context = context();
+    let device = context.device();
+    let pipelines =
+        crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float, 1).unwrap();
+    let mut rig = Rig::moving(&context, &pipelines, scene, false);
+    let sampling = worldrunner_render_plan::SceneShadowSampling::default();
+    let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
+    rig.gpu.prepare_object_context(&live).unwrap();
+    let matrix = map((0.0, 1.75), 2.8);
+    let buffer = worldrunner_render_gpu::resource::upload_buffer(
+        device,
+        context.queue(),
+        "counted caster frame",
+        wgpu::BufferUsages::UNIFORM,
+        &crate::shadows::light_frame(&rig.frame, matrix).to_bytes(),
+    );
+    let group = crate::draw::decals::empty_group(device, pipelines.frame_layout(), &buffer);
+    let mut encoder = context.submission().begin(device).unwrap();
+    rig.gpu
+        .flush_instances_encoded(device, &mut encoder)
+        .unwrap();
+    let mut tally = super::super::cost_tests::Tally::default();
+    drop(
+        rig.gpu
+            .draw_casters_prepared(&mut tally, &group, &live, (0, matrix)),
+    );
+    encoder.finish().submit().unwrap();
+    tally.0
+}
+
+/// A caster's depth does not depend on a material's roughness, metalness or tint, so four
+/// materials that differ in those alone bind one material group between them, after the light
+/// frame's.
+#[test]
+fn casters_bind_one_material_group_for_materials_they_read_alike() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let counted = recorded_casters(&scenes::grid(3, 4));
+    assert_eq!(counted.draws, 12);
+    assert_eq!(counted.groups, 1 + 1, "{counted:?}");
+}
+
+/// Wind moves a caster's vertices and a cutout reads its texture, so materials that differ in
+/// either keep a group each.
+#[test]
+fn casters_bind_a_material_group_for_each_material_they_read_differently() {
+    use scenes::{Alpha, Spec};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let specs = [
+        Spec::default(),
+        Spec {
+            wind: true,
+            ..Spec::default()
+        },
+        Spec {
+            alpha: Alpha::Cutout,
+            double_sided: true,
+            ..Spec::default()
+        },
+        Spec {
+            alpha: Alpha::Cutout,
+            double_sided: true,
+            wind: true,
+            ..Spec::default()
+        },
+    ];
+    let counted = recorded_casters(&scenes::scene(&specs));
+    assert_eq!(counted.groups, 1 + 4, "{counted:?}");
+}
+
+/// The classes the casters share a group by assume an unmasked caster binds only the material
+/// block, the wind sampler, the contact heights, the impostor borders, the wind field and the
+/// scene palette. A caster stage that reads another map or block of the material would make
+/// materials that differ there cast differently from one group.
+#[test]
+fn unmasked_casters_bind_only_what_materials_share_by_class() {
+    use crate::object::layout::GeometryLayout;
+    use crate::pipeline::PipelineKey;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines =
+        crate::renderer::ScenePipelines::new(context.device(), TextureFormat::Rgba16Float, 1)
+            .unwrap();
+    let sampling = worldrunner_render_plan::SceneShadowSampling::default();
+    let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
+    live.family()
+        .with_objects((context.device(), context.submission()), |runtime| {
+            for key in PipelineKey::ALL.into_iter().filter(|key| !key.masked) {
+                for geometry in [GeometryLayout::Static, GeometryLayout::Skinned] {
+                    let program = live.program(runtime, key, geometry).unwrap();
+                    let bindings: Vec<u32> = program
+                        .layout()
+                        .slots()
+                        .iter()
+                        .filter(|slot| slot.set == 1)
+                        .map(|slot| slot.binding)
+                        .collect();
+                    assert!(
+                        bindings
+                            .iter()
+                            .all(|binding| [0, 6, 7, 9, 10, 11].contains(binding)),
+                        "{key:?} {geometry:?} binds {bindings:?}"
+                    );
+                }
+            }
+        });
 }

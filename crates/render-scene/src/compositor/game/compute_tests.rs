@@ -96,8 +96,16 @@ enum Planned {
 /// Plans `game` after the stock Opaque, then orders and validates the frame as the stock plan
 /// does, returning the ordered passes and the validation's answer.
 fn frame(game: &[Planned]) -> (Vec<PassDeclaration>, Result<(), FrameError>) {
+    frame_with(vec![opaque()], game)
+}
+
+/// As [`frame`], after the stock passes `stock`.
+fn frame_with(
+    stock: Vec<PassDeclaration>,
+    game: &[Planned],
+) -> (Vec<PassDeclaration>, Result<(), FrameError>) {
     let targets = targets();
-    let (mut passes, mut views) = (vec![opaque()], Vec::new());
+    let (mut passes, mut views) = (stock, Vec::new());
     let mut declared = Vec::new();
     for planned in game {
         declared.push(match planned {
@@ -272,4 +280,71 @@ fn a_level_written_twice_or_read_while_written_is_refused() {
         refusal(&read),
         FrameError::AttachmentHazard(chain().mip(0, 1))
     );
+}
+
+/// The stock pass that writes the post-water depth, which comes after the transparent passes.
+fn after_water_depth() -> PassDeclaration {
+    let mut pass = PassDeclaration::new(PassSlot::AfterWaterDepth);
+    pass.color = Some(AttachmentDeclaration {
+        resource: ResourceRef::new("post-water depth"),
+        format: FLOAT,
+        size: SIZE,
+        samples: 1,
+        load: AttachmentLoad::ClearColor(wgpu::Color::TRANSPARENT),
+        store: wgpu::StoreOp::Store,
+        read_only: false,
+    });
+    pass
+}
+
+#[test]
+fn a_compute_pass_samples_a_stock_product_only_from_a_place_after_its_producer() {
+    let sampling = |place| {
+        GameComputeSpec::new(place, 0)
+            .sampling_frame([ResourceRef::new("post-water depth")])
+            .writing_mips([chain().mip(0, 0)])
+    };
+    let stock = || vec![opaque(), after_water_depth()];
+    let (_, early) = frame_with(
+        stock(),
+        &[Planned::Compute(sampling(GamePlace::AfterOpaque))],
+    );
+    assert_eq!(
+        early,
+        Err(FrameError::MissingProducer(ResourceRef::new(
+            "post-water depth"
+        )))
+    );
+    let (passes, late) = frame_with(
+        stock(),
+        &[Planned::Compute(sampling(GamePlace::AfterTransparent))],
+    );
+    assert_eq!(late, Ok(()));
+    assert_eq!(
+        passes.last().map(PassDeclaration::entry),
+        Some(PassEntry::new(PassSlot::Game(GamePlace::AfterTransparent))),
+        "the compute pass runs after the pass that produces what it samples"
+    );
+}
+
+#[test]
+fn a_render_pass_that_attaches_a_level_a_compute_pass_wrote_loads_it() {
+    let overlay = GamePassSpec::new(GamePlace::AfterOpaqueSnapshots, 0)
+        .writing([ColorOutput::Target(chain().mip(0, 2))]);
+    let (passes, validated) = frame(&[
+        Planned::Render(writer()),
+        Planned::Compute(compute()),
+        Planned::Render(overlay),
+    ]);
+    assert_eq!(
+        validated,
+        Ok(()),
+        "the attachment keeps what the kernels wrote"
+    );
+    let overlay = passes
+        .iter()
+        .find(|pass| pass.slot == PassSlot::Game(GamePlace::AfterOpaqueSnapshots))
+        .and_then(|pass| pass.color.as_ref())
+        .expect("the overlay attaches a colour");
+    assert_eq!(overlay.load, AttachmentLoad::Load);
 }

@@ -2,7 +2,7 @@ namespace UnityEngine;
 
 /// <summary>
 /// The base of scripts attached to an animator controller's states. The engine plays no controllers, so
-/// none of the messages are sent; each does nothing unless a subclass overrides it. The overloads
+/// none of the messages are sent; each virtual member has an empty body for a subclass to override. The overloads
 /// that take an AnimatorControllerPlayable are not defined, because the playable types are not.
 /// </summary>
 public abstract class StateMachineBehaviour : ScriptableObject

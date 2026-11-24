@@ -1,6 +1,7 @@
 use super::foliage::{geometry_sources, pass_depth};
 use super::*;
 use crate::offscreen::OffscreenTarget;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneLodMaterialSlot, TexelFormat};
 
 fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMaterialSlot {
@@ -91,7 +92,7 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
         assert_eq!(a.transition, b.transition);
     }
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -102,10 +103,10 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
     .unwrap();
     let mut reference = None;
     for source in [&default, &explicit] {
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), source, &pipelines).unwrap();
+        let mut gpu =
+            upload_scene(context.device(), context.submission(), source, &pipelines).unwrap();
         gpu.set_frame(context.queue(), selection_frame(5_000));
-        let image = target.render(&context, &gpu, &pipelines).unwrap();
+        let image = target.render(&context, &mut gpu, &pipelines).unwrap();
         assert!(image.pixels.chunks_exact(4).any(|p| p == [255, 0, 0, 255]));
         if let Some(reference) = &reference {
             assert_eq!(&image, reference);
@@ -118,8 +119,8 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
 fn selected_level_changes_material_topology_and_pipeline() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -135,9 +136,9 @@ fn selected_level_changes_material_topology_and_pipeline() {
     )
     .unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_000));
-    let near = target.render(&context, &gpu, &pipelines).unwrap();
+    let near = target.render(&context, &mut gpu, &pipelines).unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_001));
-    let far = target.render(&context, &gpu, &pipelines).unwrap();
+    let far = target.render(&context, &mut gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().drawn_per_lod, vec![0, 1]);
     assert!(far.pixels.chunks_exact(4).any(|p| p == [0, 255, 0, 255]));
     assert!(!far.pixels.chunks_exact(4).any(|p| p[0] != 0));
@@ -154,8 +155,8 @@ fn the_runtime_path_records_the_commands_of_a_level_with_two_material_slots() {
     use crate::object::cost_tests::Tally;
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let mut gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -180,8 +181,8 @@ fn the_runtime_path_records_the_commands_of_a_level_with_two_material_slots() {
 fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let gpu = SceneGpu::upload(
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(
         context.device(),
         context.submission(),
         &scene(true),
@@ -265,7 +266,7 @@ pub(super) fn transition_scene(coverage: u32) -> RenderScene {
 fn transition_complement_keeps_the_preceding_levels_material() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut target = OffscreenTarget::new(
         context.device(),
         Viewport {
@@ -275,7 +276,7 @@ fn transition_complement_keeps_the_preceding_levels_material() {
     )
     .unwrap();
     for (coverage, expected) in [(0, [255, 0, 0, 255]), (1_000_000, [0, 255, 0, 255])] {
-        let gpu = SceneGpu::upload(
+        let mut gpu = upload_scene(
             context.device(),
             context.submission(),
             &transition_scene(coverage),
@@ -285,7 +286,7 @@ fn transition_complement_keeps_the_preceding_levels_material() {
         let mut frame = frame_from(pose());
         frame.unlit = true;
         gpu.set_frame(context.queue(), frame);
-        let image = target.render(&context, &gpu, &pipelines).unwrap();
+        let image = target.render(&context, &mut gpu, &pipelines).unwrap();
         let coloured: Vec<_> = image
             .pixels
             .chunks_exact(4)

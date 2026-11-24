@@ -60,7 +60,7 @@ pub(in crate::object) fn pipelines(
     frame: &FrameUniform,
     output: MetadataOutput,
 ) -> (ScenePipelines, BindGroup, Vec<TextureFormat>) {
-    let uniform = crate::upload::upload_buffer(
+    let uniform = worldrunner_render_gpu::resource::upload_buffer(
         context.device(),
         context.queue(),
         "object capture prepass camera",

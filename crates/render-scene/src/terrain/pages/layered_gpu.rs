@@ -11,9 +11,13 @@ mod anisotropy_tests;
 #[cfg(test)]
 mod cached_tests;
 #[cfg(test)]
+mod candidate_tests;
+#[cfg(test)]
 mod channel_tests;
 #[cfg(test)]
 mod finite_footprint_tests;
+#[cfg(test)]
+mod kernel_tests;
 #[cfg(test)]
 mod mip_tests;
 #[cfg(test)]
@@ -68,6 +72,8 @@ pub struct LayeredGpuSource {
     arrays: Vec<Vec<crate::texture::OwnedPreparedTexture>>,
     resident:
         std::sync::Mutex<std::collections::HashMap<wgpu::Device, std::sync::Arc<ResidentSource>>>,
+    /// The composition kernel of each device that has baked pages from this source.
+    kernels: std::sync::Mutex<std::collections::HashMap<wgpu::Device, Kernels>>,
     images: Vec<u8>,
     bounds: [f64; 4],
 }
@@ -89,11 +95,13 @@ impl LayeredGpuSource {
     }
 
     /// CPU metadata consists only of sample positions and their footprint; all filtering and material
-    /// composition run in WGSL. The writer publishes all three products together.
+    /// composition run in WGSL. `writer`, a layered writer for `cache`'s settings, publishes all
+    /// three products together.
     pub fn encode_page(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
+        writer: &PageWriter,
         cache: &ResidentPages,
         pending: PendingPage,
     ) -> Result<(), PageEncodeError> {
@@ -110,7 +118,7 @@ impl LayeredGpuSource {
             &mut registry,
             (&positions.0, positions.1),
         )?;
-        PageWriter::new_layered(device, cache.settings()).encode_prepared(
+        writer.encode_prepared(
             device,
             encoder,
             cache,
@@ -199,7 +207,7 @@ impl LayeredGpuSource {
         let mut operations = Self::uploads(&position_bytes, views);
         let (textures, filtering) = self.texture_bindings(device, registry)?;
         let group = bindings(device, registry, views, &textures, &filtering)?;
-        let pipeline = pipeline(device, &group);
+        let pipeline = self.pipeline(device, &group);
         let mut operation = TypedOperation::new(
             id("layered material composition"),
             TypedWork::Compute {
@@ -237,6 +245,22 @@ impl LayeredGpuSource {
         operations.push(operation);
         Ok((views[4].clone(), operations))
     }
+
+    /// The composition pipeline for groups laid out as `group` is, built on first use with the
+    /// device's module, which is compiled once.
+    fn pipeline(&self, device: &wgpu::Device, group: &CheckedBindings) -> wgpu::ComputePipeline {
+        let mut kernels = self.kernels.lock().expect("composition kernel lock");
+        let Kernels { module, pipelines } =
+            kernels.entry(device.clone()).or_insert_with(|| Kernels {
+                module: super::kernel_module(device, "layered terrain composition", LAYERED_WGSL),
+                pipelines: std::collections::HashMap::new(),
+            });
+        pipelines
+            .entry(group.layout_entries().to_vec())
+            .or_insert_with(|| pipeline(device, module, group))
+            .clone()
+    }
+
     fn uploads(position_bytes: &[u8], views: &[BufferView]) -> Vec<TypedOperation> {
         vec![TypedOperation::new(
             id("layered positions upload"),
@@ -266,21 +290,31 @@ fn allocate(
 fn id(name: &'static str) -> RasterId {
     RasterId::new(StageId::new(name, 0), 1)
 }
-fn pipeline(device: &wgpu::Device, group: &CheckedBindings) -> wgpu::ComputePipeline {
+/// One device's composition kernel: its module and a pipeline for each binding layout it has
+/// been dispatched with. Every page of one cache binds one layout; only direct
+/// [`LayeredGpuSource::operations`] calls with another number of positions, whose buffers bind
+/// at other sizes, add another.
+#[derive(Debug)]
+struct Kernels {
+    module: wgpu::ShaderModule,
+    pipelines: std::collections::HashMap<Vec<wgpu::BindGroupLayoutEntry>, wgpu::ComputePipeline>,
+}
+
+fn pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    group: &CheckedBindings,
+) -> wgpu::ComputePipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         bind_group_layouts: &[Some(group.layout())],
         ..Default::default()
-    });
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("layered terrain composition"),
-        source: wgpu::ShaderSource::Wgsl(LAYERED_WGSL.into()),
     });
     worldrunner_render_post::compute_pipeline(
         device,
         worldrunner_render_post::ComputeDescriptor {
             label: Some("layered terrain composition"),
             layout: &layout,
-            module: &module,
+            module,
             entry: "bake_layered",
             constants: &[],
         },

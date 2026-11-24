@@ -9,7 +9,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
     Material, OffscreenFrame, Record, UndeclaredTextures,
 };
-use worldrunner_render_program::unity::offscreen::{OffscreenError, UndeclaredDefaultDraws};
+use worldrunner_render_program::unity::offscreen::{OffscreenError, StandInDraws};
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
 use worldrunner_render_program::unity::synthetic::shaders::{
@@ -117,9 +117,10 @@ fn the_draw_is_counted_by_property_and_not_as_missing() {
     setup(&mut rig, blit_passes("_Source"));
     let operations = rig.build(&frame(0, Some(GREY))).unwrap();
     assert_eq!(
-        operations.undeclared_default_draws(),
-        [UndeclaredDefaultDraws {
+        operations.stand_in_draws(),
+        [StandInDraws {
             texture: "_Source".to_owned(),
+            reason: "undeclared".to_owned(),
             draws: 1,
         }]
     );
@@ -141,12 +142,7 @@ fn a_property_a_layer_sets_is_read_over_the_default() {
     named.main_texture = "_Source".to_owned();
     let result = rig.run(&named, &[(TARGET, 0, 0)]).unwrap().remove(0);
     assert_eq!(pixel(&result, 4, (1, 1)), [255, 0, 0, 255]);
-    assert!(
-        rig.build(&named)
-            .unwrap()
-            .undeclared_default_draws()
-            .is_empty()
-    );
+    assert!(rig.build(&named).unwrap().stand_in_draws().is_empty());
 }
 
 #[test]
@@ -165,7 +161,7 @@ fn a_property_declared_by_another_name_does_not_stop_the_default() {
     synthetic.shader.parsed.properties.push(declared("_Other"));
     setup(&mut rig, synthetic);
     let operations = rig.build(&frame(0, Some(GREY))).unwrap();
-    assert_eq!(operations.undeclared_default_draws().len(), 1);
+    assert_eq!(operations.stand_in_draws().len(), 1);
 }
 
 #[test]

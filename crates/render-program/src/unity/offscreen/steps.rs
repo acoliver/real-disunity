@@ -4,33 +4,31 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 
+use worldrunner_render_post::StageId;
 use worldrunner_render_post::contracts::{
-    AllocationKey, BufferUse, BufferUseKind, ColorAttachment, DrawGeometry, IndexBinding, RasterId,
-    RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation, TypedWork,
+    AllocationKey, BufferUse, BufferUseKind, DrawGeometry, IndexBinding, RasterId, RasterPass,
+    ResourceLifetime, ResourceUse, TypedOperation,
 };
-use worldrunner_render_post::{AttachmentLoad, StageId};
 
 use crate::ids::{CameraId, MaterialId, MeshId, ShaderId, TextureId};
-use crate::layers::{Layers, PropertyLayer, TextureInput};
+use crate::layers::{Layers, PropertyLayer};
 use crate::packet::TargetSignature;
-use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
-use super::depth_range;
+use super::blit_steps::{BlitStep, blit_step, copy_step};
+use super::dots::{self, DotsDraw};
 use super::error::{OffscreenError, Refusal};
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads, Written};
 use super::mips;
+use super::pass_report::{pass_report, program_probes};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
-use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
 use super::raster::PassRaster;
-use super::resample::{ResampleStep, resample_step};
-use super::textures::TextureInfo;
+use super::readback::TapRead;
+use super::resample::ResampleStep;
+use super::tap;
 use super::tracker::Tracker;
-use super::{
-    CameraCauses, CameraDraws, CameraPassReport, CameraProbe, PassSetup, ProgramProbe,
-    SampledTexture, UnmatchedPasses,
-};
+use super::{CameraCauses, CameraDraws, UnmatchedPasses};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
@@ -46,15 +44,6 @@ pub(super) struct CameraDraw {
     pub(super) index_use: Option<BufferUse>,
     /// The scissor and depth bias the record that made the draw set.
     pub(super) raster: PassRaster,
-}
-
-/// A blit with a material, whose bindings wait for the constants buffer.
-pub(super) struct BlitStep {
-    pub(super) id: RasterId,
-    pub(super) colors: Vec<Option<ColorAttachment>>,
-    pub(super) plan: DrawPlan,
-    pub(super) vertices: VertexPlan,
-    pub(super) count: u32,
 }
 
 pub(super) enum Step {
@@ -88,6 +77,7 @@ pub(super) struct Globals<'a> {
 
 /// How the draws of one pass look: which pass of a shader draws, the view's values, the winding,
 /// the globals and the target's formats.
+#[derive(Clone, Copy)]
 pub(super) struct Look<'a> {
     pub(super) selector: &'a PassSelector,
     pub(super) values: &'a PropertyLayer,
@@ -98,6 +88,8 @@ pub(super) struct Look<'a> {
     pub(super) signature: TargetSignature,
     /// What the pass writes, which its draws may not sample.
     pub(super) written: &'a [Written],
+    /// The instances of a raw buffer the draw makes, when it makes them.
+    pub(super) dots: Option<DotsDraw<'a>>,
 }
 
 pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
@@ -107,15 +99,17 @@ pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
     )
 }
 
-/// Plans each record of the frame into a step.
+/// Plans each record of the frame into a step, with the reads the frame's taps ask for placed
+/// after the records they name.
 ///
 /// # Errors
 /// Fails with the first record the state refuses, which the refusal names.
 pub(super) fn plan_steps(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-) -> Result<Vec<Step>, Refusal> {
+) -> Result<(Vec<Step>, Vec<TapRead>), Refusal> {
     let mut steps = Vec::new();
+    let mut taps = Vec::new();
     let mut globals = Globals {
         layer: &frame.globals,
         keywords: &frame.global_keywords,
@@ -123,8 +117,10 @@ pub(super) fn plan_steps(
     for (index, record) in frame.records.iter().enumerate() {
         plan_record(svc, frame, (index, record), &mut globals, &mut steps)
             .map_err(|error| Refusal::at(index, error))?;
+        taps.extend(tap::plan_taps(svc, frame, index, &mut steps));
     }
-    Ok(steps)
+    taps.extend(tap::past_the_end(frame));
+    Ok((steps, taps))
 }
 
 /// Plans one record into the steps it adds to `steps`: none for a record of globals or one that
@@ -218,6 +214,7 @@ fn camera_step(
         globals,
         signature,
         written: &cells,
+        dots: None,
     };
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(mut draw) = planned_draw(svc, frame, &look, visible)? {
@@ -264,70 +261,6 @@ fn camera_step(
     })
 }
 
-/// How the camera's draws were set up: the target's formats, the states of the draws and the names
-/// the draws read with no value.
-fn pass_report(
-    (camera_id, target): (CameraId, TextureId),
-    (svc, camera): (&Services<'_>, &Camera),
-    draws: &[CameraDraw],
-    without_value: &std::collections::BTreeSet<String>,
-) -> CameraPassReport {
-    let info = svc.textures.get(target).ok();
-    let mut states = std::collections::BTreeMap::<String, usize>::new();
-    for draw in draws {
-        let state = &draw.plan.state;
-        let stencil = state.stencil.as_ref().map_or_else(String::new, |stencil| {
-            format!(
-                ", stencil reference {} read mask {} write mask {} front {:?} back {:?}",
-                stencil.reference,
-                stencil.ops.read_mask,
-                stencil.ops.write_mask,
-                stencil.ops.front,
-                stencil.ops.back
-            )
-        });
-        let words = format!(
-            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}{stencil}",
-            state.cull,
-            state.depth_compare,
-            state.depth_write,
-            write_mask(state.color_write),
-            blend_words(state.blend)
-        );
-        *states.entry(words).or_default() += 1;
-    }
-    CameraPassReport {
-        camera: camera_id,
-        target,
-        color: info.and_then(|info| info.color.map(|_| info.format)),
-        depth: info.and_then(|info| info.depth_format),
-        states: states.into_iter().collect(),
-        without_value: without_value.iter().cloned().collect(),
-        setup: PassSetup {
-            viewport: info.map_or([0, 0], |info| info.size),
-            color: match (
-                info.is_some_and(|info| info.color.is_some()),
-                camera.clear_color,
-            ) {
-                (false, _) => "no color".to_owned(),
-                (true, Some(c)) => {
-                    format!("clear [{:?}, {:?}, {:?}, {:?}]", c[0], c[1], c[2], c[3])
-                }
-                (true, None) => "load".to_owned(),
-            },
-            depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
-                (None, _) => "no depth".to_owned(),
-                (Some(_), true) => format!(
-                    "clear {:?}",
-                    depth_range::depth_clear(DEPTH_CLEAR, svc.reversed_depth)
-                ),
-                (Some(_), false) => "load".to_owned(),
-            },
-        },
-        programs: Vec::new(),
-    }
-}
-
 /// The layers of a camera draw's values, highest first: the names of the places in an
 /// [`Origin::Layer`](super::Origin).
 pub const DRAW_LAYERS: [&str; 8] = [
@@ -343,97 +276,6 @@ pub const DRAW_LAYERS: [&str; 8] = [
 
 /// The depth a camera that clears depth clears to.
 pub(super) const DEPTH_CLEAR: f32 = 1.0;
-
-/// What the probed camera's draws did, by program.
-fn program_probes(
-    svc: &Services<'_>,
-    names: &CameraProbe,
-    draws: &[CameraDraw],
-) -> Vec<ProgramProbe> {
-    let mut probes = ProgramProbes::default();
-    for draw in draws {
-        let Some(facts) = &draw.plan.facts else {
-            continue;
-        };
-        // The probe reads a mesh's CPU positions and indices; a procedural draw has none.
-        let Some(Ok(mesh)) = draw.mesh.map(|mesh| svc.meshes.get(mesh)) else {
-            continue;
-        };
-        let positions = MeshPositions {
-            vertices: u64::from(mesh.vertex_count),
-            positions: mesh.positions.as_deref(),
-        };
-        let textures = facts.textures.iter().map(|(name, texture)| {
-            let info = svc.textures.get(*texture).ok();
-            SampledTexture {
-                name: name.clone(),
-                texture: *texture,
-                uploaded: info.is_some_and(|info| info.spec.is_none()),
-                texels: info.and_then(|info| info.counts).map(|(texels, _)| texels),
-                nonzero: info
-                    .and_then(|info| info.counts)
-                    .map(|(_, nonzero)| nonzero),
-            }
-        });
-        let triangles = DrawTriangles {
-            indices: mesh.cpu_indices.as_deref(),
-            elements: draw.geometry.elements.clone(),
-            base_vertex: draw.geometry.base_vertex,
-            cull: draw.plan.state.cull,
-            front_face: draw.front_face,
-        };
-        probes.add(
-            (draw.shader, draw.plan.entry.pass),
-            names,
-            facts,
-            (&positions, &triangles),
-            textures,
-        );
-    }
-    probes.finish()
-}
-
-/// A blend state in words: `off`, or its color and alpha equations as `operation source
-/// destination`.
-fn blend_words(blend: Option<wgpu::BlendState>) -> String {
-    let equation = |part: wgpu::BlendComponent| {
-        format!(
-            "{:?} {:?} {:?}",
-            part.operation, part.src_factor, part.dst_factor
-        )
-    };
-    blend.map_or_else(
-        || "off".to_owned(),
-        |blend| {
-            format!(
-                "on (color {}, alpha {})",
-                equation(blend.color),
-                equation(blend.alpha)
-            )
-        },
-    )
-}
-
-/// The channels a color write mask lets through, as `RGBA` with the ones it blocks left out, or
-/// `none`.
-fn write_mask(mask: wgpu::ColorWrites) -> String {
-    let channels = [
-        (wgpu::ColorWrites::RED, 'R'),
-        (wgpu::ColorWrites::GREEN, 'G'),
-        (wgpu::ColorWrites::BLUE, 'B'),
-        (wgpu::ColorWrites::ALPHA, 'A'),
-    ];
-    let letters: String = channels
-        .iter()
-        .filter(|(channel, _)| mask.contains(*channel))
-        .map(|(_, letter)| *letter)
-        .collect();
-    if letters.is_empty() {
-        "none".to_owned()
-    } else {
-        letters
-    }
-}
 
 /// Plans one sub-mesh the camera sees as (material, renderer, slot). A sub-mesh with no
 /// indices, a draw whose shader has no pass the camera selects, a draw whose pass samples a
@@ -464,11 +306,16 @@ pub(super) fn planned_draw(
     .into_iter()
     .flatten()
     .collect();
+    let mut keywords = keywords(material, look.globals);
+    if look.dots.is_some() {
+        dots::select_variant(&mut keywords);
+    }
     let spec = DrawSpec {
         shader,
-        keywords: keywords(material, look.globals),
+        keywords,
         selector: look.selector.clone(),
         layers: Layers::new(&layers),
+        dots: look.dots,
     };
     let Some(sub) = svc.meshes.get(renderer.mesh)?.sub_meshes.get(slot).copied() else {
         return Ok(None);
@@ -503,7 +350,6 @@ pub(super) fn counted(
     match planned {
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
-            svc.counts.note_undeclared(&draw.plan.undeclared);
             svc.counts.note_stand_ins(&draw.plan.stand_ins);
             svc.keep_unset(&draw.plan);
             Ok(Some(draw))
@@ -585,7 +431,7 @@ fn visible_draws(
 ) -> Result<Vec<(MaterialId, crate::ids::RendererId, usize)>, OffscreenError> {
     let mut draws = Vec::new();
     for (renderer_id, renderer) in &frame.renderers {
-        if renderer.layer >= 32 || camera.culling_mask & (1 << renderer.layer) == 0 {
+        if !camera.draws(*renderer_id, renderer.layer) {
             continue;
         }
         let mesh = svc.meshes.get(renderer.mesh)?;
@@ -766,233 +612,4 @@ fn kind_rank(kind: BufferUseKind) -> u8 {
         BufferUseKind::Index => 3,
         BufferUseKind::Copy => 4,
     }
-}
-
-fn blit_step(
-    svc: &mut Services<'_>,
-    frame: &OffscreenFrame,
-    index: usize,
-    globals: Globals<'_>,
-    (source, target): (TextureId, TextureId),
-    (material, pass): (Option<MaterialId>, usize),
-) -> Result<Step, OffscreenError> {
-    require_render_texture(svc, target)?;
-    let Some(material_id) = material else {
-        return plain_blit(svc, index, source, target);
-    };
-    let material = frame
-        .materials
-        .get(&material_id)
-        .ok_or(OffscreenError::UnknownMaterial(material_id))?;
-    let shader = material
-        .shader
-        .ok_or(OffscreenError::NoShader(material_id))?;
-    let mesh = frame.blit_mesh.ok_or(OffscreenError::NoBlitMesh)?;
-    let overlay = source_layer(svc, frame, source)?;
-    let layers = [
-        &overlay,
-        &material.properties,
-        &material.fallback,
-        globals.layer,
-        &material.below_globals,
-    ];
-    let spec = DrawSpec {
-        shader,
-        keywords: keywords(material, globals),
-        selector: PassSelector::Index(pass),
-        layers: Layers::new(&layers),
-    };
-    let plan = svc.plan_program(&spec)?;
-    let vertices = svc.plan_vertices(mesh, &plan.entry)?;
-    svc.counts.note_defaulted(&vertices.defaulted);
-    svc.counts.note_undeclared(&plan.undeclared);
-    svc.counts.note_stand_ins(&plan.stand_ins);
-    svc.keep_unset(&plan);
-    let count = blit_vertex_count(svc, mesh)?;
-    let (imported, _) = svc.import(target)?;
-    let color = imported
-        .color
-        .ok_or(OffscreenError::NoColorAttachment(target))?;
-    let (before, after) = svc.tracker.write(color, 0, 0);
-    let view = svc
-        .tracker
-        .cell_view(color, (0, 0), wgpu::TextureAspect::All, after)?;
-    let colors = vec![Some(ColorAttachment {
-        view,
-        before: Some(before),
-        load: AttachmentLoad::Load,
-        store: wgpu::StoreOp::Store,
-        resolve: None,
-    })];
-    Ok(Step::Blit(BlitStep {
-        id: raster_id("offscreen blit", index),
-        colors,
-        plan,
-        vertices,
-        count,
-    }))
-}
-
-/// The layer a blit adds above the material: the source under the main texture name, and its
-/// texel size under `<name>_TexelSize` for a shader that declares it.
-fn source_layer(
-    svc: &Services<'_>,
-    frame: &OffscreenFrame,
-    source: TextureId,
-) -> Result<PropertyLayer, OffscreenError> {
-    let info = svc.textures.get(source)?;
-    let [width, height] = info.size.map(texels);
-    let mut layer = PropertyLayer::default();
-    layer.textures.insert(
-        frame.main_texture.clone(),
-        TextureInput {
-            texture: source,
-            sampler: None,
-        },
-    );
-    layer.values.set(
-        &format!("{}_TexelSize", frame.main_texture),
-        PropertyValue::Vector([1.0 / width, 1.0 / height, width, height]),
-    );
-    Ok(layer)
-}
-
-/// A side in texels as a float. Sides above 65535 saturate, which no render texture reaches.
-pub(super) fn texels(side: u32) -> f32 {
-    f32::from(u16::try_from(side).unwrap_or(u16::MAX))
-}
-
-fn blit_vertex_count(svc: &Services<'_>, mesh: MeshId) -> Result<u32, OffscreenError> {
-    let info = svc.meshes.get(mesh)?;
-    if info.index.is_some() || info.vertex_count % 3 != 0 {
-        return Err(OffscreenError::BadMesh {
-            mesh,
-            reason: "a blit mesh is triangles with no index buffer".to_owned(),
-        });
-    }
-    Ok(info.vertex_count)
-}
-
-/// A blit with no material copies the texture when the sizes and formats agree, and otherwise
-/// draws the source over the target.
-fn plain_blit(
-    svc: &mut Services<'_>,
-    index: usize,
-    source: TextureId,
-    target: TextureId,
-) -> Result<Step, OffscreenError> {
-    let (from, to) = (svc.textures.get(source)?, svc.textures.get(target)?);
-    if from.size != to.size || from.format != to.format {
-        return resample_step(svc, index, (source, target));
-    }
-    copy_cells(
-        svc,
-        raster_id("offscreen blit", index),
-        (source, 0, 0),
-        (target, 0, 0),
-    )
-    .map(Step::Ready)
-}
-
-fn copy_step(
-    svc: &mut Services<'_>,
-    index: usize,
-    record: &Record,
-) -> Result<TypedOperation, OffscreenError> {
-    let Record::CopyTexture {
-        source,
-        source_element,
-        source_mip,
-        target,
-        target_element,
-        target_mip,
-    } = *record
-    else {
-        unreachable!("only copies are planned here");
-    };
-    require_render_texture(svc, target)?;
-    copy_cells(
-        svc,
-        raster_id("offscreen copy", index),
-        (source, source_mip, source_element),
-        (target, target_mip, target_element),
-    )
-}
-
-/// Copies one mip of one element to another, after checking that both exist and agree.
-fn copy_cells(
-    svc: &mut Services<'_>,
-    id: RasterId,
-    (source, source_mip, source_element): (TextureId, u32, u32),
-    (target, target_mip, target_element): (TextureId, u32, u32),
-) -> Result<TypedOperation, OffscreenError> {
-    let (from, to) = (svc.textures.get(source)?, svc.textures.get(target)?);
-    for (texture, info, mip, element) in [
-        (source, from, source_mip, source_element),
-        (target, to, target_mip, target_element),
-    ] {
-        if mip >= info.mips || element >= info.layers {
-            return Err(OffscreenError::NoSuchSubresource {
-                texture,
-                mip,
-                element,
-            });
-        }
-    }
-    check_copy((source, from, source_mip), (target, to, target_mip))?;
-    let (source_imported, _) = svc.import(source)?;
-    let (target_imported, _) = svc.import(target)?;
-    let read = svc
-        .tracker
-        .cell(source_imported.primary, source_mip, source_element);
-    let (_, written) = svc
-        .tracker
-        .write(target_imported.primary, target_mip, target_element);
-    let aspect = wgpu::TextureAspect::All;
-    let source_view = svc.tracker.cell_view(
-        source_imported.primary,
-        (source_mip, source_element),
-        aspect,
-        read,
-    )?;
-    let target_view = svc.tracker.cell_view(
-        target_imported.primary,
-        (target_mip, target_element),
-        aspect,
-        written,
-    )?;
-    Ok(TypedOperation::new(
-        id,
-        TypedWork::CopyTexture {
-            source: TextureCopy::whole(source_view),
-            destination: TextureCopy::whole(target_view),
-        },
-    ))
-}
-
-/// Checks that the two mips have the same size and the formats agree up to sRGB.
-fn check_copy(
-    (source, from, source_mip): (TextureId, &TextureInfo, u32),
-    (target, to, target_mip): (TextureId, &TextureInfo, u32),
-) -> Result<(), OffscreenError> {
-    let mismatch = |reason: String| OffscreenError::CopyMismatch {
-        from: source,
-        to: target,
-        reason,
-    };
-    let at = |size: [u32; 2], mip: u32| size.map(|side| (side >> mip).max(1));
-    let sizes = (at(from.size, source_mip), at(to.size, target_mip));
-    if sizes.0 != sizes.1 {
-        return Err(mismatch(format!(
-            "the sizes are {:?} and {:?}",
-            sizes.0, sizes.1
-        )));
-    }
-    if from.format.remove_srgb_suffix() != to.format.remove_srgb_suffix() {
-        return Err(mismatch(format!(
-            "the formats are {:?} and {:?}",
-            from.format, to.format
-        )));
-    }
-    Ok(())
 }

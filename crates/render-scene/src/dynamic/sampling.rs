@@ -1,5 +1,5 @@
 use worldrunner_render_plan::{TextureFilter, TextureSampler, TextureWrap};
-pub(super) fn create_sampler(device: &wgpu::Device, state: TextureSampler) -> wgpu::Sampler {
+pub(crate) fn create_sampler(device: &wgpu::Device, state: TextureSampler) -> wgpu::Sampler {
     let filter = match state.filter {
         TextureFilter::Point => wgpu::FilterMode::Nearest,
         TextureFilter::Bilinear | TextureFilter::Trilinear => wgpu::FilterMode::Linear,

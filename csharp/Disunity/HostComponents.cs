@@ -22,6 +22,7 @@ public static partial class DisunityHost
     internal static unsafe T AttachComponent<T>(GameObject owner, T value) where T : Component
     {
         UnsupportedComponents.Reject(value);
+        if (value is RectTransform or Canvas) RectDimensionMessages.MarkChanged();
         if (value is MonoBehaviour script && !NativeBehaviourState.IsNative(value)) return (T)(Component)Attach(owner, script);
         if (value is not (NativeComponent or Light or CanvasGroup or RectTransform or Camera or Canvas or Collider2D or UnityEngine.Tilemaps.Tilemap) && !NativeBehaviourState.IsNative(value)) throw new NotSupportedException($"component {typeof(T)}");
         ulong handle;

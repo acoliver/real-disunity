@@ -12,9 +12,9 @@ const WORK_SET_GLOBAL: u8 = 6;
 const TAG_VECTOR_ARRAY: u8 = 5;
 const TAG_MATRIX_ARRAY: u8 = 6;
 /// Where a global state with no keywords and no other values holds its two array lists in the
-/// bytes of a snapshot: the header, three empty maps, the global marker, the empty keyword list
-/// and five empty value lists.
-const ARRAYS_AT: usize = 12 + 12 + 1 + 4 + 20;
+/// bytes of a snapshot: the header, the empty work list, three empty maps, the global marker, the
+/// empty keyword list and five empty value lists.
+const ARRAYS_AT: usize = 12 + 4 + 12 + 1 + 4 + 20;
 
 fn floats(values: &[f32]) -> Vec<u8> {
     values
@@ -53,15 +53,17 @@ fn lists(vectors: &[Vec<u8>], matrices: &[Vec<u8>]) -> Vec<u8> {
 /// A snapshot with a global state holding `arrays` where its two array lists belong and nothing
 /// else.
 fn global_snapshot(arrays: &[u8]) -> Vec<u8> {
-    let mut body = vec![0; 12];
+    // The empty work list leads the body, then three empty maps.
+    let mut body = vec![0; 4 + 12];
     body.push(1);
     body.extend_from_slice(&[0; 4 + 20]);
     body.extend_from_slice(arrays);
     body.extend_from_slice(&0_u64.to_le_bytes());
     // No environment ambient or reflection.
     body.extend_from_slice(&[0; 2]);
-    // Empty work, cameras, lights, renderers, compute shaders and compute buffers.
-    body.extend_from_slice(&[0; 24]);
+    // Empty cameras, lights and renderers, no renderer sets and no record sets, no skinned
+    // renderers left out, then empty compute shaders and compute buffers.
+    body.extend_from_slice(&[0; 32]);
     let mut bytes = b"DGSN".to_vec();
     bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());
     bytes.extend_from_slice(&u32::try_from(body.len()).unwrap().to_le_bytes());
@@ -112,9 +114,9 @@ fn arrays_of(
 }
 
 #[test]
-fn the_version_is_seventeen_and_older_snapshots_are_refused() {
-    assert_eq!(WIRE_VERSION, 17);
-    for old in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16_u32] {
+fn the_version_is_twenty_one_and_older_snapshots_are_refused() {
+    assert_eq!(WIRE_VERSION, 21);
+    for old in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19_u32] {
         let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
         bytes[4..8].copy_from_slice(&old.to_le_bytes());
         assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(old)));
@@ -442,7 +444,8 @@ fn a_list_count_over_the_cap_or_larger_than_its_bytes_could_hold_is_refused() {
     assert_eq!(decode(&bytes), Err(WireError::Truncated));
     let bytes = global_snapshot(&counts_only(0, 1 << 22));
     assert_eq!(decode(&bytes), Err(WireError::Truncated));
-    let bytes = global_snapshot(&counts_only(2, 0));
+    // More entries than the 46 bytes that follow could hold, one byte each at the least.
+    let bytes = global_snapshot(&counts_only(100, 0));
     assert_eq!(decode(&bytes), Err(WireError::Truncated));
 }
 

@@ -1,15 +1,12 @@
 //! Persistent targets: kept across frames, left alone by cancelled frames, kept across renderer
 //! replacement, and steady frames that build nothing.
-use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE, quad_scene};
 use super::layers::{self, ARRAY, HISTORY, HISTORY_PRODUCER, LAYERS, LayersGame, READER, Shared};
 use super::prepared;
 use std::sync::Arc;
 use worldrunner_render_gpu::tolerance_test_support::{assert_code_within, encoded_steps};
-use worldrunner_render_scene::{
-    compositor::GamePasses,
-    executor::{FrameConfig, FrameError},
-    wgpu,
-};
+use worldrunner_render_post::{FrameConfig, FrameError};
+use worldrunner_render_scene::{compositor::GamePasses, wgpu};
 
 pub const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 pub const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
@@ -123,6 +120,7 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
     assert_filled(&rig.render().unwrap(), "before replacement");
     let array = rig.renderer.game_targets().texture(ARRAY).unwrap();
     let created = rig.renderer.game_targets().created();
+    let views = rig.renderer.game_targets().views_created();
     assert!(
         rig.renderer.game_targets().is_written(HISTORY, 0),
         "the frame wrote the history target"
@@ -152,10 +150,15 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
     assert_eq!(rig.renderer.game_targets().texture(ARRAY).unwrap(), array);
     knobs.lock().unwrap().produce.clear();
     assert_filled(&rig.render().unwrap(), "after replacement");
+    assert_eq!(
+        rig.renderer.game_targets().views_created(),
+        views,
+        "the kept textures kept their views"
+    );
 
     // A frame-sized persistent target is recreated by a resize, which discards its contents;
     // the fixed-size array keeps its texture and its layers.
-    settings.frame = FrameConfig::new([32, 24], FORMAT, 1);
+    settings.frame = FrameConfig::new([32, 24], SCENE_FORMAT, 1);
     rig.renderer.reconfigure(&rig.context, settings).unwrap();
     assert_eq!(
         rig.renderer.game_targets().created(),
@@ -165,6 +168,19 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
     assert_eq!(rig.renderer.game_targets().texture(ARRAY).unwrap(), array);
     assert!(rig.renderer.game_targets().is_written(ARRAY, LAYERS - 1));
     assert!(!rig.renderer.game_targets().is_written(HISTORY, 0));
+    knobs.lock().unwrap().produce = vec![(HISTORY_PRODUCER, RED)];
+    rig.render().unwrap();
+    let resized = rig.renderer.game_targets().views_created();
+    assert!(
+        resized > views,
+        "the recreated history target got views of its new texture"
+    );
+    rig.render().unwrap();
+    assert_eq!(
+        rig.renderer.game_targets().views_created(),
+        resized,
+        "and kept them"
+    );
 }
 
 #[test]
@@ -177,9 +193,16 @@ fn steady_state_frames_build_nothing_new() {
     }
     let stats = knobs.lock().unwrap().stats.unwrap();
     let created = rig.renderer.game_targets().created();
+    let views = rig.renderer.game_targets().views_created();
+    assert!(views > 0, "the frames attached views of the targets");
     for _ in 0..3 {
         assert_filled(&rig.render().unwrap(), "steady");
     }
+    assert_eq!(
+        rig.renderer.game_targets().views_created(),
+        views,
+        "steady frames made no view of a target"
+    );
     assert_eq!(
         knobs.lock().unwrap().stats.unwrap(),
         stats,

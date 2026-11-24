@@ -15,7 +15,11 @@ fn settings(footprint: SceneSsaoDepthFootprint) -> worldrunner_render_plan::Scen
 fn allocation_bytes_follow_the_selected_footprint() {
     use crate::compositor::RendererConfiguration;
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut config = RendererConfiguration::legacy([9, 7], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut config = RendererConfiguration::new(
+        [9, 7],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     config.ssao = Some(settings(SceneSsaoDepthFootprint::default()));
     let limits = wgpu::Limits::default();
     let default_bytes = config.allocations().validate(&limits).unwrap();

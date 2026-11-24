@@ -4,13 +4,17 @@ pub(crate) mod batch;
 #[cfg(test)]
 mod contour_tests;
 pub(crate) mod fade;
+mod flushed_memo;
 pub(crate) mod history;
 mod lookup;
 mod ready_memo;
+mod settled_memo;
 pub(crate) mod skin;
 pub(crate) mod skin_stream;
 pub(crate) mod slot_bounds;
 mod staged_uploads;
+#[cfg(test)]
+mod test_hooks;
 #[cfg(test)]
 pub(crate) mod test_owner;
 #[cfg(test)]
@@ -141,7 +145,13 @@ pub(crate) struct Instances {
     tables: u64,
     /// The state in which every batch's cached bounds were last found current.
     bounds_current: std::cell::Cell<Option<LayoutStamp>>,
+    /// How far the eye has travelled, which tells every batch's level memo what still holds.
+    eye_path: std::cell::Cell<slot_bounds::EyePath>,
     ready: ready_memo::ReadyMemo,
+    /// The state in which a flush last found every batch settled.
+    settled: settled_memo::SettledMemo,
+    /// The state in which every batch was last found flushed, or not.
+    flushed: flushed_memo::FlushedMemo,
     pub contours: worldrunner_render_plan::SceneContours,
     pub contour_members: BTreeMap<(BatchKey, usize), u8>,
     /// Counts the instance buffers; a scene built without a device keeps an unshared tally.
@@ -197,7 +207,10 @@ impl Instances {
             skinned: 0,
             tables: 0,
             bounds_current: std::cell::Cell::new(None),
+            eye_path: std::cell::Cell::default(),
             ready: ready_memo::ReadyMemo::default(),
+            settled: settled_memo::SettledMemo::default(),
+            flushed: flushed_memo::FlushedMemo::default(),
             contours: scene
                 .effects()
                 .map(|effects| effects.contours().clone())
@@ -249,21 +262,26 @@ impl Instances {
         self.bounds_current.set(Some(stamp));
     }
 
-    /// Makes the next view check every batch's cached bounds, as every view once did.
-    #[cfg(test)]
-    pub(crate) fn recheck_bounds(&self) {
-        self.bounds_current.set(None);
+    /// How far the eye has travelled when it is at the eye `key` names, which level memos
+    /// compare with the margin of each entry. A new eye has travelled farther than any eye
+    /// before it.
+    pub(crate) fn eye_travel(&self, key: slot_bounds::LevelKey) -> u64 {
+        let mut path = self.eye_path.get();
+        let (travelled, restarted) = path.advance(key);
+        self.eye_path.set(path);
+        if restarted {
+            // Entries stored under the travel before the restart may be within the margin of
+            // the travel after it.
+            for batch in self.batches.values() {
+                batch.bounds.borrow_mut().forget_levels();
+            }
+        }
+        travelled
     }
 
     /// Whether every batch can be drawn by `owner`'s transaction, or by no transaction.
     pub fn ready_for(&self, owner: Option<&Publications>) -> bool {
         self.ready.check(&self.batches, &self.totals, owner)
-    }
-
-    /// How many times `ready_for` has scanned the batches rather than reusing a passing scan.
-    #[cfg(test)]
-    pub fn ready_scans(&self) -> usize {
-        self.ready.scans()
     }
 
     /// Whether any batch draws a skinned mesh.
@@ -278,13 +296,6 @@ impl Instances {
     /// Rises whenever any batch stages buffer bytes or allocates a buffer, like `edits`.
     pub fn content_generation(&self) -> u64 {
         self.sum(&self.totals.content, InstanceBatch::content)
-    }
-
-    /// The sum of every batch's history version, which rises with each change `ready_for` reads
-    /// of the history.
-    #[cfg(test)]
-    pub fn history_versions(&self) -> u64 {
-        self.sum(&self.totals.history, InstanceBatch::history_version)
     }
 
     /// `tally`, which equals the sum of `counter` over the batches.
@@ -410,12 +421,6 @@ impl Instances {
                 vacant.insert(batch)
             }
         }
-    }
-
-    /// Makes the batch at `key` with no placement in it, as a batch left empty by removals is.
-    #[cfg(test)]
-    pub(crate) fn add_empty_batch(&mut self, key: BatchKey) {
-        self.batch_for(key);
     }
 
     pub fn set_contours(

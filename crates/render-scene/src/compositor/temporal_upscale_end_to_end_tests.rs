@@ -58,9 +58,8 @@ impl<'a> Rig<'a> {
             }),
             ..HdrPostSettings::default()
         };
-        let mut settings = RendererConfiguration::legacy(OUTPUT_EXTENT, OUTPUT);
+        let mut settings = RendererConfiguration::new(OUTPUT_EXTENT, OUTPUT, ToneMap::Reinhard);
         settings.frame = frame_config;
-        settings.hdr = Some((1.0, ToneMap::Reinhard));
         settings.post = post;
         let renderer =
             ConfiguredFrameRenderer::new(context, settings, AllocationBudget(1 << 28)).unwrap();
@@ -115,7 +114,14 @@ impl<'a> Rig<'a> {
                     depth: targets.depth(),
                 };
                 scene.draw(device, encoder, &target, prepared.view_projection);
-                renderer.encode_frame(device, encoder, (&[], &[]), &mut [], (prepared, None))?;
+                renderer.encode_frame(
+                    device,
+                    encoder,
+                    (&[], &[]),
+                    None,
+                    &mut [],
+                    &(prepared, None),
+                )?;
                 renderer.encode_output(encoder, &view).unwrap();
                 Ok::<_, FrameError>(())
             })
@@ -150,7 +156,14 @@ impl<'a> Rig<'a> {
                     depth: targets.depth(),
                 };
                 scene.draw(device, encoder, &target, prepared.view_projection);
-                renderer.encode_frame(device, encoder, (&[], &[]), &mut [], (prepared, None))?;
+                renderer.encode_frame(
+                    device,
+                    encoder,
+                    (&[], &[]),
+                    None,
+                    &mut [],
+                    &(prepared, None),
+                )?;
                 renderer.encode_output(encoder, &view).unwrap();
                 Ok::<_, FrameError>(())
             })

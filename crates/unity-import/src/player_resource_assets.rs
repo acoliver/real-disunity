@@ -108,8 +108,9 @@ pub enum ResourceAsset {
         sprites: Vec<AssetRef>,
     },
     /// A shader, by the name its source declares, with the render queue of its first
-    /// sub-shader, the number of sub-shaders and the names of the passes in the first one
-    /// (`pass_count` of them, the empty string for an unnamed pass). The programs
+    /// sub-shader, the number of sub-shaders, the names of the passes in the first one
+    /// (`pass_count` of them, the empty string for an unnamed pass), that sub-shader's tags
+    /// in declared order and the name of the fallback shader (empty for none). The programs
     /// are not planned; `file` and `path_id` name the serialized shader object they are read
     /// from, `file` relative to the data directory.
     Shader {
@@ -118,6 +119,8 @@ pub enum ResourceAsset {
         pass_count: usize,
         pass_names: Vec<String>,
         subshader_count: usize,
+        tags: Vec<(String, String)>,
+        fallback: String,
         file: String,
         path_id: i64,
     },

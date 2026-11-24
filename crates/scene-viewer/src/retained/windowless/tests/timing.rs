@@ -30,7 +30,7 @@ fn shadow_metadata_ao_forward_ssr_water_resolve_and_post_have_query_pairs() {
     )
     .unwrap();
     let mut driver = Driver::default();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     assert!(run.frame().unwrap());
     let Some(frame) = completed_sample(&mut run) else {
         run.shutdown().unwrap();
@@ -138,7 +138,7 @@ fn depth_fitted(effects: SceneEffects) -> SceneEffects {
 #[test]
 fn requesting_timing_preserves_rendered_bytes() {
     for profile in [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,
@@ -151,7 +151,7 @@ fn requesting_timing_preserves_rendered_bytes() {
             host.options.frame_profile = profile;
             let mut driver = Driver::default();
             let events = driver.events.clone();
-            let mut run = host.windowless(&mut driver).unwrap();
+            let mut run = host.windowless(&mut driver, None).unwrap();
             images.push(capture(&mut run, &events).1);
             run.shutdown().unwrap();
         }
@@ -165,7 +165,7 @@ fn timing_is_disabled_without_a_request() {
     assert!(!host.options.gpu_timing);
     assert_eq!(host.gpu_timing(), &GpuTiming::Disabled);
     let mut driver = Driver::default();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     assert!(run.frame().unwrap());
     run.poll().unwrap();
     assert_eq!(run.host().gpu_timing(), &GpuTiming::Disabled);
@@ -177,7 +177,7 @@ fn requested_timing_reports_capability_or_completed_frame_without_more_rendering
     let mut host = host(crate::renderer::retained_tests::source());
     host.options.gpu_timing = true;
     let mut driver = Driver::default();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     assert!(run.frame().unwrap());
     let Some(frame) = completed_sample(&mut run) else {
         run.shutdown().unwrap();
@@ -196,7 +196,7 @@ fn requested_timing_reports_capability_or_completed_frame_without_more_rendering
         frame
             .passes
             .iter()
-            .any(|pass| pass.pass_id == PassId::Stage(StageId::new("post copy output", 0)))
+            .any(|pass| pass.pass_id == PassId::Stage(StageId::new("tone", 0)))
     );
     assert_resize_retains_sample_and_labels(&mut run);
     run.shutdown().unwrap();

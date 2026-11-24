@@ -74,7 +74,14 @@ fn dropping_context_releases_its_queue_without_waiting_for_device_loss() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::test_support::test_instance();
     for _ in 0..3 {
-        let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
+        let context = pollster::block_on(GpuContext::from_instance(
+            &instance,
+            &DeviceRequest {
+                features: REQUIRED_FEATURES,
+                ..DeviceRequest::default()
+            },
+        ))
+        .unwrap();
         assert_eq!(
             instance
                 .generate_report()
@@ -214,10 +221,13 @@ fn gpu_optional_timestamp_device_enables_only_available_capability() {
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();
     let available = adapter.features().contains(Features::TIMESTAMP_QUERY);
-    let context = pollster::block_on(GpuContext::from_adapter_with_timing(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        Features::empty(),
-        TimingMode::Optional,
+        &DeviceRequest {
+            features: Features::empty(),
+            timing: TimingMode::Optional,
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap();
     assert_eq!(
@@ -269,11 +279,13 @@ fn a_device_shared_with_another_user_meets_its_requirements_and_the_scenes() {
         ..DeviceRequirements::default()
     };
     let filterable = adapter.features().contains(Features::FLOAT32_FILTERABLE);
-    let context = pollster::block_on(GpuContext::from_adapter_shared(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        Features::empty(),
-        TimingMode::Disabled,
-        &caller,
+        &DeviceRequest {
+            features: Features::empty(),
+            timing: TimingMode::Disabled,
+            shared: caller.clone(),
+        },
     ))
     .unwrap();
     let limits = context.device().limits();
@@ -309,11 +321,13 @@ fn a_shared_device_reports_a_preferred_profile_it_could_not_grant() {
         }),
         ..DeviceRequirements::default()
     };
-    let context = pollster::block_on(GpuContext::from_adapter_shared(
+    let context = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        Features::empty(),
-        TimingMode::Disabled,
-        &caller,
+        &DeviceRequest {
+            features: Features::empty(),
+            timing: TimingMode::Disabled,
+            shared: caller.clone(),
+        },
     ))
     .unwrap();
     let report = context.unavailable_optional_limits();
@@ -351,11 +365,13 @@ fn a_shared_device_refuses_a_callers_missing_feature_by_name() {
         required_features: absent,
         ..DeviceRequirements::default()
     };
-    let refused = pollster::block_on(GpuContext::from_adapter_shared(
+    let refused = pollster::block_on(GpuContext::from_adapter(
         adapter,
-        Features::empty(),
-        TimingMode::Disabled,
-        &caller,
+        &DeviceRequest {
+            features: Features::empty(),
+            timing: TimingMode::Disabled,
+            shared: caller.clone(),
+        },
     ));
     match refused {
         Err(super::DeviceError::MissingFeatures { adapter, missing }) => {
@@ -366,7 +382,7 @@ fn a_shared_device_refuses_a_callers_missing_feature_by_name() {
     }
 }
 
-use super::{GpuContext, REQUIRED_FEATURES};
+use super::{DeviceRequest, GpuContext, REQUIRED_FEATURES};
 use wgpu::{Features, TextureFormat, TextureUsages};
 
 const SUPPORTED_FORMATS: [TextureFormat; 6] = [
@@ -461,9 +477,12 @@ fn an_empty_backend_instance_returns_no_adapter() {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     assert!(matches!(
-        pollster::block_on(GpuContext::from_instance_with_features(
+        pollster::block_on(GpuContext::from_instance(
             &instance,
-            Features::empty()
+            &DeviceRequest {
+                features: Features::empty(),
+                ..DeviceRequest::default()
+            }
         )),
         Err(super::DeviceError::NoAdapter)
     ));
@@ -486,9 +505,12 @@ fn required_gpu_missing_features_are_not_silently_dropped() {
         !missing.is_empty(),
         "test requires some unsupported features"
     );
-    let error = pollster::block_on(GpuContext::from_instance_with_features(
+    let error = pollster::block_on(GpuContext::from_instance(
         &instance,
-        Features::all(),
+        &DeviceRequest {
+            features: Features::all(),
+            ..DeviceRequest::default()
+        },
     ))
     .unwrap_err();
     match error {

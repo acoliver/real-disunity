@@ -141,7 +141,7 @@ fn capture_effects(
             .unwrap()
     };
     let host = RetainedHost::new(scene, options).unwrap();
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     let captured = products(&mut run, &events);
     run.shutdown().unwrap();
     captured

@@ -193,6 +193,11 @@ pub(crate) fn scene(water: bool) -> RenderScene {
     };
     RenderScene::new(parts).unwrap()
 }
+/// A single-sample frame shown as drawn, the profile of most fixtures.
+pub(crate) const CLAMP: crate::FrameProfile = crate::FrameProfile::Hdr {
+    samples: 1,
+    tone_map: crate::ToneMap::Clamp,
+};
 pub(crate) fn options() -> ViewerOptions {
     ViewerOptions {
         activity_reason: crate::ActivityReason::default(),
@@ -201,7 +206,7 @@ pub(crate) fn options() -> ViewerOptions {
         window_size_unit: crate::WindowSizeUnit::default(),
         window_mode: crate::WindowMode::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
-        frame_profile: crate::FrameProfile::Legacy,
+        frame_profile: CLAMP,
         frames_in_flight: 2,
         present_mode: wgpu::PresentMode::Fifo,
         desired_maximum_frame_latency: 2,
@@ -233,21 +238,14 @@ pub(crate) fn options() -> ViewerOptions {
     }
 }
 #[test]
-fn invalid_window_size_returns_before_event_loop_startup() {
+fn invalid_window_size_is_refused_when_the_host_is_made() {
     for size in [[0, 600], [800, 0], [4097, 600], [800, u32::MAX]] {
         let options = ViewerOptions { size, ..options() };
         assert!(matches!(
-            run(scene(false), options),
+            RetainedHost::new(scene(false), options),
             Err(ViewerError::InvalidOptions(_))
         ));
     }
-}
-#[test]
-fn water_is_rejected_before_event_loop_startup() {
-    assert!(matches!(
-        run(scene(true), options()),
-        Err(ViewerError::UnsupportedScene("water requires HDR"))
-    ));
 }
 #[test]
 fn valid_scene_and_camera_need_no_display_to_validate() {

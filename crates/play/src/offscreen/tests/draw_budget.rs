@@ -11,7 +11,7 @@ use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{ComputeBufferId, GraphicsSnapshot};
 
 use super::super::flush::{FlushOutcome, OffscreenHost};
-use super::flush::{HEIGHT, camera_render, expected, floats, host, scaling};
+use super::flush::{HEIGHT, camera_render, camera_renders, expected, floats, host, scaling};
 use super::gpu::{Quad, SIDE, target};
 use super::kernels::{copy_object, write_compute};
 use super::support::{compute_buffer, dispatch, snapshot, world};
@@ -47,9 +47,7 @@ fn three_cameras(budget: usize) -> (FlushOutcome, World, Vec<ComputeBufferId>) {
     let mut host = host(directory.path());
     let mut world = world();
     let maps: Vec<_> = (0..CAMERAS).map(|_| target(&mut world, HEIGHT)).collect();
-    for map in &maps {
-        camera_render(&mut world, *map);
-    }
+    camera_renders(&mut world, &maps);
     let shader = scaling(&mut world);
     let buffers: Vec<_> = maps
         .iter()

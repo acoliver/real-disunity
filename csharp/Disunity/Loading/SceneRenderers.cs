@@ -11,7 +11,7 @@ internal sealed partial class SceneLoader
     private MeshFilter MeshFilter(GameObject owner, JsonElement value)
     {
         var filter = owner.AddComponent<MeshFilter>();
-        if (value.TryGetProperty("mesh", out var index) && index.ValueKind == JsonValueKind.Number) filter.sharedMesh = (Mesh)PlannedAsset(index.GetInt32());
+        if (value.TryGetProperty("mesh", out var index) && PlannedMesh(index) is { } mesh) filter.sharedMesh = mesh;
         return filter;
     }
 
@@ -38,8 +38,17 @@ internal sealed partial class SceneLoader
         ApplyRenderer(renderer, value);
         renderer.quality = (SkinQuality)value.Int("quality");
         renderer.updateWhenOffscreen = value.Bool("update_when_offscreen");
+        renderer.sharedMesh = PlannedMesh(value.GetProperty("mesh"));
+        renderer.bones = value.GetProperty("bones").EnumerateArray().Select(slot => Bone(slot)!).ToArray();
+        renderer.rootBone = Bone(value.GetProperty("root_bone"));
         return renderer;
     }
+
+    /// <summary>The mesh a plan names by asset index, or null for none.</summary>
+    private Mesh? PlannedMesh(JsonElement index) => index.ValueKind == JsonValueKind.Number ? (Mesh)PlannedAsset(index.GetInt32()) : null;
+
+    /// <summary>The transform of the planned object a bone names by object index, or null for an empty slot.</summary>
+    private Transform? Bone(JsonElement index) => index.ValueKind == JsonValueKind.Number ? objects[index.GetInt32()].transform : null;
 
     /// <summary>Sets the renderer settings of a plan. Each material slot is the planned material, or empty where the plan holds none.</summary>
     private void ApplyRenderer(Renderer renderer, JsonElement value)

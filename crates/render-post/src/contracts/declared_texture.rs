@@ -81,7 +81,7 @@ impl ResourceRegistry {
         semantic: Semantic,
         initial: Option<u32>,
     ) -> Result<AllocationKey, ContractError> {
-        self.import_with_view_formats(
+        self.import(
             &texture.texture,
             lifetime,
             semantic,

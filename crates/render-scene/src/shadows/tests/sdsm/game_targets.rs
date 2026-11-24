@@ -6,6 +6,7 @@ use crate::compositor::{
     ColorOutput, GameBuild, GameFeatureFactory, GamePassSpec, GamePasses, GameTargets,
     TargetDeclaration, TargetExtent,
 };
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use std::sync::{
     Arc, Mutex,
@@ -125,9 +126,14 @@ fn kept() -> TargetDeclaration {
 fn captured(
     context: &GpuContext,
     targets: Vec<TargetDeclaration>,
-) -> (ShadowedScene, OffscreenTarget, Arc<AtomicBool>) {
-    let (renderer, target, poison, _) = captured_layers(context, targets);
-    (renderer, target, poison)
+) -> (
+    ShadowedScene,
+    crate::compositor::FrameRenderer,
+    OffscreenTarget,
+    Arc<AtomicBool>,
+) {
+    let (renderer, scheduler, target, poison, _) = captured_layers(context, targets);
+    (renderer, scheduler, target, poison)
 }
 
 fn captured_layers(
@@ -135,6 +141,7 @@ fn captured_layers(
     targets: Vec<TargetDeclaration>,
 ) -> (
     ShadowedScene,
+    crate::compositor::FrameRenderer,
     OffscreenTarget,
     Arc<AtomicBool>,
     Arc<AtomicU32>,
@@ -146,16 +153,20 @@ fn captured_layers(
         poison: poison.clone(),
         layer: layer.clone(),
     });
-    let (renderer, target) = captured_with(context, game);
-    (renderer, target, poison, layer)
+    let (renderer, scheduler, target) = captured_with(context, game);
+    (renderer, scheduler, target, poison, layer)
 }
 
 fn captured_with(
     context: &GpuContext,
     game: Arc<dyn GameFeatureFactory>,
-) -> (ShadowedScene, OffscreenTarget) {
+) -> (
+    ShadowedScene,
+    crate::compositor::FrameRenderer,
+    OffscreenTarget,
+) {
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
-    let mut renderer = ShadowedScene::new(context, &source, settings()).unwrap();
+    let mut renderer = shadowed(context, &source, settings()).unwrap();
     renderer
         .set_depth_fitting(
             context,
@@ -165,20 +176,21 @@ fn captured_with(
             }),
         )
         .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     GamePasses::new()
         .with(game)
-        .install(&mut renderer.scheduler, context, None)
+        .install(&mut scheduler, context, None)
         .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    (renderer, target)
+    (renderer, scheduler, target)
 }
 
 #[test]
 fn a_game_feature_that_writes_nothing_is_admitted_by_an_owned_capture() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let (mut renderer, target, _) = captured(&context, Vec::new());
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let (mut renderer, mut scheduler, target, _) = captured(&context, Vec::new());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(renderer.last_depth_fit().is_some(), "the capture fitted");
 }
 
@@ -186,12 +198,12 @@ fn a_game_feature_that_writes_nothing_is_admitted_by_an_owned_capture() {
 fn a_clear_only_game_target_is_written_inside_a_same_frame_capture() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let (mut renderer, target, _) = captured(&context, vec![scratch(), kept()]);
-    assert!(!renderer.scheduler.game_targets().is_written(KEPT, 0));
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let (mut renderer, mut scheduler, target, _) = captured(&context, vec![scratch(), kept()]);
+    assert!(!scheduler.game_targets().is_written(KEPT, 0));
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(renderer.last_depth_fit().is_some(), "the capture fitted");
     assert!(
-        renderer.scheduler.game_targets().is_written(KEPT, 0),
+        scheduler.game_targets().is_written(KEPT, 0),
         "the submitted capture frame wrote the persistent target"
     );
 }
@@ -200,28 +212,28 @@ fn a_clear_only_game_target_is_written_inside_a_same_frame_capture() {
 fn a_capture_whose_suffix_fails_publishes_none_of_the_games_bookkeeping() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let (mut renderer, target, poison) = captured(&context, vec![kept()]);
+    let (mut renderer, mut scheduler, target, poison) = captured(&context, vec![kept()]);
     poison.store(true, Ordering::SeqCst);
-    assert!(render_target(&mut renderer, &context, &view(), &target).is_err());
+    assert!(render_target(&mut renderer, &mut scheduler, &context, &view(), &target).is_err());
     assert!(
-        !renderer.scheduler.game_targets().is_written(KEPT, 0),
+        !scheduler.game_targets().is_written(KEPT, 0),
         "a failed suffix leaves the persistent target unwritten"
     );
     poison.store(false, Ordering::SeqCst);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
-    assert!(renderer.scheduler.game_targets().is_written(KEPT, 0));
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
+    assert!(scheduler.game_targets().is_written(KEPT, 0));
 }
 
 #[test]
 fn a_persistent_game_target_written_by_an_earlier_frame_is_captured_again() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let (mut renderer, target, _) = captured(&context, vec![scratch(), kept()]);
+    let (mut renderer, mut scheduler, target, _) = captured(&context, vec![scratch(), kept()]);
     for frame in 0..3 {
-        render_target(&mut renderer, &context, &view(), &target)
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target)
             .unwrap_or_else(|error| panic!("capture {frame}: {error:?}"));
         assert!(
-            renderer.scheduler.game_targets().is_written(KEPT, 0),
+            scheduler.game_targets().is_written(KEPT, 0),
             "capture {frame} left the persistent target written"
         );
     }
@@ -238,16 +250,17 @@ fn a_capture_that_attaches_only_unwritten_layers_of_a_written_persistent_target_
     )
     .layers(3)
     .persistent();
-    let (mut renderer, target, _, layer) = captured_layers(&context, vec![scratch(), rotating]);
+    let (mut renderer, mut scheduler, target, _, layer) =
+        captured_layers(&context, vec![scratch(), rotating]);
     // Each capture clears the next layer only, so an earlier capture's layer is never attached
     // by the frame that follows it while the texture already holds that capture's contents.
     for index in 0..3 {
         layer.store(index, Ordering::SeqCst);
-        render_target(&mut renderer, &context, &view(), &target)
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target)
             .unwrap_or_else(|error| panic!("capture of layer {index}: {error:?}"));
         for written in 0..=index {
             assert!(
-                renderer.scheduler.game_targets().is_written(KEPT, written),
+                scheduler.game_targets().is_written(KEPT, written),
                 "layer {written} after the capture of layer {index}"
             );
         }
@@ -321,14 +334,14 @@ fn a_feature_that_samples_a_target_once_it_is_written_plans_it_from_the_frame_af
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let planned = Arc::new(Mutex::new(Vec::new()));
-    let (mut renderer, target) = captured_with(
+    let (mut renderer, mut scheduler, target) = captured_with(
         &context,
         Arc::new(Samples {
             planned: planned.clone(),
         }),
     );
     for frame in 0..3 {
-        render_target(&mut renderer, &context, &view(), &target)
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target)
             .unwrap_or_else(|error| panic!("capture {frame}: {error:?}"));
     }
     let planned = planned.lock().unwrap().clone();

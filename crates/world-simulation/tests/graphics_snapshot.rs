@@ -3,7 +3,8 @@
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
 use worldrunner_world_simulation::graphics::{
-    ComputeKernel, OffscreenWork, ShaderSource, TargetRef, TextureRef, WorldComputeShader,
+    ComputeKernel, MaterialEdit, OffscreenWork, PropertyValue, ShaderSource, TargetRef, TextureRef,
+    WorldComputeShader,
 };
 use worldrunner_world_simulation::presentation::{
     Camera, Light, LightBakeType, LightKind, LightSettings, LightShadowMode,
@@ -410,4 +411,62 @@ fn lights_round_trip_through_the_byte_encoding_exactly() {
     let taken = snapshot(&mut world);
     assert_eq!(taken.lights.len(), 3);
     assert_eq!(decode(&encode(&taken).unwrap()).unwrap(), taken);
+}
+
+#[test]
+fn a_frame_with_no_work_copies_the_materials_it_is_asked_to_include() {
+    let mut world = world();
+    let shader = shader(&mut world, "Game/Panel");
+    let panel = material(&mut world, shader);
+    let mut idle = snapshot(&mut world);
+    assert!(idle.materials.is_empty() && idle.shaders.is_empty());
+    assert!(idle.global.is_none());
+
+    idle.include_materials(&world, [panel]);
+
+    assert_eq!(idle.materials[&panel], *world.material(panel).unwrap());
+    assert_eq!(idle.shaders[&shader], *world.shader(shader).unwrap());
+    assert!(
+        idle.global.is_some(),
+        "the draws that read the material start from the world's globals"
+    );
+    assert_eq!(decode(&encode(&idle).unwrap()).unwrap(), idle);
+}
+
+#[test]
+fn an_included_material_that_a_record_already_copied_keeps_the_record_copy() {
+    let mut world = world();
+    let shader = shader(&mut world, "Game/Panel");
+    let panel = material(&mut world, shader);
+    let target = render_texture(&mut world, [4, 4]);
+    world
+        .record_offscreen(OffscreenWork::Blit {
+            source: TextureRef::None,
+            target: TargetRef::Render(target),
+            material: Some(panel),
+            pass: 0,
+        })
+        .unwrap();
+    let mut frame = snapshot(&mut world);
+    let recorded = frame.materials[&panel].clone();
+    let edit = MaterialEdit::Property(PropertyValue::Float("_Strength".into(), 2.0));
+    world.edit_material(panel, edit).unwrap();
+
+    frame.include_materials(&world, [panel]);
+
+    assert_eq!(frame.materials[&panel], recorded);
+}
+
+#[test]
+fn a_destroyed_material_is_not_included() {
+    let mut world = world();
+    let shader = shader(&mut world, "Game/Panel");
+    let gone = material(&mut world, shader);
+    world.destroy_material(gone).unwrap();
+    let mut idle = snapshot(&mut world);
+
+    idle.include_materials(&world, [gone]);
+
+    assert!(idle.materials.is_empty());
+    assert!(idle.global.is_none(), "nothing was included");
 }

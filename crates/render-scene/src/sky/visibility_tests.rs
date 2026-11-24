@@ -1,5 +1,8 @@
 use super::scene_tests::*;
-use crate::{device::GpuContext, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines};
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
+use crate::test_support::upload_scene;
+use crate::{device::GpuContext, frame::FrameUniform, renderer::ScenePipelines};
 use worldrunner_render_post::{AttachmentView, ResourceRef};
 
 #[test]
@@ -41,9 +44,8 @@ fn capture_celestial_target(
     occupancy: bool,
 ) -> Capture {
     let device = context.device();
-    let pipelines =
-        ScenePipelines::with_samples(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
-    let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, samples).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), source, &pipelines).unwrap();
     let color = multisampled_target(device, wgpu::TextureFormat::Rgba16Float, samples);
     let depth = multisampled_target(device, wgpu::TextureFormat::Depth32Float, samples);
     let color = AttachmentView::new(ResourceRef::new("msaa color"), &color).unwrap();
@@ -51,15 +53,16 @@ fn capture_celestial_target(
     let frame = FrameUniform::new(&view(), source.effects()).unwrap();
     capture(context, |encoder, resolved, _| {
         let mut renderer = crate::compositor::FrameRenderer::new(device);
-        crate::compositor::encode_scene(
-            &mut renderer,
-            device,
-            encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame,
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame,
+            )
+            .unwrap();
         let reference = occupancy.then(|| gpu.capture_celestial_textures(device, [9, 3]));
         let reference_view = reference
             .as_ref()
@@ -136,9 +139,9 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let source = scene(0, false, false);
-    let mut gpu = crate::shadows::ShadowedScene::with_target(
+    let mut gpu = crate::shadows::ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         crate::shadows::DirectionalShadowSettings {
             focus_meters: glam::Vec3::ZERO,
             half_extent_meters: 10.0,
@@ -148,10 +151,10 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
             normal_bias_meters: 0.0,
             refresh_policy: worldrunner_render_shadow::CascadeRefreshPolicy::default(),
         },
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let image = capture(&context, |encoder, color, depth| {
         let color =
             AttachmentView::new(ResourceRef::new("shadow acceptance color"), color.texture())
@@ -159,7 +162,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
         let depth =
             AttachmentView::new(ResourceRef::new("shadow acceptance depth"), depth.texture())
                 .unwrap();
-        gpu.encode(&context, &view(), &color, &depth, encoder)
+        gpu.encode_with(&context, &view(), (&color, &depth), encoder, &mut scheduler)
             .unwrap();
     });
     assert_eq!(

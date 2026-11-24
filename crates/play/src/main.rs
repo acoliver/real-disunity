@@ -1,16 +1,26 @@
 //! `play <snake|pong|breakout>`: plays an original game in a window.
 //! `play --player <data directory>`: starts a built Unity player's scene, in a window that draws
-//! its 3D objects when `--size`, `--capture` or `--key` is given and headless otherwise.
+//! its 3D objects when `--size`, `--capture` or `--key` is given, in a windowless host that writes
+//! the frames `--screen` names, and with no viewer otherwise.
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use worldrunner_play::{
-    Capture, DepthRange, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, REVERSED_DEPTH_ENV,
-    ScheduledKey, ScreenOutput, SuppliedGlobal, key_code, play_player_window, prepare,
-    prepare_player, run_player_screens,
-};
-use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
+use worldrunner_play::Game;
+use worldrunner_play::PlayerLaunch;
+use worldrunner_play::PlayerWindow;
+use worldrunner_play::ScheduledKey;
+use worldrunner_play::StandInLook;
+use worldrunner_play::SuppliedGlobal;
+use worldrunner_play::TargetRead;
+use worldrunner_play::key_code;
+use worldrunner_play::play_game_window;
+use worldrunner_play::play_player_window;
+use worldrunner_play::play_player_windowless;
+use worldrunner_play::prepare;
+use worldrunner_play::prepare_player;
+use worldrunner_play::run_player;
 
 /// The window a player opens in when `--size` is not given.
 const WINDOW_SIZE: [u32; 2] = [1920, 1080];
@@ -21,9 +31,9 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--screen FRAME:FILE.png]... [--gpu-work on|off] [--depth reversed|forward]
-            [--global NAME=v0,v1,v2,v3]...
-            [--plugins DIRECTORY]...";
+            [--screen FRAME:FILE.png]... [--stand-ins declared|magenta]
+            [--report-each-frame] [--global NAME=v0,v1,v2,v3]...
+            [--read-target FRAME:RECORD:FILE.png]... [--plugins DIRECTORY]...";
 
 #[derive(Default)]
 struct Arguments {
@@ -31,23 +41,24 @@ struct Arguments {
     size: Option<[u32; 2]>,
     frames: Option<u64>,
     fixed_dt: Option<Duration>,
-    keys: Vec<ScheduledInput>,
+    keys: Vec<ScheduledKey>,
     captures: Vec<(u64, PathBuf)>,
-    /// The frames of a headless player run whose composed frame is written, and the files.
+    /// The frames of a windowless player run whose image is written, and the files.
     screens: Vec<(u64, PathBuf)>,
+    /// The reads of a record's target that `--read-target` asks for, in the order given.
+    reads: Vec<TargetRead>,
     font: Option<PathBuf>,
     /// Extra native plugin directories for a player, in the order given.
     plugins: Vec<PathBuf>,
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
-    /// Whether a player run, headless or in a window, does its offscreen work on a device.
-    gpu_work: GpuWork,
-    /// The depth range `--depth` names; without it the environment and then the player's default
-    /// choose (see `DepthRange::choose`).
-    depth: Option<DepthRange>,
     /// The globals `--global` supplies for the run, in the order given.
     globals: Vec<SuppliedGlobal>,
+    /// How the stand-in textures look: `--stand-ins`.
+    stand_ins: StandInLook,
+    /// Whether `--report-each-frame` was given.
+    report_each_frame: bool,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -58,26 +69,22 @@ fn number<T: std::str::FromStr>(text: &str, what: &str) -> Result<T, String> {
 }
 
 /// `FRAME:KEY:down|up`, with KEY a key name such as `w`, `space` or `arrowup`.
-fn key(text: &str) -> Result<ScheduledInput, String> {
+fn key(text: &str) -> Result<ScheduledKey, String> {
     let [frame, key, state] = text.split(':').collect::<Vec<_>>()[..] else {
         return Err(format!("--key `{text}` is not FRAME:KEY:down|up"));
     };
-    if key_code(key).is_none() {
+    let Some(code) = key_code(key) else {
         return Err(format!("--key `{text}`: the engine has no key `{key}`"));
-    }
+    };
     let pressed = match state {
         "down" => true,
         "up" => false,
         _ => return Err(format!("--key `{text}`: the state is down or up")),
     };
-    let event = LiveInputEvent::Key {
-        key: key.to_owned(),
-        pressed,
-        repeat: false,
-    };
-    Ok(ScheduledInput {
+    Ok(ScheduledKey {
         frame: number(frame, "--key frame")?,
-        event,
+        code,
+        pressed,
     })
 }
 
@@ -115,23 +122,20 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .screens
                 .push((number(frame, "--screen frame")?, file.into()));
         }
+        "--read-target" => {
+            let read = TargetRead::parse(value)
+                .and_then(|read| read.check_new(&arguments.reads).map(|()| read))
+                .map_err(|reason| format!("--read-target `{value}`: {reason}"))?;
+            arguments.reads.push(read);
+        }
         "--font" => arguments.font = Some(value.into()),
         "--plugins" => arguments.plugins.push(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
         "--player" => arguments.player = Some(value.into()),
         "--scene" => arguments.scene = Some(value.to_owned()),
-        "--gpu-work" => {
-            arguments.gpu_work = match value {
-                "on" => GpuWork::Auto,
-                "off" => GpuWork::Off,
-                _ => return Err(format!("--gpu-work `{value}` is on or off")),
-            };
-        }
-        "--depth" => {
-            arguments.depth = Some(
-                DepthRange::from_name(value)
-                    .ok_or_else(|| format!("--depth `{value}` is reversed or forward"))?,
-            );
+        "--stand-ins" => {
+            arguments.stand_ins = StandInLook::from_name(value)
+                .ok_or_else(|| format!("--stand-ins `{value}` is declared or magenta"))?;
         }
         "--global" => {
             let global = SuppliedGlobal::parse(value)
@@ -157,7 +161,9 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut arguments = Arguments::default();
     while let Some(arg) = args.next() {
-        if arg.starts_with("--") {
+        if arg == "--report-each-frame" {
+            arguments.report_each_frame = true;
+        } else if arg.starts_with("--") {
             let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
             option(&mut arguments, &arg, &value)?;
         } else if arguments.game.is_none() {
@@ -170,116 +176,92 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Arguments, String> {
 }
 
 /// Starts a player's scene, `level0` unless `--scene` names another. With `--size`,
-/// `--capture` or `--key` it plays in a window like an original game; otherwise it runs
-/// headless for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default).
-/// Each `--arg` is one argument of the player's command line, after its executable path.
-/// With `--screen` the run is headless, at `--size` (else the window's default), and writes
-/// after each frame named the composed frame: the screen the player's offscreen work drew into
-/// with the game's UI over it, as a window's capture shows it.
+/// `--capture` or `--key` it plays in a window like an original game; with `--screen` it plays
+/// the same driver in a windowless host, at `--size` (else the window's default) with no display,
+/// for `--frames` frames (one by default) of `--fixed-dt` (60 Hz by default), and writes the
+/// frame each `--screen` names: the image after that game frame, the screen the player's
+/// offscreen work drew into with the game's UI over it. Otherwise it runs with no viewer for
+/// `--frames` frames of the same step, which is also how `--read-target` writes its reads, at
+/// `--size` (else the window's default). Each `--arg` is one argument of the player's command line,
+/// after its executable path.
 fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     if arguments.game.is_some() || arguments.font.is_some() || arguments.seed.is_some() {
         return Err("--player takes no game name, --font or --seed".into());
     }
     let scene = arguments.scene.as_deref().unwrap_or("level0");
     let screens = !arguments.screens.is_empty();
+    let reading = !arguments.reads.is_empty();
     let windowed = !screens
+        && !reading
         && (arguments.size.is_some()
             || !arguments.keys.is_empty()
             || !arguments.captures.is_empty());
-    // The window opens at `--size`, else at the size the live loop defaults to; a headless run
-    // that writes the screen has the same size, which the player reads as its own screen.
+    // The window opens at `--size`, else at `WINDOW_SIZE`; a windowless run that writes the
+    // screen has the same size, which the player reads as its own screen.
     let size = arguments.size.unwrap_or(WINDOW_SIZE);
-    // The one place the environment is read: the request and the GPU work get this value.
-    let depth = DepthRange::choose(
-        arguments.depth,
-        std::env::var(REVERSED_DEPTH_ENV).ok().as_deref(),
-    )?;
     let launch = PlayerLaunch {
         arguments: &arguments.command_line,
-        screen: (windowed || screens).then_some(size),
+        screen: (windowed || screens || reading).then_some(size),
         plugins: &arguments.plugins,
-        depth,
         globals: &arguments.globals,
+        stand_ins: arguments.stand_ins,
+        report_each_frame: arguments.report_each_frame,
+        read_targets: &arguments.reads,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
-    if windowed {
-        let window = PlayerWindow {
-            title: format!("Disunity: {}", data.display()),
-            size,
-            fixed_dt: arguments.fixed_dt,
-            max_frames: arguments.frames,
-            capture_frames: arguments.captures.iter().map(|(frame, _)| *frame).collect(),
-            keys: scheduled_keys(&arguments.keys),
-            gpu_work: arguments.gpu_work,
-        };
-        let captured = play_player_window(&prepared, window).map_err(|error| error.to_string())?;
-        return write_captures(&captured, &arguments.captures);
-    }
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    let output = screens.then(|| ScreenOutput {
+    let window = |frames: Option<u64>, requested: &[(u64, PathBuf)], fixed_dt| PlayerWindow {
+        title: format!("Disunity: {}", data.display()),
         size,
-        files: arguments.screens.clone(),
-    });
-    run_player_screens(
-        &prepared,
-        arguments.frames.unwrap_or(1),
-        dt,
-        arguments.gpu_work,
-        output.as_ref(),
-    )
-    .map_err(|error| error.to_string())
+        fixed_dt,
+        max_frames: frames,
+        capture_frames: BTreeSet::new(),
+        capture_files: requested.to_vec(),
+        keys: arguments.keys.clone(),
+    };
+    if screens {
+        let window = window(
+            Some(arguments.frames.unwrap_or(1)),
+            &arguments.screens,
+            Some(dt),
+        );
+        return play_player_windowless(&prepared, &window)
+            .map(drop)
+            .map_err(|error| error.to_string());
+    }
+    if windowed {
+        let window = window(arguments.frames, &arguments.captures, arguments.fixed_dt);
+        return play_player_window(&prepared, &window)
+            .map(drop)
+            .map_err(|error| error.to_string());
+    }
+    run_player(&prepared, arguments.frames.unwrap_or(1), dt).map_err(|error| error.to_string())
 }
 
-/// Plays `driver` in a window of `--size` (else `size`) and writes the requested captures.
-fn live(
-    mut driver: PlayDriver,
+/// Plays `prepared` in a window of `--size` (else `size`) and writes the requested captures.
+fn play_game(
+    prepared: worldrunner_play::Prepared,
     title: String,
     size: [u32; 2],
     arguments: Arguments,
 ) -> Result<(), String> {
-    let mut options = LiveOptions::new(title, arguments.size.unwrap_or(size));
-    options.fixed_dt = arguments.fixed_dt;
-    options.max_frames = arguments.frames;
-    options.scheduled_input = arguments.keys;
-    run_live(&mut driver, options).map_err(|error| error.to_string())?;
-    write_captures(driver.captures(), &arguments.captures)
+    let window = PlayerWindow {
+        title,
+        size: arguments.size.unwrap_or(size),
+        fixed_dt: arguments.fixed_dt,
+        max_frames: arguments.frames,
+        capture_frames: BTreeSet::new(),
+        capture_files: arguments.captures,
+        keys: arguments.keys,
+    };
+    play_game_window(prepared, &window)
+        .map(drop)
+        .map_err(|error| error.to_string())
 }
 
-/// The keys the command line schedules, as the game's key codes.
-fn scheduled_keys(keys: &[ScheduledInput]) -> Vec<ScheduledKey> {
-    keys.iter()
-        .filter_map(|input| match &input.event {
-            LiveInputEvent::Key { key, pressed, .. } => Some(ScheduledKey {
-                frame: input.frame,
-                code: key_code(key)?,
-                pressed: *pressed,
-            }),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Writes each captured frame to the file requested for it, and fails when a requested frame
-/// was never presented.
-fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<(), String> {
-    for capture in captured {
-        let (_, file) = requested
-            .iter()
-            .find(|(frame, _)| *frame == capture.frame)
-            .expect("requested capture");
-        capture.write_png(file).map_err(|error| error.to_string())?;
-        println!("frame {} captured to {}", capture.frame, file.display());
-    }
-    let missing = requested.len() - captured.len();
-    if missing > 0 {
-        return Err(format!("{missing} requested frames were not presented"));
-    }
-    Ok(())
-}
-
-/// A screen image comes from a headless player run with the offscreen work on a device.
+/// A screen image comes from a windowless player run.
 fn check_screens(arguments: &Arguments) -> Result<(), String> {
     if arguments.screens.is_empty() {
         return Ok(());
@@ -289,11 +271,8 @@ fn check_screens(arguments: &Arguments) -> Result<(), String> {
     }
     if !arguments.keys.is_empty() || !arguments.captures.is_empty() {
         return Err(
-            "--screen writes from a headless run, which takes no --key or --capture".into(),
+            "--screen writes from a windowless run, which takes no --key or --capture".into(),
         );
-    }
-    if arguments.gpu_work == GpuWork::Off {
-        return Err("--screen needs --gpu-work on".into());
     }
     Ok(())
 }
@@ -307,26 +286,36 @@ fn check_plugins(arguments: &Arguments) -> Result<(), String> {
 }
 
 /// `--global` values start the offscreen work of a player's frames, in a window and headless
-/// alike, so it needs a player and a run that does that work.
+/// alike, so it needs a player.
 fn check_globals(arguments: &Arguments) -> Result<(), String> {
-    if arguments.globals.is_empty() {
+    if !arguments.globals.is_empty() && arguments.player.is_none() {
+        return Err("--global applies only to --player".into());
+    }
+    Ok(())
+}
+
+/// A read of a record's target comes from a headless player run that plays its frame.
+fn check_reads(arguments: &Arguments) -> Result<(), String> {
+    if arguments.reads.is_empty() {
         return Ok(());
     }
     if arguments.player.is_none() {
-        return Err("--global applies only to --player".into());
+        return Err("--read-target applies only to --player".into());
     }
-    if matches!(arguments.gpu_work, GpuWork::Off) {
+    if !arguments.keys.is_empty() || !arguments.captures.is_empty() || !arguments.screens.is_empty()
+    {
         return Err(
-            "--global needs the offscreen work of a player: --gpu-work on, which is the default"
+            "--read-target reads from a headless run, which takes no --screen, --key or --capture"
                 .into(),
         );
     }
-    Ok(())
+    TargetRead::check_frames(&arguments.reads, arguments.frames.unwrap_or(1))
 }
 
 fn play(arguments: Arguments) -> Result<(), String> {
     check_plugins(&arguments)?;
     check_screens(&arguments)?;
+    check_reads(&arguments)?;
     check_globals(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
@@ -334,10 +323,8 @@ fn play(arguments: Arguments) -> Result<(), String> {
     let game = arguments.game.ok_or("name a game")?;
     let prepared = prepare(game, arguments.font.as_deref(), arguments.seed)
         .map_err(|error| error.to_string())?;
-    let driver = PlayDriver::new(prepared, arguments.captures.iter().map(|(frame, _)| *frame))
-        .map_err(|error| error.to_string())?;
-    live(
-        driver,
+    play_game(
+        prepared,
         format!("Disunity: {}", game.name()),
         [960, 540],
         arguments,
@@ -445,47 +432,47 @@ mod tests {
     }
 
     #[test]
-    fn gpu_work_is_on_unless_the_run_says_off() {
-        use worldrunner_play::GpuWork;
-        assert_eq!(
-            parsed(&["--player", "Game_Data"]).expect("parses").gpu_work,
-            GpuWork::Auto
-        );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--gpu-work", "off"])
-                .expect("parses")
-                .gpu_work,
-            GpuWork::Off
-        );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--gpu-work", "on"])
-                .expect("parses")
-                .gpu_work,
-            GpuWork::Auto
-        );
-        assert!(parsed(&["--player", "Game_Data", "--gpu-work", "maybe"]).is_err());
+    fn stand_ins_look_declared_unless_the_run_says_magenta() {
+        use worldrunner_play::StandInLook;
+        let look = |extra: &[&str]| {
+            let mut args = vec!["--player", "Game_Data"];
+            args.extend_from_slice(extra);
+            parsed(&args).expect("parses").stand_ins
+        };
+        assert_eq!(look(&[]), StandInLook::Declared);
+        assert_eq!(look(&["--stand-ins", "declared"]), StandInLook::Declared);
+        assert_eq!(look(&["--stand-ins", "magenta"]), StandInLook::Magenta);
+        assert!(parsed(&["--player", "Game_Data", "--stand-ins", "pink"]).is_err());
     }
 
     #[test]
-    fn depth_is_named_by_the_option_or_left_to_the_environment_and_the_player_default() {
-        use worldrunner_play::DepthRange;
-        assert_eq!(
-            parsed(&["--player", "Game_Data"]).expect("parses").depth,
-            None
-        );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--depth", "forward"])
+    fn the_gpu_storage_budget_has_no_option_because_the_adapter_sets_it() {
+        for value in ["1536", "0", "lots"] {
+            let error = parsed(&["--player", "Game_Data", "--gpu-storage-mb", value])
+                .map(|_| ())
+                .unwrap_err();
+            assert_eq!(error, "unknown option --gpu-storage-mb", "{value}");
+        }
+        assert!(!super::USAGE.contains("gpu-storage"));
+    }
+
+    #[test]
+    fn the_report_after_each_frame_is_a_switch_that_takes_no_value() {
+        let on = parsed(&[
+            "--player",
+            "Game_Data",
+            "--report-each-frame",
+            "--frames",
+            "2",
+        ])
+        .expect("parses");
+        assert!(on.report_each_frame);
+        assert_eq!(on.frames, Some(2));
+        assert!(
+            !parsed(&["--player", "Game_Data"])
                 .expect("parses")
-                .depth,
-            Some(DepthRange::Forward)
+                .report_each_frame
         );
-        assert_eq!(
-            parsed(&["--player", "Game_Data", "--depth", "reversed"])
-                .expect("parses")
-                .depth,
-            Some(DepthRange::Reversed)
-        );
-        assert!(parsed(&["--player", "Game_Data", "--depth", "sideways"]).is_err());
     }
 
     #[test]
@@ -545,7 +532,6 @@ mod tests {
             &["--size", "64x64"][..],
             &["--key", "1:w:down"][..],
             &["--capture", "1:out.png"][..],
-            &["--gpu-work", "on", "--size", "64x64"][..],
         ] {
             let mut args = vec!["--player", "Game_Data", "--global", "a=1"];
             args.extend_from_slice(extra);
@@ -569,29 +555,6 @@ mod tests {
         // `--global` is not what stops it.
         let error = super::player(std::path::Path::new("Game_Data"), &arguments).unwrap_err();
         assert!(!error.contains("--global"), "{error}");
-    }
-
-    #[test]
-    fn a_global_is_refused_for_a_run_with_no_gpu_work() {
-        for extra in [&[][..], &["--size", "64x64"][..]] {
-            let mut args = vec![
-                "--player",
-                "Game_Data",
-                "--global",
-                "a=1",
-                "--gpu-work",
-                "off",
-            ];
-            args.extend_from_slice(extra);
-            let arguments = parsed(&args).expect("parses");
-            let error = super::check_globals(&arguments).unwrap_err();
-            assert!(
-                error.starts_with("--global needs") && error.contains("--gpu-work on"),
-                "{error}"
-            );
-            let error = super::play(parsed(&args).expect("parses")).unwrap_err();
-            assert!(error.starts_with("--global needs"), "{error}");
-        }
     }
 
     #[test]
@@ -672,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn a_screen_belongs_to_a_headless_player_run_with_gpu_work_on() {
+    fn a_screen_belongs_to_a_windowless_player_run() {
         let screen = ["--player", "Game_Data", "--screen", "0:a.png"];
         assert!(checked(&screen).is_ok());
         assert!(checked(&[&screen[..], &["--size", "64x32", "--frames", "2"]].concat()).is_ok());
@@ -680,11 +643,7 @@ mod tests {
             checked(&["snake", "--screen", "0:a.png"]).is_err(),
             "not a game's"
         );
-        for window in [
-            ["--capture", "0:w.png"],
-            ["--key", "0:w:down"],
-            ["--gpu-work", "off"],
-        ] {
+        for window in [["--capture", "0:w.png"], ["--key", "0:w:down"]] {
             assert!(
                 checked(&[&screen[..], &window[..]].concat()).is_err(),
                 "{window:?}"
@@ -698,3 +657,7 @@ mod tests {
         assert!(parsed(&["--player", "Game_Data", "--arg"]).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "main_read_target_tests.rs"]
+mod read_target_tests;

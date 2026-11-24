@@ -47,7 +47,7 @@ fn corner_colors_reject_every_invalid_channel_and_accept_endpoints() {
 #[test]
 fn presentation_conversion_preserves_and_validates_corner_metadata() {
     use std::collections::BTreeMap;
-    use worldrunner_render_plan::ui::{UiDraw, UiDrawKind, UiPresentation};
+    use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
     let colors = [[0.25; 4], [0.5; 4], [0.75; 4], [1.; 4]];
     let mut plan = UiPresentation {
         draws: vec![UiDraw {
@@ -60,6 +60,7 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
             corner_colors: Some(colors),
             distance_field: None,
             texture: None,
+            material: None,
             sorting_layer: 0,
             sorting_order: 0,
             hierarchy_order: 0,
@@ -67,7 +68,12 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
         }],
         ..Default::default()
     };
-    let result = crate::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new()).unwrap();
+    let result = crate::simulation::UiOverlay::from_presentation(
+        &plan,
+        &BTreeMap::new(),
+        &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+    )
+    .unwrap();
     assert_eq!(result.quads[0].corner_colors, Some(colors));
     assert_eq!(
         result.quads[0].tint.map(f32::to_bits),
@@ -76,7 +82,11 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
     for value in [f32::NAN, -0.1, 1.1] {
         plan.draws[0].corner_colors.as_mut().unwrap()[2][3] = value;
         assert!(matches!(
-            crate::simulation::UiOverlay::from_presentation(&plan, &BTreeMap::new()),
+            crate::simulation::UiOverlay::from_presentation(
+                &plan,
+                &BTreeMap::new(),
+                &worldrunner_world_simulation::ui::presentation::UiLayers::default()
+            ),
             Err(DynamicError::InvalidQuad {
                 index: 0,
                 field: "corner_colors"
@@ -87,7 +97,7 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
 
 #[test]
 fn distance_metadata_requires_overlay_textures_and_affine_quads() {
-    use worldrunner_render_plan::ui::{UiDistanceMode, UiDistanceStyle};
+    use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
     let mut quad = DynamicQuad {
         overlay: true,
         texture: Some(0),

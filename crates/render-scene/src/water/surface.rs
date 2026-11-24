@@ -50,30 +50,6 @@ pub(crate) fn validate(scene: &RenderScene) -> Result<(), DrawError> {
     Ok(())
 }
 
-pub(super) fn entries() -> [wgpu::BindGroupLayoutEntry; 4] {
-    let texture = |binding| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-        ty: wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        },
-        count: None,
-    };
-    [
-        texture(7),
-        texture(8),
-        texture(10),
-        wgpu::BindGroupLayoutEntry {
-            binding: 9,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        },
-    ]
-}
-
 pub(crate) fn inputs(
     scene: &RenderScene,
     views: &[wgpu::TextureView],
@@ -122,12 +98,6 @@ pub(super) fn samplers(
                 .clone()
         })
         .collect()
-}
-pub(super) fn binding(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
-    wgpu::BindGroupEntry {
-        binding,
-        resource: wgpu::BindingResource::TextureView(view),
-    }
 }
 pub(crate) fn validate_inputs(
     water: &super::Water,

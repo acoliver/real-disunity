@@ -4,6 +4,7 @@
 //! levels, with every fifth card hidden and some outside the view, so every batch selects many
 //! short ranges with holes between them. The reference copies each selected range from its batch
 //! buffer with `copy_buffer_to_buffer` on the same device, after the frame that gathered it.
+use crate::test_support::upload_scene;
 use std::collections::BTreeSet;
 
 use super::compaction::{mesh, placement, pose_at, unlit};
@@ -72,6 +73,15 @@ pub(super) fn assert_gather_matches_copies(context: &GpuContext, gpu: &SceneGpu,
         gather.copies.len() > gather.keys.len(),
         "no group gathered several ranges"
     );
+    assert_gather_equals_plain_copies(context, &gather, previous);
+}
+
+/// Compares the committed view buffers of `gather` with one buffer copy per selected range.
+pub(super) fn assert_gather_equals_plain_copies(
+    context: &GpuContext,
+    gather: &crate::draw::compaction::CommittedGather,
+    previous: bool,
+) {
     let device = context.device();
     let create = |label| {
         device.create_buffer(&wgpu::BufferDescriptor {
@@ -116,9 +126,8 @@ fn gpu_gather_matches_plain_copies_of_a_fragmented_selection() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
-    let mut gpu =
-        SceneGpu::upload(device, context.submission(), &fragmented(), &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &fragmented(), &pipelines).unwrap();
     hide_every_fifth(&mut gpu);
     let target = OffscreenTarget::new(
         device,
@@ -148,8 +157,7 @@ fn gpu_gather_matches_plain_copies_of_a_fragmented_selection() {
         context
             .submission()
             .prepare(device, |encoder, _| {
-                crate::compositor::encode_scene(
-                    &mut renderer,
+                renderer.encoding().encode_scene(
                     device,
                     encoder,
                     (&mut gpu, &pipelines),

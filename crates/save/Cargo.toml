@@ -16,7 +16,6 @@ worldrunner-world-schema = { path = "../world-schema" }
 thiserror.workspace = true
 
 [dev-dependencies]
-worldrunner-asset-id = { path = "../asset-id" }
 worldrunner-world-generation = { path = "../world-generation" }
 
 [lints]

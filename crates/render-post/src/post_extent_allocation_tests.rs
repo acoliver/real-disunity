@@ -35,7 +35,7 @@ fn upscale(mode: UpscaleMode, sharpness: Option<f32>) -> UpscaleSettings {
 fn existing_modes() -> Vec<(FrameConfig, HdrPostSettings)> {
     let resolves = [
         PostResolve::None,
-        PostResolve::fxaa(0.5),
+        PostResolve::fxaa(0.5, crate::FxaaQuality::default()),
         PostResolve::taa(0.9),
     ];
     let upscales = [

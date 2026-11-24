@@ -33,7 +33,7 @@ fn setup_policy(samples: u32, half_resolution: bool, full: bool) -> (RetainedHos
         },
     )
     .unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     (host, renderer)
 }
 fn recipe() -> RetainedCaptureRecipe {

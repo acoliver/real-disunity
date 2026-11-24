@@ -19,9 +19,9 @@ const MAX_TEXTURE_BYTES: u32 = 1 << 29;
 /// texel), or zero.
 ///
 /// `dimension` is the texture's `TextureDimension`, the code a shader declares for a property:
-/// 2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Zero means 2D, so a
-/// writer that sets none (every writer before revision 17) stores a plain 2D texture. Any other
-/// value is refused, and the record reads back with the value it was stored with.
+/// 2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Every writer states
+/// it; any other value, zero included, is refused, and the record reads back with the value it was
+/// stored with.
 ///
 /// `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
 /// of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one
@@ -121,25 +121,31 @@ fn check_info(identity: u64, info: &DisunityTextureInfo, length: u32) -> Result<
     if length > MAX_TEXTURE_BYTES {
         return Err("the texture payload is larger than the host accepts");
     }
-    check_shape(info, length)
+    Ok(())
 }
 
 /// Checks the shape a record states: a known dimension and the layer count, graphics format and
-/// length that dimension needs. Nothing here reads the bytes; each layer holds the same chain.
-fn check_shape(info: &DisunityTextureInfo, length: u32) -> Result<(), &'static str> {
+/// length that dimension needs. Nothing here reads the bytes; each layer holds the same chain. A
+/// dimension the engine does not define, zero included, is refused with its value in the reason.
+fn check_shape(info: &DisunityTextureInfo, length: u32) -> Result<(), String> {
     if info.reserved != 0 {
-        return Err("the reserved word of a stored texture is zero");
+        return Err("the reserved word of a stored texture is zero".into());
     }
-    match info.dimension {
-        0 | dimension::TEX_2D if info.depth <= 1 => Ok(()),
-        0 | dimension::TEX_2D => Err("a 2D texture has a depth of 0 or 1"),
+    let shape = match info.dimension {
+        dimension::TEX_2D if info.depth <= 1 => Ok(()),
+        dimension::TEX_2D => Err("a 2D texture (dimension 2) has a depth of 0 or 1"),
         dimension::TEX_2D_ARRAY => check_layers(info, length),
         dimension::TEX_3D => check_volume(info, length),
         dimension::CUBE if info.depth != CUBE_FACES => Err("a cube has six faces"),
         dimension::CUBE if info.width != info.height => Err("the faces of a cube are square"),
         dimension::CUBE => check_layers(info, length),
-        _ => Err("a stored texture is 2D, 3D, a cube or a 2D array (dimension 2, 3, 4 or 5)"),
-    }
+        other => {
+            return Err(format!(
+                "dimension {other} is refused; a stored texture is 2D (2), 3D (3), a cube (4) or a 2D array (5)"
+            ));
+        }
+    };
+    shape.map_err(String::from)
 }
 
 /// A texture of layers (the layers of an array, the faces of a cube or the slices of a volume)
@@ -192,6 +198,7 @@ pub unsafe extern "C" fn disunity_texture_store(
     let info = unsafe { *info };
     mutate(world, |s| {
         check_info(identity, &info, length)?;
+        check_shape(&info, length)?;
         let payload = if length == 0 {
             Vec::new()
         } else {

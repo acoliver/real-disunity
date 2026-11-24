@@ -22,6 +22,8 @@ internal static class CanvasMemberTests
             Console.WriteLine("PASS: Canvas.renderingDisplaySize is the screen in every render mode and follows a resize");
             WorldCamera();
             Console.WriteLine("PASS: Canvas.worldCamera can be set for camera and world space canvases");
+            DefaultMode();
+            Console.WriteLine("PASS: a canvas added at run time starts in world space and a canvas loaded from a scene keeps its serialized mode");
         }
         finally { DisunityHost.UnloadWorld(); }
         FrameEvents();
@@ -38,6 +40,24 @@ internal static class CanvasMemberTests
         canvas.renderMode = mode;
         if (parent != null) owner.transform.SetParent(parent.transform, false);
         return canvas;
+    }
+
+    private static void DefaultMode()
+    {
+        var added = new GameObject("added").AddComponent<Canvas>();
+        Expect.Equal(RenderMode.WorldSpace, added.renderMode, "AddComponent<Canvas> without a mode");
+        var plan = """
+            {"scene":"level0","assets":[],"sprites":[],"textures":[],"fonts":[],"axes":[],"differences":[],"sorting_layers":[{"name":"Default","id":0}],"objects":[
+            {"name":"Overlay","tag":"Untagged","layer":5,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],
+             "rect":{"anchor_min":[0,0],"anchor_max":[1,1],"pivot":[0.5,0.5],"size_delta":[0,0],"anchored_position":[0,0]},"components":[
+            {"type":"Canvas","render_mode":"ScreenSpaceOverlay","camera":null,"plane_distance":100,"pixel_perfect":false,"sorting_layer_id":0,"sorting_order":0,"target_display":0}]},
+            {"name":"World","tag":"Untagged","layer":5,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],
+             "rect":{"anchor_min":[0,0],"anchor_max":[1,1],"pivot":[0.5,0.5],"size_delta":[0,0],"anchored_position":[0,0]},"components":[
+            {"type":"Canvas","render_mode":"WorldSpace","camera":null,"plane_distance":100,"pixel_perfect":false,"sorting_layer_id":0,"sorting_order":0,"target_display":0}]}]}
+            """;
+        using var loaded = DisunityHost.LoadScene(plan, new SceneLoadOptions(typeof(CanvasMemberTests).Assembly, _ => []));
+        Expect.Equal(RenderMode.ScreenSpaceOverlay, loaded.Objects[0].GetComponent<Canvas>()!.renderMode, "a serialized overlay canvas stays an overlay");
+        Expect.Equal(RenderMode.WorldSpace, loaded.Objects[1].GetComponent<Canvas>()!.renderMode, "a serialized world canvas stays in the world");
     }
 
     private static Camera NewCamera() => DisunityHost.CreateGameObject().AddComponent<Camera>();

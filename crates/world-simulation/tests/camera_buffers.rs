@@ -10,7 +10,7 @@ use worldrunner_world_simulation::graphics::{
     WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::Camera;
-use worldrunner_world_simulation::presentation::extraction::{SpriteTextures, extract_world};
+use worldrunner_world_simulation::presentation::extraction::extract_world;
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, ObjectDesc, World, WorldError, WorldSettings,
 };
@@ -128,7 +128,7 @@ fn a_camera_with_buffers_is_not_the_screen_camera() {
         Quat::IDENTITY,
     );
     let lens = |world: &World| {
-        extract_world(world, &SpriteTextures::default(), [64, 32])
+        extract_world(world, [64, 32])
             .unwrap()
             .camera_state
             .expect("a presented camera")

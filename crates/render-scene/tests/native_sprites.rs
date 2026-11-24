@@ -1,12 +1,11 @@
 use glam::Vec3;
 use worldrunner_render_plan::{
-    SceneTexture, TexelFormat, TextureColorSpace,
-    simulation::{SpriteTextures, extract_world},
+    SceneTexture, TexelFormat, TextureColorSpace, simulation::SpriteTextures,
 };
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
 use worldrunner_render_scene::{
-    compositor::{FrameRenderer, encode_scene},
-    device::GpuContext,
+    compositor::FrameRenderer,
+    device::{DeviceRequest, GpuContext},
     draw::SceneGpu,
     frame::FrameUniform,
     renderer::ScenePipelines,
@@ -14,7 +13,11 @@ use worldrunner_render_scene::{
 };
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
-    presentation::{Camera, CoverageTexture, Sprite, SpriteRenderer},
+    presentation::{
+        Camera, CoverageTexture, Sprite, SpriteRenderer,
+        extraction::{WorldRenderPlan, append_ui, extract_world},
+    },
+    ui::contribution::{UiGlyphQuad, UiRenderPlan, UiTextContribution},
 };
 
 fn contribution(size: [u32; 2]) -> WorldSceneContribution {
@@ -69,7 +72,7 @@ fn contribution(size: [u32; 2]) -> WorldSceneContribution {
             },
         )]),
     };
-    WorldSceneContribution::new(extract_world(&world, &textures, size).unwrap()).unwrap()
+    WorldSceneContribution::new(extract_world(&world, size).unwrap(), &textures.textures).unwrap()
 }
 struct Capture {
     image: Vec<u8>,
@@ -123,16 +126,17 @@ fn capture_with_stages(
     .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer.begin_timing(1).unwrap();
-    encode_scene(
-        &mut renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&color, &depth),
-        FrameUniform::unlit(&contribution.view),
-    )
-    .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&color, &depth),
+            FrameUniform::unlit(&contribution.view),
+        )
+        .unwrap();
+    renderer.encode_resolve(&mut encoder);
     renderer.finish_timing(&mut encoder).unwrap();
     encoder.finish().submit().unwrap();
     let image = read_image(context, &renderer, size);
@@ -166,7 +170,7 @@ fn native_sprites_share_srgb_alpha_msaa_resize_and_unload() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -200,10 +204,6 @@ fn native_sprites_share_srgb_alpha_msaa_resize_and_unload() {
 }
 
 fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
-    use worldrunner_render_plan::{
-        simulation::{WorldRenderPlan, append_ui},
-        ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution},
-    };
     use worldrunner_world_simulation::ui::UiLayout;
     let frame = contribution(size);
     let mut plan = WorldRenderPlan {
@@ -250,14 +250,14 @@ fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
         }],
     };
     append_ui(&mut plan, ui).unwrap();
-    WorldSceneContribution::new(plan).unwrap()
+    WorldSceneContribution::new(plan, &std::collections::BTreeMap::new()).unwrap()
 }
 #[test]
 fn glyph_coverage_and_tint_alpha_reach_the_shared_srgb_target() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -291,7 +291,7 @@ fn native_global_lights_multiply_exact_gpu_pixels() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -376,7 +376,8 @@ fn global_light_frame(lit: bool, layer: i32, active_light: Option<bool>) -> Worl
             },
         )]),
     };
-    WorldSceneContribution::new(extract_world(&world, &textures, [16, 16]).unwrap()).unwrap()
+    WorldSceneContribution::new(extract_world(&world, [16, 16]).unwrap(), &textures.textures)
+        .unwrap()
 }
 fn global_light_world(lit: bool, layer: i32) -> World {
     use worldrunner_world_simulation::presentation::SpriteLighting;
@@ -443,7 +444,8 @@ fn sampling_frame(
         textures: std::collections::BTreeMap::from([(1, texture)]),
     };
     let mut frame =
-        WorldSceneContribution::new(extract_world(&world, &textures, [16, 16]).unwrap()).unwrap();
+        WorldSceneContribution::new(extract_world(&world, [16, 16]).unwrap(), &textures.textures)
+            .unwrap();
     // Constant UVs and full pixel coverage make results independent of MSAA sample locations.
     frame.quads[0].uv_rect = [u, 0.5, u, 0.5];
     frame.quads[0].corners = Some([[-3., 0., -3.], [3., 0., -3.], [3., 0., 3.], [-3., 0., 3.]]);
@@ -510,7 +512,7 @@ fn per_texture_sampling_has_exact_pixels_and_default_output() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -550,7 +552,7 @@ fn texture_samplers_are_independent_within_one_frame() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -596,12 +598,13 @@ fn texture_samplers_are_independent_within_one_frame() {
 #[test]
 fn feature_off_pixels_and_stage_ids_remain_identical() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context = pollster::block_on(GpuContext::request_with_features(
-        wgpu::Features::TIMESTAMP_QUERY,
-    ))
+    let context = pollster::block_on(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::TIMESTAMP_QUERY,
+        ..DeviceRequest::default()
+    }))
     .unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,
@@ -657,7 +660,7 @@ fn authored_bilinear_selects_one_mip_and_unspecified_preserves_linear_mips() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
-        let pipelines = ScenePipelines::with_samples(
+        let pipelines = ScenePipelines::new(
             context.device(),
             wgpu::TextureFormat::Rgba8UnormSrgb,
             samples,

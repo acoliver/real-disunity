@@ -1,5 +1,6 @@
 //! Frozen forward reference, compared before any resolve across every sample and MRT.
 use super::*;
+use crate::test_support::upload_scene;
 
 #[path = "forward_fixtures.rs"]
 pub(super) mod fixtures;
@@ -126,7 +127,7 @@ fn capture(
         Some(&screen_layout),
     );
     let scene = lit(shot.0, true);
-    let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+    let gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
     let group = samples::screen_group(context, &screen_layout);
     let targets = [
         TextureFormat::Rgba16Float,
@@ -254,9 +255,9 @@ fn forward_cards_match_frozen_per_sample_colour_depth_reflection_and_velocity() 
     );
 }
 
-/// The forward mesh shading reads its lighting record through the functions the deferred
-/// lighting pass shares; its output is unchanged from the frozen body that read the material
-/// inline, in every sample and attachment, with and without shadows.
+/// The forward mesh shading reads its lighting record through the record functions; its output
+/// is unchanged from the frozen body that read the material inline, in every sample and
+/// attachment, with and without shadows.
 #[test]
 fn forward_meshes_match_frozen_scattering_transmission_and_emission() {
     let _session = crate::test_support::SceneTestSession::acquire();

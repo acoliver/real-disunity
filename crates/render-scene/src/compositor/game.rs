@@ -35,8 +35,8 @@
 //!
 //! A pass that draws over the finished scene colour, as blended particles do, is placed at
 //! [`GamePlace::BeforePost`], after every other writer of the colour and before the post chain
-//! reads it, and blends with the colour states it gives
-//! [`PassTarget::render_state_with`]. With [`DepthAccess::ReadOnlySampled`] it tests the frame's
+//! reads it, and blends with the colour states it sets on the [`PassTarget::render_state`] it
+//! draws with. With [`DepthAccess::ReadOnlySampled`] it tests the frame's
 //! depth and samples the same depth in that pass ([`PassTarget::sampled_depth`]).
 //!
 //! [`GamePlace`]: worldrunner_render_post::GamePlace
@@ -45,6 +45,8 @@
 mod camera;
 mod compute;
 mod declared_textures;
+#[cfg(test)]
+mod declaring;
 mod engine;
 mod environment;
 mod frame_start;
@@ -54,6 +56,7 @@ mod occlusion;
 mod pass_target;
 mod plan;
 mod registry;
+mod replacement;
 mod resources;
 mod scene_meshes;
 mod scene_textures;
@@ -62,43 +65,81 @@ mod snapshots;
 mod targets;
 mod terrain;
 
-pub use camera::{FrameCamera, FrameCameraHandle};
+pub use camera::FrameCamera;
+pub use camera::FrameCameraHandle;
 pub use compute::GameComputeSpec;
-pub use declared_textures::{GameTextureDeclaration, GameTextureLevel};
+pub use declared_textures::GameTextureDeclaration;
+pub use declared_textures::GameTextureLevel;
+#[cfg(test)]
+pub(crate) use declaring::declaring_stock;
+pub use engine::BRDF_TABLE_SAMPLES;
+pub use engine::BRDF_TABLE_SIZE;
+pub use engine::EngineConstants;
+pub use engine::EnginePlaceholder;
+pub use engine::FULLSCREEN_TRIANGLE_WGSL;
+pub use engine::LayerShape;
 pub(crate) use engine::SceneSources;
-pub use engine::{
-    BRDF_TABLE_SAMPLES, BRDF_TABLE_SIZE, EngineConstants, EnginePlaceholder,
-    FULLSCREEN_TRIANGLE_WGSL, LayerShape, TerrainMaterialArrayError, TerrainMaterialChannel,
-};
-pub use environment::{EnvironmentConsumer, FrameEnvironment, FrameEnvironmentHandle};
+pub use engine::TerrainMaterialArrayError;
+pub use engine::TerrainMaterialChannel;
+pub use environment::EnvironmentConsumer;
+pub use environment::FrameEnvironment;
+pub use environment::FrameEnvironmentHandle;
 pub use lent::FrameInputError;
 pub use level_import::LevelAccess;
-pub use occlusion::{FrameOcclusion, FrameOcclusionHandle, OcclusionDepth};
+pub use occlusion::FrameOcclusion;
+pub use occlusion::FrameOcclusionHandle;
+pub use occlusion::OcclusionDepth;
 pub use pass_target::PassTarget;
-pub use plan::{ColorOutput, DepthAccess, GamePassSpec, join_pass, prepass_writes_frame_depth};
-pub(crate) use plan::{place_after_prepass, reconcile_loads};
+pub use plan::ColorOutput;
+pub use plan::DepthAccess;
+pub use plan::GamePassSpec;
+pub use plan::join_pass;
+pub(crate) use plan::place_after_prepass;
+pub use plan::prepass_writes_frame_depth;
+pub(crate) use plan::reconcile_loads;
+pub use registry::GameBuild;
+pub use registry::GameFeatureFactory;
+pub use registry::GamePasses;
 pub(crate) use registry::Installed;
-pub use registry::{GameBuild, GameFeatureFactory, GamePasses};
-pub use resources::{
-    GameBlockDestination, GameBuffer, GameBufferDeclaration, GameBufferUsage, GameLevel,
-    GameReadback, GameResourceError, GameResources, GameSampler, GameTexture,
-};
-pub use scene_meshes::{
-    FrameSceneMeshError, FrameSceneMeshes, FrameSceneMeshesHandle, SceneMeshSlot,
-};
-pub use scene_textures::{
-    FrameSceneTextureError, FrameSceneTextures, FrameSceneTexturesHandle, FrameWaterNormalError,
-};
-pub use shadows::{CascadeSelection, FrameShadowHandle, FrameShadows, ShadowCascade};
-pub use snapshots::{
-    FrameSnapshotError, FrameSnapshotHandle, FrameSnapshots, PostWaterDepth, SnapshotImage,
-    SnapshotReads, SnapshotStatistics,
-};
+pub use replacement::StockReplacement;
+pub use resources::GameBlockDestination;
+pub use resources::GameBuffer;
+pub use resources::GameBufferDeclaration;
+pub use resources::GameBufferUsage;
+pub use resources::GameLevel;
+pub use resources::GameReadback;
+pub use resources::GameResourceError;
+pub use resources::GameResources;
+pub use resources::GameSampler;
+pub use resources::GameTexture;
+pub use scene_meshes::FrameSceneMeshError;
+pub use scene_meshes::FrameSceneMeshes;
+pub use scene_meshes::FrameSceneMeshesHandle;
+pub use scene_meshes::SceneMeshSlot;
+pub use scene_textures::FrameSceneTextureError;
+pub use scene_textures::FrameSceneTextures;
+pub use scene_textures::FrameSceneTexturesHandle;
+pub use scene_textures::FrameWaterNormalError;
+pub use shadows::CascadeSelection;
+pub use shadows::FrameShadowHandle;
+pub use shadows::FrameShadows;
+pub use shadows::ShadowCascade;
+pub use snapshots::FrameSnapshotError;
+pub use snapshots::FrameSnapshotHandle;
+pub use snapshots::FrameSnapshots;
+pub use snapshots::PostWaterDepth;
+pub use snapshots::SnapshotImage;
+pub use snapshots::SnapshotReads;
+pub use snapshots::SnapshotStatistics;
+pub use targets::GameTargets;
+pub use targets::TargetDeclaration;
+pub use targets::TargetExtent;
+pub use targets::TargetLifetime;
 pub(crate) use targets::TargetStore;
-pub use targets::{GameTargets, TargetDeclaration, TargetExtent, TargetLifetime};
+pub use terrain::FrameTerrainError;
+pub use terrain::FrameTerrainHandle;
 #[cfg(test)]
 pub(crate) use terrain::probe as terrain_probe;
-pub use terrain::{FrameTerrainError, FrameTerrainHandle};
 
 impl super::FrameRenderer {
     /// Lends the frame's ambient occlusion and specular environment to the game's features,

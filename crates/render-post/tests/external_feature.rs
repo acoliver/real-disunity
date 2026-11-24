@@ -84,6 +84,7 @@ fn external_features_draw_in_registration_order_in_one_frame_submission() {
         config,
         Resources::default(),
         CopyOutput::new(&device, config.format),
+        SceneDepth::Independent,
     )
     .unwrap();
     let events = Rc::new(RefCell::new(Vec::new()));

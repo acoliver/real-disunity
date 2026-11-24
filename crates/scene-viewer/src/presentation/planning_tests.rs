@@ -93,7 +93,7 @@ fn assert_policy_admission(
 
 fn profiles() -> [FrameProfile; 5] {
     [
-        FrameProfile::Legacy,
+        crate::tests::CLAMP,
         FrameProfile::Hdr {
             samples: 1,
             tone_map: crate::ToneMap::Reinhard,

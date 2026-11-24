@@ -61,7 +61,7 @@ fn text_and_rect_follow_the_same_hierarchy_order_as_pointer_hits_in_both_orders(
         assert_eq!(clicked(&world, &ui), top);
         let mut driver = Driver::default();
         let events = driver.events.clone();
-        let mut run = overlay_host().windowless(&mut driver).unwrap();
+        let mut run = overlay_host().windowless(&mut driver, None).unwrap();
         // Present generation 0 before the UI update, so its frame reports the scene's initial uploads.
         capture(&mut run, &events);
         apply(&mut run, ui);
@@ -79,7 +79,7 @@ fn text_and_rect_follow_the_same_hierarchy_order_as_pointer_hits_in_both_orders(
 #[test]
 fn translucent_rect_blends_straight_alpha_over_retained_geometry() {
     for profile in [
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         crate::FrameProfile::Hdr {
             samples: 4,
             tone_map: crate::ToneMap::Reinhard,
@@ -90,7 +90,7 @@ fn translucent_rect_blends_straight_alpha_over_retained_geometry() {
         let events = driver.events.clone();
         let mut host = overlay_host();
         host.options.frame_profile = profile;
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         let baseline = capture(&mut run, &events).1;
         let [x, y] = geometry_pixel(&baseline);
         let mut ui = extracted(&world);
@@ -142,7 +142,7 @@ fn graphic_pixels_survive_resize_exposure_and_ui_only_replacement() {
     let (world, _) = graphic_world();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     apply(&mut run, extracted(&world));
     region(&capture(&mut run, &events).1, [255, 0, 0, 255]);
     change_camera_and_exposure(&mut run);

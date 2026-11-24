@@ -3,7 +3,6 @@
 use crate::compositor::{FrameRenderer, SceneFeature, attachment, attachment_resource};
 use worldrunner_render_post::{
     AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError, PassDeclaration, PassSlot,
-    ResourceRef,
 };
 
 /// What the unshadowed base is authored from.
@@ -19,16 +18,14 @@ pub(crate) struct SceneInputs<'a> {
 
 /// The authored base of a scene frame.
 pub(crate) struct Base {
-    pub depth_id: ResourceRef,
-    pub depth_texture: wgpu::Texture,
     pub declaration: FeatureDeclaration,
     pub passes: Vec<PassDeclaration>,
     pub views: Vec<AttachmentView>,
 }
 
 /// Authors the passes of an unshadowed scene frame: Opaque with its colour, depth and velocity,
-/// and the celestial pass, with the declaration of the scene feature, the screen-space
-/// geometry and the G-buffer producer.
+/// and the celestial pass, with the declaration of the scene feature and the screen-space
+/// geometry.
 ///
 /// # Errors
 /// When an attachment cannot be viewed as declared.
@@ -56,7 +53,6 @@ pub(crate) fn unshadowed(
     let mut declaration = SceneFeature::declaration(pipelines);
     if let Some(screen) = &renderer.ssao {
         crate::ssao::passes::geometry_declaration(&mut declaration, screen);
-        crate::gbuffer::declare_producer(&mut declaration, screen, depth_mode);
     }
     let mut views = vec![
         color.with_resource(color_id)?,
@@ -72,8 +68,6 @@ pub(crate) fn unshadowed(
         &mut declaration,
     );
     Ok(Base {
-        depth_id,
-        depth_texture: depth.texture().clone(),
         declaration,
         passes,
         views,

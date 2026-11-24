@@ -122,7 +122,11 @@ fn prepare_depth(
 fn receiver_choices_validate_and_account_for_only_final_target_growth() {
     use crate::compositor::RendererConfiguration;
     let _session = crate::test_support::SceneTestSession::acquire();
-    let mut config = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
+    let mut config = RendererConfiguration::new(
+        [5, 3],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        worldrunner_render_post::ToneMap::Clamp,
+    );
     config.ssao = Some(super::tests::settings());
     let limits = wgpu::Limits::default();
     for mut settings in [super::tests::settings(), scalable_settings()] {

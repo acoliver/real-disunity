@@ -35,7 +35,7 @@ fn rcas() -> crate::NativeRcasSettings {
 }
 
 fn presentation(context: &GpuContext, options: &crate::ViewerOptions) -> Presentation {
-    Presentation::with_settings(
+    Presentation::new(
         context,
         COLOR,
         [SIZE, SIZE],

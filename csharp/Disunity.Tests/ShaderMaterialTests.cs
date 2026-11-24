@@ -495,11 +495,11 @@ internal static class ShaderMaterialTests
     private static void MaterialMisc()
     {
         var material = new Material(DisunityHost.RegisterShader("Test/ShaderMaterial/Misc"));
-        Ensure(material.GetTag("RenderType", false, "fallback") == "fallback" && material.GetTag("RenderType", true) == "", "an unknown tag returns the default");
+        NotSupported(() => material.GetTag("RenderType", false, "fallback"), "GetTag of a shader without declared tags", "Material.GetTag");
         material.SetOverrideTag("RenderType", "Opaque");
         Ensure(material.GetTag("RenderType", false, "fallback") == "Opaque" && material.GetTag("RenderType", false) == "Opaque", "an override tag");
         material.SetOverrideTag("RenderType", "");
-        Ensure(material.GetTag("RenderType", false, "fallback") == "fallback", "an empty override removes the tag");
+        NotSupported(() => material.GetTag("RenderType", false, "fallback"), "an empty override removes the tag, leaving the undeclared shader's", "Material.GetTag");
         Ensure(material.GetShaderPassEnabled("ShadowCaster"), "passes start enabled");
         material.SetShaderPassEnabled("ShadowCaster", false);
         Ensure(!material.GetShaderPassEnabled("ShadowCaster") && material.GetShaderPassEnabled("Other"), "a pass can be disabled");

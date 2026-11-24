@@ -4,7 +4,8 @@
 //! and has the same values, floats included bit for bit. The bytes start with a four byte marker,
 //! the version of the encoding and the length of the body, so a reader can refuse input of a
 //! version it does not know before it reads anything else. The body holds the snapshot's fields
-//! in declaration order.
+//! in the order the encoding lists them: the frame's work first, so a reader that only needs the
+//! work list stops after it.
 //!
 //! A decoder refuses truncated or corrupt input with a named [`WireError`]; it never panics and
 //! never allocates more than the input it was given can fill.
@@ -24,7 +25,14 @@ use super::{GraphicsSnapshot, OffscreenWork};
 use codec::{Reader, Wire, Writer};
 
 /// The version of the encoding this module reads and writes.
-pub const WIRE_VERSION: u32 = 17;
+///
+/// Version 16 added the property block of each material slot to a renderer
+/// (`RendererView::slot_blocks`). Version 17 added texture slot kind 5, a texture the world
+/// holds as null (main's null-slots census). Version 18 added the renderers of each camera render
+/// and culling record: `renderer_sets` and `record_sets` of the snapshot. Version 19 added
+/// `skinned_not_drawn`, the count of skinned renderers the sets leave out. Version 20 added work kind 23,
+/// a mesh draw of a batch of instances. Version 21 moved `work` to the front of the body.
+pub const WIRE_VERSION: u32 = 21;
 /// Most bytes the body of a snapshot holds.
 pub const MAX_SNAPSHOT_BYTES: u32 = 1 << 31;
 
@@ -57,6 +65,8 @@ pub enum WireError {
     InvalidPropertyArray,
     #[error("memory for a vector or matrix array could not be reserved")]
     AllocationFailed,
+    #[error("a renderer set names the renderer {0}, which the snapshot does not list")]
+    RendererOutOfRange(u32),
 }
 
 /// Encodes a snapshot.
@@ -88,7 +98,8 @@ pub fn encode(snapshot: &GraphicsSnapshot) -> Result<Vec<u8>, WireError> {
 ///
 /// # Errors
 /// Fails on input that is truncated, has another marker or version, holds a value no encoder
-/// writes, or has bytes after the snapshot.
+/// writes, has a renderer set that names a renderer the snapshot does not list, or has bytes after
+/// the snapshot.
 pub fn decode(bytes: &[u8]) -> Result<GraphicsSnapshot, WireError> {
     let mut input = Reader::new(bytes);
     if input.take(MARKER.len())? != MARKER {
@@ -112,7 +123,23 @@ pub fn decode(bytes: &[u8]) -> Result<GraphicsSnapshot, WireError> {
     if input.remaining() != 0 {
         return Err(WireError::TrailingBytes);
     }
+    check_renderer_sets(&snapshot)?;
     Ok(snapshot)
+}
+
+/// Refuses a set that names a renderer past the end of the snapshot's list, which a reader would
+/// index.
+fn check_renderer_sets(snapshot: &GraphicsSnapshot) -> Result<(), WireError> {
+    let listed = snapshot.renderers.len();
+    let outside = snapshot
+        .renderer_sets
+        .iter()
+        .flatten()
+        .find(|&&index| !usize::try_from(index).is_ok_and(|at| at < listed));
+    match outside {
+        Some(&index) => Err(WireError::RendererOutOfRange(index)),
+        None => Ok(()),
+    }
 }
 
 /// Encodes one record of offscreen work in the encoding the snapshot holds it in, without the

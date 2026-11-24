@@ -1,7 +1,11 @@
 //! The work command buffers record: render targets, clears, global values and temporary render
 //! textures. The world validates and orders these records like the rest of the offscreen list; a
 //! host applies them in order. A recorded global value or keyword is not folded into the global
-//! shader state, because the host applies it at its place in the list.
+//! shader state, so it lasts only for the take that carries it. The ABI records a global only for a
+//! temporary render texture, which has no identity beyond its take; every other global an executed
+//! command buffer sets is a direct write, which the state keeps and the world orders in front of
+//! the next record. Those ordered records are the other source of `SetGlobal` and
+//! `SetGlobalKeyword` work.
 use super::{GraphicsError, OffscreenWork, PropertyValue, RenderTextureId, properties};
 use crate::{World, WorldError};
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 use std::{cell::Cell, rc::Rc};
 use worldrunner_render_post::{
     BufferReadback, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PassEntry, PassSlot,
@@ -49,9 +50,9 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -83,13 +84,12 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let frame = frame_from(pose());
     assert_eq!(
-        crate::compositor::encode_scene(
-            &mut renderer,
+        renderer.encoding().encode_scene(
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
             (&target.color_attachment(), &target.depth_attachment()),
-            frame,
+            frame
         ),
         Err(FrameError::UnsupportedEffect("injected"))
     );
@@ -114,9 +114,9 @@ fn published_slots_leave_the_dirty_set() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 4);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -128,15 +128,16 @@ fn published_slots_leave_the_dirty_set() {
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let mut publish = |gpu: &mut SceneGpu| {
         let mut encoder = context.submission().begin(context.device()).unwrap();
-        crate::compositor::encode_scene(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (gpu, &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
-            frame_from(pose()),
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                context.device(),
+                &mut encoder,
+                (gpu, &pipelines),
+                (&target.color_attachment(), &target.depth_attachment()),
+                frame_from(pose()),
+            )
+            .unwrap();
         encoder.finish().submit().unwrap();
     };
     let handles: Vec<_> = gpu.instance_handles().collect();
@@ -169,9 +170,9 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let mut gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let target = OffscreenTarget::new(
         context.device(),
         crate::Viewport {
@@ -197,14 +198,7 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
     let before = buffer_bytes(&context, &gpu.frame_buffer, gpu.frame_buffer.size());
     let mut encoder = context.submission().begin(context.device()).unwrap();
     assert!(matches!(
-        crate::compositor::encode_scene(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (&mut gpu, &pipelines),
-            (&color, &target.depth_attachment()),
-            frame_from(pose()),
-        ),
+        renderer.encoding().encode_scene(context.device(), &mut encoder, (&mut gpu, &pipelines), (&color, &target.depth_attachment()), frame_from(pose())),
         Err(FrameError::AttachmentContract(entry)) if entry == PassEntry::new(PassSlot::Opaque)
     ));
     assert_eq!(gpu.frame.get(), None);
@@ -224,15 +218,16 @@ fn assert_retry(
     target: &OffscreenTarget,
 ) {
     let mut encoder = context.submission().begin(context.device()).unwrap();
-    crate::compositor::encode_scene(
-        renderer,
-        context.device(),
-        &mut encoder,
-        (gpu, pipelines),
-        (&target.color_attachment(), &target.depth_attachment()),
-        frame_from(pose()),
-    )
-    .unwrap();
+    renderer
+        .encoding()
+        .encode_scene(
+            context.device(),
+            &mut encoder,
+            (gpu, pipelines),
+            (&target.color_attachment(), &target.depth_attachment()),
+            frame_from(pose()),
+        )
+        .unwrap();
     encoder.finish().submit().unwrap();
     let batch = gpu.instances.batches.values().next().unwrap();
     assert!(batch.pending_ranges().is_empty());
@@ -278,8 +273,7 @@ fn discard_failed_frame(
 ) {
     let mut encoder = context.submission().begin(context.device()).unwrap();
     assert_eq!(
-        crate::compositor::encode_scene(
-            renderer,
+        renderer.encoding().encode_scene(
             context.device(),
             &mut encoder,
             (gpu, pipelines),

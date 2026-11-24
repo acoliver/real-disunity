@@ -91,7 +91,7 @@ fn layered_source_and_page_policy_install_through_windowless_readiness() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(source.with_terrain(None).unwrap())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     run.host_mut()
         .apply(RetainedUpdate::Terrain(Some(terrain)))

@@ -4,6 +4,7 @@
 //! instance transform between frames. The camera is fixed, so the previous unjittered
 //! view-projection is the current one and only the instance motion contributes.
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::SceneTransform;
 
 fn at(millimetres: i16) -> SceneTransform {
@@ -49,7 +50,7 @@ impl Moving {
             (
                 still(),
                 effects(),
-                ScenePipelines::with_samples(device, HDR, samples.count()).unwrap(),
+                ScenePipelines::new(device, HDR, samples.count()).unwrap(),
             )
         } else if previous == Previous::Occluded {
             let (scene, effects) = super::screen_space::with_occlusion(&still());
@@ -62,7 +63,7 @@ impl Moving {
                 ScenePipelines::with_taa_velocity(device, HDR, samples.count()).unwrap();
             (scene, effects, pipelines)
         };
-        let gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+        let gpu = upload_scene(device, context.submission(), &scene, &pipelines).unwrap();
         let renderer = FrameRenderer::hdr_antialiased(
             &context,
             [TARGET, TARGET],
@@ -106,18 +107,20 @@ impl Moving {
         }
         self.renderer.select_frame_slot((self.frame % 3).into());
         self.renderer
-            .set_frame_time(f32::from(self.frame) * 0.03125)
-            .unwrap();
+            .set_frame_time(std::time::Duration::from_secs_f32(
+                f32::from(self.frame) * 0.03125,
+            ));
         let mut encoder = self.context.submission().begin(device).unwrap();
-        crate::compositor::encode_scene(
-            &mut self.renderer,
-            device,
-            &mut encoder,
-            (&mut self.gpu, &self.pipelines),
-            (&self.color, &self.depth),
-            frame_from(pose()),
-        )
-        .unwrap();
+        self.renderer
+            .encoding()
+            .encode_scene(
+                device,
+                &mut encoder,
+                (&mut self.gpu, &self.pipelines),
+                (&self.color, &self.depth),
+                frame_from(pose()),
+            )
+            .unwrap();
         if let Some(view) = view {
             self.renderer.encode_output(&mut encoder, view).unwrap();
         }
@@ -167,13 +170,14 @@ fn residuals_after(previous: Previous, offsets: &[i16]) -> Vec<[f32; 2]> {
     moving.velocity()
 }
 
-fn assert_translation_residual(velocity: &[[f32; 2]]) {
-    let shift = metres(250);
+/// Checks the residual of a quad that moved by `shift_mm` to `centre_mm` along x.
+fn assert_translation_residual(velocity: &[[f32; 2]], centre_mm: i16, shift_mm: i16) {
+    let (centre, shift) = (metres(centre_mm), metres(shift_mm));
     let vp = frame_from(pose()).view_projection;
     let (mut compared, mut largest) = (0, 0.0_f32);
     for y in 0..TARGET {
         for x in 0..TARGET {
-            let (residual, local) = expected_shift(x, y, (shift, shift), vp);
+            let (residual, local) = expected_shift(x, y, (centre, shift), vp);
             let got = velocity[(y * TARGET + x) as usize];
             // The cutout leaves holes that keep the cleared zero, and edges are dilated.
             if local.x.abs() > 0.9 || local.y.abs() > 0.9 || got == [0.0, 0.0] {
@@ -193,16 +197,32 @@ fn assert_translation_residual(velocity: &[[f32; 2]]) {
     assert!(largest > 0.01, "the residual was never large: {largest}");
 }
 
+/// Whether any pixel outside the quad centred at `centre_mm`, dilation included, has a residual.
+fn residual_outside_quad(velocity: &[[f32; 2]], centre_mm: i16) -> bool {
+    let vp = frame_from(pose()).view_projection;
+    (0..TARGET).any(|y| {
+        (0..TARGET).any(|x| {
+            let (_, local) = expected_shift(x, y, (metres(centre_mm), 0.0), vp);
+            let outside = local.x.abs() > 1.25 || local.y.abs() > 1.25;
+            outside && velocity[(y * TARGET + x) as usize] != [0.0, 0.0]
+        })
+    })
+}
+
+fn all_zero(velocity: &[[f32; 2]]) -> bool {
+    velocity.iter().all(|texel| *texel == [0.0, 0.0])
+}
+
 #[test]
 fn a_translated_instance_writes_the_analytic_residual() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    assert_translation_residual(&residuals_after(Previous::Tracked, &[0, 0, 250]));
+    assert_translation_residual(&residuals_after(Previous::Tracked, &[0, 0, 250]), 250, 250);
 }
 
 #[test]
 fn a_translated_instance_in_an_ssao_scene_writes_the_analytic_residual() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    assert_translation_residual(&residuals_after(Previous::Occluded, &[0, 0, 250]));
+    assert_translation_residual(&residuals_after(Previous::Occluded, &[0, 0, 250]), 250, 250);
 }
 
 #[test]
@@ -218,6 +238,75 @@ fn a_static_instance_and_a_settled_instance_write_exactly_zero() {
         residuals_after(Previous::Tracked, &[0, 250, 250, 250])
             .iter()
             .all(|texel| *texel == [0.0, 0.0])
+    );
+}
+
+#[test]
+fn a_velocity_reset_writes_zero_residual_until_the_instance_moves_again() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut moving = Moving::new(Previous::Tracked, MsaaSamples::X1);
+    for offset in [0, 0, 250] {
+        moving.draw(offset, false, None);
+    }
+    assert!(
+        !all_zero(&moving.velocity()),
+        "the move before the reset left no residual"
+    );
+    // The quad keeps moving through the reset frames, so only the reset can zero them.
+    for (frame, offset) in [375, 500].into_iter().enumerate() {
+        moving.draw(offset, true, None);
+        assert!(
+            all_zero(&moving.velocity()),
+            "reset frame {frame} wrote a residual"
+        );
+    }
+    moving.draw(750, false, None);
+    assert_translation_residual(&moving.velocity(), 750, 250);
+}
+
+/// A second quad, 3 m north of the first and clear of it in the view.
+fn north(millimetres: i16) -> SceneTransform {
+    SceneTransform {
+        position_millimeters: [0, 3_000 + i64::from(millimetres), 0],
+        ..identity()
+    }
+}
+
+#[test]
+fn a_velocity_reset_after_a_removal_leaves_residual_only_on_the_surviving_instance() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut moving = Moving::new(Previous::Tracked, MsaaSamples::X1);
+    let object = SceneObject::new(
+        north(0),
+        MeshHandle::from_raw(0),
+        MaterialHandle::from_raw(0),
+    );
+    let second = moving.gpu.add_instance(object, true).unwrap();
+    for (step, offset) in [0, 0, 250].into_iter().enumerate() {
+        let step = i16::try_from(step).unwrap();
+        moving
+            .gpu
+            .set_instance_transform(second, north(150 * step))
+            .unwrap();
+        moving.draw(offset, false, None);
+    }
+    assert!(
+        residual_outside_quad(&moving.velocity(), 250),
+        "the second instance wrote no residual before its removal"
+    );
+    moving.gpu.remove_instance(second).unwrap();
+    // The surviving quad moves in the reset frame, so only the reset can zero it.
+    moving.draw(375, true, None);
+    assert!(
+        all_zero(&moving.velocity()),
+        "the reset frame wrote a residual"
+    );
+    moving.draw(625, false, None);
+    let velocity = moving.velocity();
+    assert_translation_residual(&velocity, 625, 250);
+    assert!(
+        !residual_outside_quad(&velocity, 625),
+        "the removed instance left a residual"
     );
 }
 

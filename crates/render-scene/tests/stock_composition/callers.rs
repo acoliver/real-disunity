@@ -2,14 +2,12 @@
 //! joins the stock prefix.
 use super::fixture::SIZE;
 use std::{cell::RefCell, rc::Rc};
-use worldrunner_render_scene::{
-    executor::{
-        AttachmentDeclaration, AttachmentLoad, AttachmentView, DrawContext, FeatureDeclaration,
-        FeaturePass, FrameError, PassDeclaration, PassEntry, PassSlot, PrepareContext,
-        PreparedFeature, ResourceRef,
-    },
-    wgpu,
+use worldrunner_render_post::{
+    AttachmentDeclaration, AttachmentLoad, AttachmentView, DrawContext, FeatureDeclaration,
+    FeaturePass, FrameError, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+    ResourceRef,
 };
+use worldrunner_render_scene::wgpu;
 
 pub const CALLER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
 

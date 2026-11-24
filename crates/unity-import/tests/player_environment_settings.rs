@@ -19,7 +19,8 @@ mod renderer_bytes;
 #[path = "support/shader_bytes.rs"]
 mod shader_bytes;
 use renderer_bytes::{
-    Settings, distinct, filter_bytes, game_object, mesh_renderer_bytes, skinned_bytes, transform,
+    Rig, Settings, distinct, filter_bytes, game_object, mesh_renderer_bytes, skinned_bytes,
+    transform,
 };
 use shader_bytes::lit;
 
@@ -180,6 +181,7 @@ fn write_scene(dir: &Path, settings: Option<Vec<u8>>) {
                 },
                 ptr(0, 0),
                 &[ptr(0, 0)],
+                &Rig::default(),
             ),
         ),
     ];

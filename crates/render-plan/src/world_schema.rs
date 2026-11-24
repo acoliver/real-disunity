@@ -1,15 +1,11 @@
-//! World-schema vocabulary and the single Y-up to Z-up scene boundary.
+//! The single Y-up to Z-up scene boundary for world-schema placements and meshes.
 //!
 //! Producers quantize metres to millimetres before this boundary. The basis
 //! change is a proper rotation: `(x, y, z) -> (x, -z, y)`. Apply it to both
 //! mesh vectors and placements, never to just one side of a placed mesh.
 
-pub use worldrunner_world_schema::{
-    EnvironmentInstance, EnvironmentOrientation, EnvironmentPlacement, TerrainDocument,
-    TerrainMaterialSlot, WorldCoordinateFrame,
-};
-
 use crate::{SceneRotation, SceneTransform, SceneValidationError, SceneVertex};
+use worldrunner_world_schema::WorldCoordinateFrame;
 
 /// Converts a position or vector from schema XYZ to scene east/north/elevation.
 /// Fails if negating the south component cannot be represented.

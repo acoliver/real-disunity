@@ -1,7 +1,8 @@
 use super::scene_tests::*;
 use super::*;
+use crate::test_support::upload_scene;
 use crate::view::{CameraPose, OrthographicLens, SceneView, Viewport};
-use crate::{device::GpuContext, draw::SceneGpu, frame::FrameUniform, renderer::ScenePipelines};
+use crate::{device::GpuContext, frame::FrameUniform, renderer::ScenePipelines};
 use worldrunner_render_plan::*;
 
 #[test]
@@ -186,13 +187,14 @@ fn regression_b4_resident_frame_fog_controls_objects_sky_and_discs() {
         MaterialHandle::from_raw(0),
     );
     let source = custom(sky, quad(), vec![object]);
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let pipelines =
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
+    let mut gpu =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let mut frame =
         FrameUniform::new(&perspective_view(60_000, [0, 1000, 0]), source.effects()).unwrap();
     frame.height_fog = None;
-    let clear = render_resident(&context, &gpu, &pipelines, &frame);
+    let clear = render_resident(&context, &mut gpu, &pipelines, &frame);
     assert_eq!(
         clear.rgb(0).map(f32::to_bits),
         [0.0, 0.0, 2.0].map(f32::to_bits)
@@ -215,7 +217,7 @@ fn regression_b4_resident_frame_fog_controls_objects_sky_and_discs() {
         )
         .unwrap(),
     );
-    let fogged = render_resident(&context, &gpu, &pipelines, &frame);
+    let fogged = render_resident(&context, &mut gpu, &pipelines, &frame);
     for x in [0, 2, 4, 5, 8] {
         assert_eq!(fogged.rgb(x).map(f32::to_bits), [4.0; 3].map(f32::to_bits));
     }

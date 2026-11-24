@@ -53,8 +53,7 @@ impl HdrPostSettings {
         0.0
     }
 
-    /// The projection jitter a renderer with these settings uses at `config`, given the explicitly
-    /// requested one.
+    /// The projection jitter a renderer with these settings uses at `config`.
     ///
     /// # Errors
     ///
@@ -62,15 +61,11 @@ impl HdrPostSettings {
     pub fn effective_jitter(
         self,
         config: FrameConfig,
-        explicit: Option<ProjectionJitter>,
     ) -> Result<Option<ProjectionJitter>, PostError> {
-        if explicit.is_none()
-            && self.resolve.active_taa().is_some()
-            && self.reconstructs_temporally(config)
-        {
+        if self.resolve.active_taa().is_some() && self.reconstructs_temporally(config) {
             return ProjectionJitter::for_extents(config.size, config.output_extent()).map(Some);
         }
-        Ok(self.resolve.effective_jitter(explicit))
+        Ok(self.resolve.effective_jitter())
     }
 
     /// Whether a renderer at `config` may use `jitter` as its projection jitter.
@@ -102,13 +97,8 @@ impl HdrPostSettings {
     ///
     /// Settings without `UpscaleMode::Temporal` always pass. Equal extents with TAA are the
     /// native TAA path and pass for any sample count. A reduced extent additionally needs one
-    /// sample per pixel, at least half the output on both axes, and an explicit jitter sequence
-    /// at least as long as [`ProjectionJitter::for_extents`] derives.
-    pub(crate) fn validate_temporal(
-        self,
-        config: FrameConfig,
-        explicit: Option<ProjectionJitter>,
-    ) -> Result<(), PostError> {
+    /// sample per pixel and at least half the output on both axes.
+    pub(crate) fn validate_temporal(self, config: FrameConfig) -> Result<(), PostError> {
         if self.upscale.map(|upscale| upscale.mode) != Some(UpscaleMode::Temporal) {
             return Ok(());
         }
@@ -132,7 +122,7 @@ impl HdrPostSettings {
                 "temporal upscaling requires a render extent of at least half the output",
             );
         }
-        self.validate_jitter(config, explicit)
+        Ok(())
     }
 }
 

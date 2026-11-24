@@ -74,7 +74,7 @@ impl Casting {
         let configuration = configuration(bias);
         let matrices = cascades();
         let frames = matrices.map(|matrix| {
-            let buffer = crate::upload::upload_buffer(
+            let buffer = worldrunner_render_gpu::resource::upload_buffer(
                 device,
                 context.queue(),
                 "capture shadow frame",

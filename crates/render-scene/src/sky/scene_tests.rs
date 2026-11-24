@@ -1,4 +1,6 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::test_support::upload_scene;
 use crate::{
     device::GpuContext,
     draw::SceneGpu,
@@ -209,8 +211,8 @@ pub(super) fn render_at(
     view: &SceneView,
 ) -> Capture {
     let device = context.device();
-    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
-    let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+    let pipelines = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), source, &pipelines).unwrap();
     let mut frame = FrameUniform::new(view, source.effects()).unwrap();
     frame.exposure = exposure;
     capture(context, |encoder, color, depth| {
@@ -220,20 +222,21 @@ pub(super) fn render_at(
         let depth =
             AttachmentView::new(ResourceRef::new("acceptance depth"), depth.texture()).unwrap();
         let mut renderer = crate::compositor::FrameRenderer::new(device);
-        crate::compositor::encode_scene(
-            &mut renderer,
-            device,
-            encoder,
-            (&mut gpu, &pipelines),
-            (&color, &depth),
-            frame,
-        )
-        .unwrap();
+        renderer
+            .encoding()
+            .encode_scene(
+                device,
+                encoder,
+                (&mut gpu, &pipelines),
+                (&color, &depth),
+                frame,
+            )
+            .unwrap();
     })
 }
 pub(super) fn render_resident(
     context: &GpuContext,
-    gpu: &SceneGpu,
+    gpu: &mut SceneGpu,
     pipelines: &ScenePipelines,
     frame: &FrameUniform,
 ) -> Capture {
@@ -417,7 +420,7 @@ pub(super) fn read(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
 pub(super) fn draw(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    gpu: &SceneGpu,
+    gpu: &mut SceneGpu,
     pipelines: &ScenePipelines,
     color_view: &wgpu::TextureView,
     depth_view: &wgpu::TextureView,
@@ -426,14 +429,17 @@ pub(super) fn draw(
     let color = AttachmentView::new(ResourceRef::new("acceptance color"), color_view.texture());
     let depth = AttachmentView::new(ResourceRef::new("acceptance depth"), depth_view.texture());
     let mut renderer = crate::compositor::FrameRenderer::new(device);
-    crate::compositor::encode_resident(
-        &mut renderer,
-        device,
-        encoder,
-        (gpu, pipelines),
-        (&color.unwrap(), &depth.unwrap()),
-    )
-    .unwrap();
+    let frame = gpu.resident_frame();
+    renderer
+        .encoding()
+        .encode_scene(
+            device,
+            encoder,
+            (gpu, pipelines),
+            (&color.unwrap(), &depth.unwrap()),
+            frame,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -447,9 +453,19 @@ fn dome_without_an_atmosphere_is_rejected_on_upload() {
         effects: Some(base_effects(true)),
     })
     .unwrap();
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-    let error =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap_err();
+    let pipelines =
+        ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float, 1).unwrap();
+    let error = PreparedScene::new(&source)
+        .and_then(|prepared| {
+            SceneGpu::upload(
+                context.device(),
+                context.submission(),
+                prepared,
+                &pipelines,
+                None,
+            )
+        })
+        .unwrap_err();
     assert!(matches!(
         error,
         crate::draw::DrawError::Frame(crate::frame::FrameError::UnsupportedEffect(

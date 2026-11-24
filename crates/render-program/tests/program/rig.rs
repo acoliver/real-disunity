@@ -14,7 +14,7 @@ use worldrunner_render_program::unity::runtime::{
     TargetHandle, TargetImage, VertexInput,
 };
 use worldrunner_render_program::unity::state::RenderState;
-use worldrunner_render_program::unity::variant::{select_player_sub_program, select_sub_program};
+use worldrunner_render_program::unity::variant::select_variant;
 use worldrunner_unity_serialized::shader_parameters::{
     BufferMember, ConstantBuffer as PlayerBuffer, DescriptorSlot, ResourceKind, VariantParameters,
 };
@@ -306,12 +306,17 @@ fn stage(
 ) -> StageProgram {
     let (blob_index, parameters): (u32, StageParameters) = match &pass.variant {
         None => {
-            let chosen = select_sub_program(program, enabled).unwrap();
+            let variants = &program.sub_programs;
+            let declared = used_keywords(variants.iter().map(|v| v.keyword_indices.as_slice()));
+            let chosen = select_variant(variants, |v| &v.keyword_indices, &declared, enabled);
+            let chosen = chosen.unwrap();
             (chosen.blob_index, chosen.parameters.clone().into())
         }
         Some(variant) => {
-            let chosen = select_player_sub_program(program, enabled).unwrap();
-            (chosen.blob_index, variant.clone().into())
+            let variants: Vec<_> = program.player_sub_programs.iter().flatten().collect();
+            let declared = used_keywords(variants.iter().map(|v| v.keyword_indices.as_slice()));
+            let chosen = select_variant(&variants, |v| &v.keyword_indices, &declared, enabled);
+            (chosen.unwrap().blob_index, variant.clone().into())
         }
     };
     let module = StageModule {
@@ -537,3 +542,9 @@ pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
 
 /// Both triangles of the quad, wound clockwise as displayed.
 pub const QUAD: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+/// The keywords some variant uses, which is what the engine declares for a program's variants.
+fn used_keywords<'a>(sets: impl Iterator<Item = &'a [u16]>) -> Vec<u16> {
+    let used: BTreeSet<u16> = sets.flatten().copied().collect();
+    used.into_iter().collect()
+}

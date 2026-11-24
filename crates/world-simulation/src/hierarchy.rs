@@ -21,6 +21,7 @@ impl World {
             parent,
         );
         self.relink_child(object, previous, parent);
+        self.note_drawables_changed();
         self.record_change(crate::journal::Change::Parent(object));
         if parent.is_some_and(|parent| self.lifetime.objects.contains(&parent)) {
             self.destroy(object, crate::DestroyWhen::EndOfFrame)?;
@@ -142,6 +143,7 @@ impl World {
             .get_mut(object.0)
             .expect("validated object")
             .active = active;
+        self.note_drawables_changed();
         self.record_change(crate::journal::Change::Properties(object));
         self.spatial_touch(object);
         self.refresh_lifecycle(&nodes, mutation);

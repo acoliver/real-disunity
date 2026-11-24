@@ -9,7 +9,7 @@ mod types;
 pub use types::*;
 
 use super::{
-    FontBook, UiError,
+    FontBook, UiError, UiTexture,
     presentation::{UiDraw, UiDrawKind, UiPresentation},
 };
 use glam::{UVec2, Vec2};
@@ -180,7 +180,7 @@ impl<'fonts> UiDrawList<'fonts> {
         points: [Vec2; 4],
         uv_rect: [f32; 4],
         color: [f32; 4],
-        texture: Option<u64>,
+        texture: Option<UiTexture>,
         kind: UiDrawKind,
     ) -> Result<UiDraw, UiError> {
         let height = self.viewport.as_vec2().y;
@@ -201,6 +201,7 @@ impl<'fonts> UiDrawList<'fonts> {
             corner_colors: None,
             distance_field: None,
             texture,
+            material: None,
             sorting_layer: self.order.layer,
             sorting_order: self.order.order,
             hierarchy_order: 0,

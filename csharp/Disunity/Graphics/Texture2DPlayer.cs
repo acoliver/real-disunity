@@ -1,6 +1,7 @@
 using Disunity.Hosting;
 using Disunity.Native;
 using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 
 namespace UnityEngine;
 
@@ -26,6 +27,7 @@ public sealed partial class Texture2D
         {
             format = (uint)_format, width = (uint)_width, height = (uint)_height, mips = (uint)_mipCount,
             linear = GraphicsFormats.IsSrgb(_graphics) ? 0u : 1u, distance_spread = DistanceSpread,
+            dimension = (uint)TextureDimension.Tex2D,
         }, _data);
     }
 

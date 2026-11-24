@@ -77,7 +77,9 @@ impl Objects {
                 RetainedUpdate::Camera { .. }
                 | RetainedUpdate::CameraWithContinuity { .. }
                 | RetainedUpdate::CameraWithShadowPolicy { .. } => {}
-                RetainedUpdate::Ui(_) => unreachable!("UI updates publish through readiness"),
+                RetainedUpdate::Ui(_) | RetainedUpdate::World(_) => {
+                    unreachable!("UI and world updates publish through readiness")
+                }
                 RetainedUpdate::Resources { .. }
                 | RetainedUpdate::AppendResources(_)
                 | RetainedUpdate::ReplaceTexture { .. }
@@ -226,10 +228,7 @@ impl Renderer {
         if !host.has_view_extent() {
             return Ok(false);
         }
-        let mut noop: crate::SceneUpdate = Box::new(|_| Ok(()));
-        Ok(self
-            .render_admitted(super::FrameSource::Retained(host), &mut noop, None)?
-            .is_some())
+        Ok(self.render_admitted(host)?.is_some())
     }
 }
 
@@ -239,7 +238,7 @@ pub(super) fn configure_effects(
     presentation: &mut super::Presentation,
     effects: &SceneEffects,
 ) -> Result<(), ViewerError> {
-    let settings = preflight_effects(context, presentation, effects)?;
+    let settings = preflight_effects(presentation, effects)?;
     resident.set_retained_effects(effects)?;
     match resident {
         Resident::Shadowed(scene) => {
@@ -260,7 +259,6 @@ pub(super) fn configure_effects(
 
 /// Resolves the same candidate used for replacement, without touching resident or scheduler.
 pub(super) fn preflight_effects(
-    context: &super::GpuContext,
     presentation: &super::Presentation,
     effects: &SceneEffects,
 ) -> Result<worldrunner_render_scene::compositor::RendererConfiguration, ViewerError> {
@@ -272,20 +270,14 @@ pub(super) fn preflight_effects(
     settings.post.native_rcas = native_rcas;
     settings.ssao = effects.ssao().copied();
     settings.ssr = effects.ssr().copied();
-    // Legacy output has no screen-space metadata; depth fitting there draws its own prepass.
-    settings.depth_fitting = settings.hdr.and(effects.depth_fitting().copied());
+    settings.depth_fitting = effects.depth_fitting().copied();
     settings.water = effects.water_bodies().to_vec();
-    settings.opaque_path = effects.opaque_path();
-    if let Some((exposure, _)) = &mut settings.hdr {
-        *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
-    }
-    settings.validate_opaque(&context.device().limits())?;
+    settings.hdr.0 = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
     Ok(settings)
 }
 
 /// Check before consuming preparation results or initializing object-handle bookkeeping.
 pub(super) fn preflight_preparation(
-    context: &super::GpuContext,
     presentation: &super::Presentation,
     front: &crate::retained::readiness::Preparation,
 ) -> Result<(), ViewerError> {
@@ -294,7 +286,7 @@ pub(super) fn preflight_preparation(
         _ => front.pick_scene.as_ref().and_then(|scene| scene.effects()),
     };
     if let Some(effects) = effects {
-        preflight_effects(context, presentation, effects)?;
+        preflight_effects(presentation, effects)?;
     }
     Ok(())
 }
@@ -337,7 +329,8 @@ pub(super) fn apply_ui(
     context: &super::GpuContext,
     resident: &mut Resident,
     presentation: &mut super::Presentation,
-    overlay: &worldrunner_render_scene::simulation::UiOverlay,
+    overlay: &std::sync::Arc<worldrunner_render_scene::simulation::UiOverlay>,
+    targets: &[worldrunner_render_scene::simulation::UiTarget],
 ) -> Result<(), ViewerError> {
     let mut settings = presentation.scheduler.configuration().clone();
     if settings.ui_depth != overlay.needs_depth() {
@@ -347,6 +340,36 @@ pub(super) fn apply_ui(
     }
     resident
         .scene_mut()
-        .set_ui_overlay(context.device(), context.submission(), overlay)
+        .set_ui_overlay(context.device(), context.submission(), overlay, targets)
         .map_err(|error| ViewerError::Gpu(error.to_string()))
+}
+
+pub(super) fn apply_world(
+    context: &super::GpuContext,
+    resident: &mut Resident,
+    frame: &worldrunner_render_scene::simulation::WorldSceneContribution,
+) -> Result<(), ViewerError> {
+    let Resident::Plain(plain) = resident else {
+        return Err(ViewerError::UnsupportedScene("dynamic shadow host"));
+    };
+    plain.gpu.set_dynamic_contribution(
+        context.device(),
+        context.submission(),
+        &plain.pipelines,
+        &frame.textures,
+        &frame.quads,
+    )?;
+    let [r, g, b, a] = frame.clear;
+    plain.clear = Some(wgpu::Color { r, g, b, a });
+    Ok(())
+}
+
+impl Resident {
+    /// The colour a world frame clears to, when the resident has shown one.
+    pub(super) fn clear_color(&self) -> Option<wgpu::Color> {
+        match self {
+            Self::Plain(plain) => plain.clear,
+            Self::Shadowed(_) => None,
+        }
+    }
 }

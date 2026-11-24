@@ -5,9 +5,10 @@ using Unity.Jobs;
 namespace UnityEngine.Rendering;
 
 /// <summary>
-/// The meshes, materials and batches a game hands to the renderer, numbered for each group. The engine keeps
-/// this registry for the game and does not draw batches yet: no renderer in the engine consumes them, so the
-/// culling callback is not invoked on its own. A renderer reaches the callback through <see cref="InvokeCullingCallback"/>.
+/// The meshes, materials and batches a game hands to the renderer, numbered for each group. A group lives until it is
+/// disposed. <see cref="ScriptableRenderContext.Cull"/> and <see cref="ScriptableRenderContext.CreateShadowRendererList"/> call the
+/// culling callback of every live group, and the draw commands it writes are drawn with the renderer lists that accept them
+/// (see <see cref="BatchListDraws"/>).
 /// </summary>
 public sealed class BatchRendererGroup : IDisposable
 {
@@ -18,6 +19,8 @@ public sealed class BatchRendererGroup : IDisposable
 
     /// <summary>A batch as the group holds it: a copy of its metadata and the part of the buffer it reads.</summary>
     internal sealed record Batch(MetadataValue[] Metadata, GraphicsBufferHandle Buffer, uint BufferOffset, uint WindowSize);
+
+    private static readonly List<BatchRendererGroup> Groups = new();
 
     private readonly object _lock = new();
     private readonly Registrations<Mesh> _meshes = new("mesh", "mesh");
@@ -31,6 +34,13 @@ public sealed class BatchRendererGroup : IDisposable
         ArgumentNullException.ThrowIfNull(cullingCallback);
         CullingCallback = cullingCallback;
         UserContext = userContext;
+        lock (Groups) Groups.Add(this);
+    }
+
+    /// <summary>The groups that were made and not disposed, in the order they were made.</summary>
+    internal static BatchRendererGroup[] LiveGroups()
+    {
+        lock (Groups) return Groups.ToArray();
     }
 
     internal OnPerformCulling CullingCallback { get; }
@@ -85,11 +95,16 @@ public sealed class BatchRendererGroup : IDisposable
         }
     }
 
+    /// <summary>
+    /// Removes a batch. Batch ID 0 is <see cref="BatchID.Null"/>, the ID the group never hands out, so removing it does nothing.
+    /// Any other ID the group does not hold throws <see cref="ArgumentException"/> naming it.
+    /// </summary>
     public void RemoveBatch(BatchID batchID)
     {
         lock (_lock)
         {
             ThrowIfDisposed();
+            if (batchID == BatchID.Null) return;
             if (!_batches.Remove(batchID.value)) throw new ArgumentException($"batch {batchID.value} is not a batch of this BatchRendererGroup", nameof(batchID));
         }
     }
@@ -124,6 +139,33 @@ public sealed class BatchRendererGroup : IDisposable
         }
     }
 
+    /// <summary>Runs the callback for a view and reads the draws it wrote, freeing the arrays it allocated. A callback that throws,
+    /// or a group disposed meanwhile, gives no draws; a failure is noted once.</summary>
+    internal IReadOnlyList<BatchDraw> Cull(BatchCullingContext context)
+    {
+        try
+        {
+            var commands = InvokeCullingCallback(context);
+            try
+            {
+                return BatchOutputReader.Read(this, commands);
+            }
+            finally
+            {
+                FreeDrawCommands(commands);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            return [];
+        }
+        catch (Exception failure)
+        {
+            UndrawnCalls.NoteBatchFailure($"the culling callback threw {failure.GetType().Name}: {failure.Message}");
+            return [];
+        }
+    }
+
     /// <summary>Frees the arrays a culling callback allocated with <c>Allocator.TempJob</c>.</summary>
     internal static unsafe void FreeDrawCommands(BatchCullingOutputDrawCommands commands)
     {
@@ -135,6 +177,7 @@ public sealed class BatchRendererGroup : IDisposable
 
     public void Dispose()
     {
+        lock (Groups) Groups.Remove(this);
         lock (_lock)
         {
             _disposed = true;

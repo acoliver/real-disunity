@@ -1,13 +1,14 @@
 //! External feature registration, snapshot sampling and caller-owned submission.
-use gpu::{
-    executor::{
+use gpu::wgpu;
+use worldrunner::scene::{
+    gpu,
+    plan::SceneCamera,
+    post::{
         AttachmentDeclaration, AttachmentLoad, AttachmentView, BuildContext, DrawContext,
         FeatureDeclaration, FeaturePass, FrameConfig, FrameError, FrameFeature, PassDeclaration,
         PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef, ToneMap,
     },
-    wgpu,
 };
-use worldrunner::scene::{gpu, plan::SceneCamera};
 
 struct PaintAndRead;
 impl FrameFeature for PaintAndRead {
@@ -117,8 +118,11 @@ fn pipeline(device: &wgpu::Device, entry: &str, reader: bool) -> wgpu::RenderPip
 }
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let context = pollster::block_on(gpu::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
+    let context = pollster::block_on(gpu::device::GpuContext::request(
+        &gpu::device::DeviceRequest {
+            features: wgpu::Features::empty(),
+            ..Default::default()
+        },
     ))?;
     let device = context.device();
     let mut renderer = gpu::compositor::FrameRenderer::hdr(
@@ -139,8 +143,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         device,
         &mut encoder,
         (&passes, &views),
+        None,
         &mut [],
-        (frame, None),
+        &(frame, None),
     )?;
     renderer.encode_output(&mut encoder, target.color_view())?;
     target.encode_readback(&mut encoder)?;

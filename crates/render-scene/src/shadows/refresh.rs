@@ -29,11 +29,6 @@ struct RefreshKey {
     no_receivers: bool,
     size: [u32; 2],
     layers: usize,
-    /// Whether the terrain casters are among the casters the maps were drawn with. Switching to
-    /// or from `Suppressed` changes what every cascade holds without moving any caster, so the
-    /// retained maps of the other setting are stale whatever their interval says. `Stock` and
-    /// `CastersOnly` draw the same casters and share the key.
-    terrain_casters: bool,
 }
 
 impl RefreshCache {
@@ -118,7 +113,6 @@ impl RefreshCache {
             no_receivers: cascades.no_receivers,
             size,
             layers: cascades.matrices.len(),
-            terrain_casters: gpu.casts_terrain_shadows(),
         };
         if self.key.as_ref() != Some(&key) {
             self.invalidate();

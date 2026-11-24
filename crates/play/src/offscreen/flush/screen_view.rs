@@ -24,6 +24,17 @@ impl OffscreenHost {
         ))
     }
 
+    /// The atlas of the UI frame's runs on the device, `None` until a frame made it and after a
+    /// frame left it out. A resize makes a new texture, so a holder of the old one keeps the old
+    /// size.
+    #[must_use]
+    pub fn ui_layers_texture(&self) -> Option<wgpu::Texture> {
+        let handle = self
+            .state
+            .texture_handle(ids::render_texture(crate::offscreen::atlas_id()))?;
+        self.runtime.gpu_texture(handle).ok()
+    }
+
     pub(super) fn note_screen_flushed(&mut self) {
         self.screen_flushed = self.state.texture_handle(ids::screen_color());
     }

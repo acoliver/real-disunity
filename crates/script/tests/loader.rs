@@ -191,6 +191,29 @@ fn a_refused_chunk_loads_plain_and_is_reported() {
 }
 
 #[test]
+fn a_refused_chunk_keeps_its_name_so_another_text_under_it_is_a_collision() {
+    let mut scripts = scripts();
+    scripts.run("game", "plain.lua", REFUSED).unwrap();
+    let refusal = scripts.plain_chunks()["plain.lua"].clone();
+    assert!(!refusal.contains("another chunk"), "{refusal}");
+    scripts.run("game", "plain.lua", REFUSED).unwrap();
+    assert_eq!(
+        scripts.plain_chunks()["plain.lua"],
+        refusal,
+        "the same text is refused again, not a collision"
+    );
+
+    // Text the rewrite would accept, under the refused chunk's name, is the name used for
+    // another text: it loads plain as a collision and no tree is kept under the name.
+    scripts.run("game", "plain.lua", b"Split = 9 / 2").unwrap();
+    assert_eq!(eval(&mut scripts, "return Split"), serde_json::json!(4));
+    let plain = scripts.plain_chunks();
+    assert!(plain["plain.lua"].contains("another chunk"), "{plain:?}");
+    let restore = scripts.import_sources().restore_sources();
+    assert!(restore.get("plain.lua").is_none(), "no tree under the name");
+}
+
+#[test]
 fn a_chunk_that_does_not_parse_is_never_loaded_plain() {
     let mut scripts = scripts();
     assert!(scripts.run("game", "syntax.lua", b"x = = 1").is_err());

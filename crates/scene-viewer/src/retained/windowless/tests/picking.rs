@@ -34,7 +34,7 @@ fn present_until(
 fn picking_tracks_presented_objects_and_not_accepted_or_renderer_published_edits() {
     let mut driver = Driver::default();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let center = pixel(run.host(), glam::Vec3::ZERO);
     assert!(run.host().pick(center, |_| true).is_none());
@@ -81,7 +81,7 @@ fn picking_tracks_presented_objects_and_not_accepted_or_renderer_published_edits
 fn picking_camera_resources_and_physical_resize_wait_for_presentation() {
     let mut driver = Driver::default();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     present_generation(&mut run, 0);
     let center = [32.0; 2];
@@ -150,7 +150,7 @@ fn event_thread_picking_supports_both_handedness_conventions() {
         host.options.camera_convention = worldrunner_camera::ViewConvention { handedness };
         host.readiness.camera.2 = host.options.camera_convention;
         let mut driver = Picker;
-        let mut run = host.windowless(&mut driver).unwrap();
+        let mut run = host.windowless(&mut driver, None).unwrap();
         present_generation(&mut run, 0);
         run.shutdown().unwrap();
     }
@@ -160,7 +160,7 @@ fn event_thread_picking_supports_both_handedness_conventions() {
 fn picking_keeps_displayed_resources_while_preparation_is_held() {
     let mut driver = Driver::default();
     let source = crate::renderer::retained_tests::source();
-    let mut run = host(source.clone()).windowless(&mut driver).unwrap();
+    let mut run = host(source.clone()).windowless(&mut driver, None).unwrap();
     present_generation(&mut run, 0);
     let center = [32.0; 2];
     let (release, wait) = std::sync::mpsc::channel();
@@ -197,7 +197,7 @@ fn windowless_accumulated_capture_publishes_picking_without_presented_event() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = host(crate::renderer::retained_tests::source())
-        .windowless(&mut driver)
+        .windowless(&mut driver, None)
         .unwrap();
     let recipe = crate::RetainedCaptureRecipe::new(
         2,

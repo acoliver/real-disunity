@@ -7,8 +7,7 @@ use worldrunner_render_post::{
     PassDeclaration, PrepareContext, PreparedFeature,
 };
 use worldrunner_render_scene::compositor::{
-    GameBuild, GameFeatureFactory, GamePasses, TargetDeclaration, TargetExtent, TerrainDraws,
-    WaterDraws,
+    GameBuild, GameFeatureFactory, GamePasses, TargetDeclaration, TargetExtent,
 };
 
 /// A game that owns one 64 KiB target and draws nothing, counting how often it is built.
@@ -67,8 +66,6 @@ fn game(builds: &Arc<Mutex<u32>>) -> crate::GameRendering {
         passes: GamePasses::new().with(Arc::new(Counting {
             builds: builds.clone(),
         })),
-        terrain_draws: TerrainDraws::Suppressed,
-        water_draws: WaterDraws::Suppressed,
     }
 }
 
@@ -84,13 +81,14 @@ fn policy(game: crate::GameRendering) -> PresentationPolicy {
 }
 
 #[test]
-fn the_inventory_counts_the_games_targets_and_carries_its_options() {
+fn the_inventory_counts_the_games_targets_and_carries_its_passes() {
     let size = Viewport {
         width: 65,
         height: 49,
     };
     let limits = wgpu::Limits::default();
-    let settings = RendererConfiguration::legacy([65, 49], COLOR);
+    let settings =
+        RendererConfiguration::new([65, 49], COLOR, worldrunner_render_post::ToneMap::Clamp);
     let (plain, _) = policy(crate::GameRendering::default())
         .inventory(settings.clone(), size, &limits)
         .unwrap();
@@ -102,11 +100,7 @@ fn the_inventory_counts_the_games_targets_and_carries_its_options() {
         |settings: &RendererConfiguration| settings.allocations().validate(&limits).unwrap();
     assert_eq!(bytes(&with_game) - bytes(&plain), 128 * 128 * 4);
     assert_eq!(with_game.game_passes.len(), 1);
-    assert_eq!(with_game.terrain_draws, TerrainDraws::Suppressed);
-    assert_eq!(with_game.water_draws, WaterDraws::Suppressed);
     assert!(plain.game_passes.is_empty());
-    assert_eq!(plain.terrain_draws, TerrainDraws::Stock);
-    assert_eq!(plain.water_draws, WaterDraws::Stock);
     assert_eq!(*builds.lock().unwrap(), 0, "planning builds nothing");
 }
 
@@ -119,24 +113,16 @@ fn every_renderer_the_viewer_builds_registers_the_games_factory() {
         height: 49,
     };
     let builds = Arc::new(Mutex::new(0));
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         None,
         &policy(game(&builds)),
     )
     .unwrap();
     assert_eq!(*builds.lock().unwrap(), 1, "registered on allocation");
-    assert_eq!(
-        presentation.scheduler.configuration().terrain_draws,
-        TerrainDraws::Suppressed
-    );
-    assert_eq!(
-        presentation.scheduler.configuration().water_draws,
-        WaterDraws::Suppressed
-    );
     // A reconfiguration derived from the live one keeps the inventory and registers again.
     let mut settings = presentation.scheduler.configuration().clone();
     settings.ui_depth = true;

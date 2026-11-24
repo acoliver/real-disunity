@@ -68,10 +68,7 @@ pub use worldrunner_world_simulation as simulation;
 
 /// CPU-only native UI components, fonts and pathless render planning.
 #[cfg(feature = "ui")]
-pub mod ui {
-    pub use worldrunner_render_plan as plan;
-    pub use worldrunner_world_simulation::ui::*;
-}
+pub use worldrunner_world_simulation::ui;
 
 /// Pathless scene planning and GPU capture, without asset lookup or an application host.
 ///
@@ -81,7 +78,11 @@ pub mod ui {
 /// async fn capture(scene: &plan::RenderScene, view: &gpu::SceneView)
 ///     -> Result<gpu::offscreen::RgbaImage, Box<dyn std::error::Error>>
 /// {
-///     let context = gpu::device::GpuContext::request_with_features(gpu::wgpu::Features::empty()).await?;
+///     let request = gpu::device::DeviceRequest {
+///         features: gpu::wgpu::Features::empty(),
+///         ..Default::default()
+///     };
+///     let context = gpu::device::GpuContext::request(&request).await?;
 ///     Ok(gpu::offscreen::capture_scene(&context, scene, view)?)
 /// }
 /// ```

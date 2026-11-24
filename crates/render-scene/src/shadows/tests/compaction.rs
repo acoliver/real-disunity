@@ -1,5 +1,6 @@
 //! Cascade passes draw one instanced draw per (batch, LOD) group, however fragmented the selection.
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_cascade_draw_counts_follow_groups_not_ranges() {
@@ -18,7 +19,7 @@ fn gpu_cascade_draw_counts_follow_groups_not_ranges() {
         ),
         SceneShadowCascades::new(vec![650, 1_200, 2_000, 3_500], 100_000).unwrap(),
     );
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     // Hiding the second caster leaves a hole in the caster batch's slot range.
     let hidden = renderer.scene_mut().instance_handles().nth(2).unwrap();
     renderer
@@ -26,7 +27,8 @@ fn gpu_cascade_draw_counts_follow_groups_not_ranges() {
         .set_instance_visible(hidden, false)
         .unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     let counts = renderer.scene_mut().statistics().passes.shadow_cascades;
     let mut split = false;
     for (index, count) in counts.iter().enumerate() {

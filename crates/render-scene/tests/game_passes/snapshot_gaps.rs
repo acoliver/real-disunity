@@ -1,13 +1,11 @@
 //! The opaque snapshots across frame slots, frames that stop reading them, a reader of only the
-//! linear depth, a frame with no HDR colour and a reconfiguration to another extent. The frames
+//! linear depth and a reconfiguration to another extent. The frames
 //! are real: a configured renderer over the synthetic quad scene on lavapipe.
 use super::fixture::{Rig, SIZE, quad_scene};
 use super::snapshot_game::{DEPTH_PROBE, LINEAR_PASS, Plan, SnapGame, read_texels, texel};
-use super::snapshots::{COLOR, COVERED, DEPTHS, UNCOVERED};
-use worldrunner_render_scene::{
-    compositor::{FrameSnapshotError, SnapshotReads, SnapshotStatistics},
-    executor::{FrameConfig, FrameError},
-};
+use super::snapshots::{COVERED, DEPTHS, UNCOVERED};
+use worldrunner_render_post::FrameConfig;
+use worldrunner_render_scene::compositor::{FrameSnapshotError, SnapshotReads, SnapshotStatistics};
 
 const LINEAR: SnapshotReads = SnapshotReads {
     linear_depth: true,
@@ -129,29 +127,6 @@ fn a_game_that_reads_only_the_linear_depth_gets_only_that_snapshot() {
         "the lent set holds the linear depth and no colour or device depth"
     );
     assert_eq!(seen.recorded, [LINEAR_PASS]);
-}
-
-#[test]
-fn a_colour_reader_on_a_frame_that_is_not_hdr_is_refused_by_name() {
-    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let (inventory, _) = SnapGame::inventory(
-        COLOR,
-        Plan {
-            copy_color: true,
-            ..Plan::default()
-        },
-    );
-    let mut rig = Rig::new(&quad_scene(), SIZE, |settings| {
-        settings.game_passes = inventory;
-    });
-    let error = rig.render().unwrap_err();
-    assert!(
-        matches!(
-            error,
-            FrameError::UnsupportedEffect("snapshots require HDR")
-        ),
-        "{error:?}"
-    );
 }
 
 #[test]

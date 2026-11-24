@@ -7,6 +7,7 @@ use super::*;
 use crate::compositor::FrameRenderer;
 use crate::draw::InstanceHandle;
 use crate::offscreen::{OffscreenTarget, RgbaImage};
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::{SceneCard, SceneLodMaterialSlot};
 
 pub(super) fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMaterialSlot {
@@ -96,9 +97,8 @@ impl Rig {
 
     pub(super) fn over(scene: &RenderScene, ranged_only: bool) -> Self {
         let context = context();
-        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-        let gpu =
-            SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
+        let gpu = upload_scene(context.device(), context.submission(), scene, &pipelines).unwrap();
         gpu.views[0]
             .compaction
             .observed
@@ -134,8 +134,7 @@ impl Rig {
         context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                crate::compositor::encode_scene(
-                    renderer,
+                renderer.encoding().encode_scene(
                     context.device(),
                     encoder,
                     (gpu, pipelines),
@@ -166,9 +165,9 @@ impl Rig {
     }
 
     /// Records the committed camera selection again into a command tally, through the program
-    /// runtime with the pipelines the colour pass selected, and returns the indexed draws the
-    /// tally saw with what the recorder counted.
-    fn recorded_draws(&self) -> (u64, crate::draw::ObjectDraws) {
+    /// runtime with the pipelines the colour pass selected, and returns the tally with what the
+    /// recorder counted.
+    pub(super) fn recorded(&self) -> (crate::object::cost_tests::Tally, crate::draw::ObjectDraws) {
         let mut tally = crate::object::cost_tests::Tally::default();
         let frame_group = self.gpu.drawing_frame_group();
         let selected = self
@@ -178,6 +177,12 @@ impl Rig {
             .gpu
             .draw_objects_prepared(&mut tally, &frame_group, selected.object_context())
             .objects;
+        (tally, drawn)
+    }
+
+    /// The indexed draws [`recorded`](Self::recorded) saw, with what the recorder counted.
+    fn recorded_draws(&self) -> (u64, crate::draw::ObjectDraws) {
+        let (tally, drawn) = self.recorded();
         (u64::from(tally.0.draws), drawn)
     }
 }

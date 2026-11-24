@@ -38,6 +38,23 @@ impl DeviceRequirements {
     }
 }
 
+/// The most storage images a stage of an engine compute program binds: a single-pass downsampler
+/// binds its source and six levels, and a full twelve-level chain thirteen.
+const ENGINE_STORAGE_IMAGES_PER_STAGE: u32 = 16;
+
+/// The storage images per shader stage every engine device asks of an adapter offering
+/// `available`: the adapter's own count up to sixteen, and never fewer than wgpu's default of four,
+/// so [`negotiate`] refuses an adapter offering fewer by name. The scene's device and the player's
+/// headless device both ask this, so the devices they make on one adapter agree. A program binding
+/// more than the device's count is refused by name when it is prepared.
+#[must_use]
+pub fn storage_images_per_stage(available: &Limits) -> u32 {
+    available
+        .max_storage_textures_per_shader_stage
+        .min(ENGINE_STORAGE_IMAGES_PER_STAGE)
+        .max(Limits::default().max_storage_textures_per_shader_stage)
+}
+
 #[derive(Clone, Debug)]
 pub struct NegotiatedDevice {
     pub enabled_features: Features,

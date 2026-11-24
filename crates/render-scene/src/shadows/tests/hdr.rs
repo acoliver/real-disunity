@@ -1,5 +1,7 @@
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use worldrunner_render_post::{FrameConfig, MsaaSamples, Readback, ToneMap};
 
 fn hdr_capture(
@@ -19,15 +21,14 @@ fn hdr_capture(
         source.effects(),
     )
     .unwrap();
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         DirectionalShadowSettings {
             depth_bias: bias,
             ..settings()
         },
-        wgpu::TextureFormat::Rgba16Float,
-        samples,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, samples),
     )
     .unwrap();
     let color = AttachmentView::new(
@@ -43,13 +44,7 @@ fn hdr_capture(
     let mut output = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
-        .encode_with(
-            context,
-            &view,
-            (&color, &depth),
-            &mut encoder,
-            Some(&mut frame),
-        )
+        .encode_with(context, &view, (&color, &depth), &mut encoder, &mut frame)
         .unwrap();
     frame
         .encode_output(&mut encoder, output.color_view())

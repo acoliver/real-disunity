@@ -1,6 +1,6 @@
 use super::{
     UiDrawKind, UiDrawList, UiError, UiImage, UiNineSlice, UiRect, UiSliceCenter, UiSliceMode,
-    check_color,
+    UiTexture, check_color,
 };
 use glam::{UVec2, Vec2};
 
@@ -201,7 +201,7 @@ impl UiDrawList<'_> {
                     rect.points(),
                     uv,
                     style.color,
-                    Some(image.id.0),
+                    Some(UiTexture::Image(image.id.0)),
                     UiDrawKind::Graphic,
                 )?);
             }

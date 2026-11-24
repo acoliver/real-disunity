@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use glam::{Quat, UVec2, Vec2};
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasRenderer, CanvasScale, RectTransform, UiGeometry, UiGraphic, UiVertex,
-    extract_graphics,
+    Canvas, CanvasMode, CanvasRenderer, CanvasScale, RectTransform, UiGeometry, UiGraphic,
+    UiTexture, UiVertex, extract_graphics,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, ObjectHandle, ParentSpace, World, WorldSettings,
@@ -37,7 +37,7 @@ fn quad(u: [f32; 2], v: [f32; 2]) -> Arc<UiGeometry> {
 fn clipped(clip: Option<[f32; 4]>) -> CanvasRenderer {
     CanvasRenderer {
         geometry: Some(quad([0.25, 0.75], [0.5, 1.])),
-        graphic_texture: 1 << 40,
+        graphic_texture: Some(UiTexture::Image(1 << 40)),
         clip_rect: clip,
         ..CanvasRenderer::default()
     }
@@ -48,6 +48,7 @@ fn scene(scale: f32) -> (World, ObjectHandle) {
     let canvas = world.create_object(ObjectDesc::default()).unwrap();
     let settings = Canvas {
         scale: CanvasScale::Constant(scale),
+        mode: CanvasMode::ScreenSpaceOverlay,
         ..Canvas::default()
     };
     world
@@ -230,7 +231,13 @@ fn a_nested_canvas_measures_the_clip_rectangle_in_its_root_canvas() {
     let (mut world, canvas) = scene(1.);
     let nested = element(&mut world, canvas, Vec2::new(100., 0.));
     world
-        .add_component(nested, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            nested,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let object = element(&mut world, nested, Vec2::ZERO);
     draw(&mut world, object, clipped(Some([0., -100., 100., 200.])));

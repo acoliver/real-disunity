@@ -35,10 +35,9 @@ The viewer example accepts flags that turn on renderer features. They combine fr
 | `--terrain` | Adds a heightfield ridge under the meshes. |
 | `--shadows` | Turns on cascaded directional shadows. |
 | `--staggered-shadows` | With `--shadows`, refreshes far cascades less often than the near one. |
-| `--hdr` | Uses the HDR frame profile: 16-bit float rendering with tone mapping. |
-| `--msaa` | 4x multisampling. Only takes effect in an HDR profile. |
-| `--water` | Adds a water surface. Selects the HDR profile. |
-| `--render-scale=770000` | Renders at 77% of the window size and upscales with FSR 1 EASU. The value is in millionths, from 500000 to 1000000. Selects the HDR profile. |
+| `--msaa` | 4x multisampling. |
+| `--water` | Adds a water surface. |
+| `--render-scale=770000` | Renders at 77% of the window size and upscales with FSR 1 EASU. The value is in millionths, from 500000 to 1000000. |
 | `--bilinear` | With `--render-scale`, upscales bilinearly instead of with EASU. |
 | `--rcas` | With `--render-scale`, adds FSR 1 RCAS sharpening. |
 

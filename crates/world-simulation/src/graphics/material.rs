@@ -1,4 +1,5 @@
 //! Materials and the global shader state.
+use super::ordered_globals::ValueKey;
 use super::properties::{check_name, upsert};
 use super::{
     ComputeBufferId, GraphicsError, MaterialId, PropertyValue, ShaderId, ShaderProperties,
@@ -118,6 +119,7 @@ impl World {
     /// material as it was.
     pub fn edit_material(&mut self, id: MaterialId, edit: MaterialEdit) -> Result<(), WorldError> {
         let edit = self.checked_edit(edit)?;
+        self.freeze_material_draws(id)?;
         let material = self
             .graphics
             .materials
@@ -246,21 +248,25 @@ impl World {
     /// Stores a global shader value, replacing the one of the same kind and name.
     pub fn set_global_property(&mut self, value: PropertyValue) -> Result<(), WorldError> {
         self.check_property(&value)?;
+        let key = ValueKey::of(&value);
+        self.graphics.keep_global_start();
         self.graphics.global.properties.set(value)?;
         self.graphics.global.generation += 1;
+        self.graphics.direct_writes.note_value(key);
         Ok(())
     }
 
     /// Removes every global property value; the keywords stay.
     pub fn clear_global_properties(&mut self) {
-        self.graphics.global.properties = ShaderProperties::default();
-        self.graphics.global.generation += 1;
+        self.graphics.clear_global_values();
     }
 
     /// Enables or disables a global keyword.
     pub fn set_global_keyword(&mut self, name: &str, enabled: bool) -> Result<(), WorldError> {
+        self.graphics.keep_global_start();
         switch_name(&mut self.graphics.global.keywords, name, enabled)?;
         self.graphics.global.generation += 1;
+        self.graphics.direct_writes.note_keyword(name);
         Ok(())
     }
 

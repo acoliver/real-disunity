@@ -7,7 +7,7 @@ using Disunity.Native;
 using UnityEngine;
 
 /// <summary>A host executor for the managed tests: a native flush callback registered on the world, which takes the pending
-/// offscreen work through the ABI the way a Rust host does, and writes into the buffers a dispatch bound.</summary>
+/// offscreen work through the graphics snapshot the way a Rust host does, and writes into the buffers a dispatch bound.</summary>
 internal static unsafe class ComputeTestSupport
 {
     /// <summary>What the next flush does.</summary>
@@ -66,15 +66,13 @@ internal static unsafe class ComputeTestSupport
 
     private static void ExecuteDispatches(ulong world)
     {
-        foreach (var record in TakeWork(world))
+        foreach (var record in CommandWireReader.Work(world).Where(record => record.Tag == 3))
         {
-            if (record.kind != 3) continue;
-            var entries = Bindings(world, record.bindings);
-            Executed.Add((record.shader, record.kernel, record.groups_x, record.groups_y, record.groups_z));
-            BindingNames.AddRange(entries.Select(entry => entry.Name));
-            foreach (var entry in entries.Where(entry => entry.Kind == 5))
+            Executed.Add((record.Shader, record.Kernel, record.Groups[0], record.Groups[1], record.Groups[2]));
+            BindingNames.AddRange(record.Bindings.Select(entry => entry.Name));
+            foreach (var entry in record.Bindings.Where(entry => entry.Kind == 5))
             {
-                var value = record.kernel + record.groups_x * record.groups_y * record.groups_z;
+                var value = record.Kernel + record.Groups[0] * record.Groups[1] * record.Groups[2];
                 DisunityHost.ThrowIfError(NativeBindings.disunity_compute_buffer_write(world, entry.Resource, 0, (byte*)&value, 4));
             }
         }
@@ -82,41 +80,14 @@ internal static unsafe class ComputeTestSupport
 
     private static void StateKernelSizes(ulong world)
     {
-        foreach (var record in TakeWork(world))
-            if (record.kind == 3)
-                DisunityHost.ThrowIfError(NativeBindings.disunity_compute_kernel_size_write(world, record.shader, record.kernel, 8, 4, 2));
+        foreach (var record in CommandWireReader.Work(world).Where(record => record.Tag == 3))
+            DisunityHost.ThrowIfError(NativeBindings.disunity_compute_kernel_size_write(world, record.Shader, record.Kernel, 8, 4, 2));
     }
 
-    /// <summary>Takes the pending work through the ABI, as a host does.</summary>
-    internal static DisunityOffscreenWork[] TakeWork(ulong world)
-    {
-        uint count;
-        DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, null, 0, &count));
-        var records = new DisunityOffscreenWork[count];
-        fixed (DisunityOffscreenWork* pointer = records)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_offscreen_take(world, count == 0 ? null : pointer, count, &count));
-        return records;
-    }
-
+    /// <summary>One value a dispatch ran with: <c>Kind</c> 0 float, 1 integer, 2 vector, 3 matrix, 4 texture, 5 buffer, 6 vector
+    /// array or 7 matrix array. A texture's <c>TextureKind</c> is 0 none, 1 asset or 2 render texture, and its <c>Floats</c> are
+    /// the scale then the offset; a buffer's <c>Resource</c> is the compute buffer's id.</summary>
     internal readonly record struct Entry(string Name, uint Kind, uint TextureKind, ulong Resource, int Int, float[] Floats);
-
-    /// <summary>The values a dispatch record carries, by its token.</summary>
-    internal static Entry[] Bindings(ulong world, uint token)
-    {
-        DisunityComputeBindingsInfo info = default;
-        DisunityHost.ThrowIfError(NativeBindings.disunity_compute_bindings_read(world, token, &info, null, null, null));
-        var entries = new DisunityComputeBinding[info.entry_count];
-        var floats = new float[info.float_count];
-        var text = new byte[info.text_length];
-        fixed (DisunityComputeBinding* entryPointer = entries)
-        fixed (float* floatPointer = floats)
-        fixed (byte* textPointer = text)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_compute_bindings_read(world, token, &info,
-                entries.Length == 0 ? null : entryPointer, floats.Length == 0 ? null : floatPointer, text.Length == 0 ? null : textPointer));
-        string Text(uint offset, uint length) => Encoding.UTF8.GetString(text, (int)offset, (int)length);
-        return entries.Select(entry => new Entry(Text(entry.name_offset, entry.name_length), entry.kind, entry.texture_kind, entry.resource, entry.int_value,
-            floats.Skip((int)entry.float_offset).Take(entry.kind switch { 0 => 1, 2 => 4, 3 => 16, 4 => 4, _ => 0 }).ToArray())).ToArray();
-    }
 
     /// <summary>A planned compute shader as the loader builds it.</summary>
     internal static ComputeShader Planned(string json)

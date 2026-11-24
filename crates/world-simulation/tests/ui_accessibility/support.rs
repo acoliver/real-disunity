@@ -1,6 +1,6 @@
 use glam::{UVec2, Vec2};
 use worldrunner_world_simulation::ui::{
-    Canvas, RectTransform, UiControl, UiLayout, UiRouter, UiSemantics,
+    Canvas, CanvasMode, RectTransform, UiControl, UiLayout, UiRouter, UiSemantics,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, ObjectDesc, ObjectHandle, ParentSpace, World, WorldSettings,
@@ -24,8 +24,14 @@ pub fn rect(w: &mut World, parent: Option<ObjectHandle>, y: f32) -> ObjectHandle
 pub fn fixture() -> (World, UiRouter, ObjectHandle, ObjectHandle) {
     let mut w = World::new(WorldSettings::default()).unwrap();
     let root = rect(&mut w, None, 0.);
-    w.add_component(root, ComponentDesc::Canvas(Canvas::default()))
-        .unwrap();
+    w.add_component(
+        root,
+        ComponentDesc::Canvas(Canvas {
+            mode: CanvasMode::ScreenSpaceOverlay,
+            ..Canvas::default()
+        }),
+    )
+    .unwrap();
     let button = rect(&mut w, Some(root), 0.);
     let mut r = UiRouter::default();
     r.controls.insert(button, UiControl::button());

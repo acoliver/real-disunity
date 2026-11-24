@@ -13,6 +13,9 @@ public struct RendererList : IEquatable<RendererList>
     /// <summary>The id of the world's list record; 0 for no list.</summary>
     internal ulong Id;
 
+    /// <summary>The batch draws the list takes from its view, recorded after the list when it is drawn; null when the view has none to ask.</summary>
+    internal BatchListDraws? Batches;
+
     /// <summary>The camera's screen-space overlay UI, which the engine's UI presentation draws after the cameras, so drawing
     /// the list records nothing.</summary>
     internal bool UiOverlay;

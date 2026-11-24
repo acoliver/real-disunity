@@ -22,7 +22,7 @@ struct PassDepth {
 ///
 /// The depth rules come from the same source as the stock draws': the entry's depth attachment
 /// decides the mode. A pass that completes the depth for a later Opaque entry to reuse marks the
-/// stencil as the stock prepass does, an Opaque or G-buffer entry that loads such depth tests it
+/// stencil as the stock prepass does, an Opaque entry that loads such depth tests it
 /// for equality and writes none, and every other pass tests `LessEqual` and writes depth unless
 /// it attaches it read-only. A pass that attaches no depth tests none.
 #[derive(Clone, Debug, PartialEq)]
@@ -128,7 +128,12 @@ impl PassTarget {
     }
 
     /// The state of a draw into the pass that writes every colour attachment without blending,
-    /// under the pass's depth and stencil rules, with `raster` as its raster state.
+    /// under the pass's depth and stencil rules, with `raster` as its raster state. `colors` has
+    /// one entry for each colour attachment, in location order; a draw that blends sets its
+    /// entries. Particles blended over the frame's colour at
+    /// [`GamePlace::BeforePost`](worldrunner_render_post::GamePlace::BeforePost), for example,
+    /// set `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which keeps the
+    /// colour's alpha.
     pub fn render_state(&self, raster: RasterState) -> RenderState {
         match self.depth {
             Some(depth) => depth
@@ -147,29 +152,6 @@ impl PassTarget {
                 stencil: None,
             },
         }
-    }
-
-    /// The state of a draw into the pass under the pass's depth and stencil rules, with `raster`
-    /// as its raster state and `colors` as what it does with each colour attachment, in location
-    /// order: its blend state and write mask. Particles blended over the frame's colour at
-    /// [`GamePlace::BeforePost`](worldrunner_render_post::GamePlace::BeforePost), for example,
-    /// pass `wgpu::BlendState::ALPHA_BLENDING` with `wgpu::ColorWrites::COLOR`, which keeps the
-    /// colour's alpha.
-    ///
-    /// # Errors
-    /// [`FrameError::AttachmentContract`] naming the entry when `colors` does not have one
-    /// state for each colour attachment of the pass.
-    pub fn render_state_with(
-        &self,
-        raster: RasterState,
-        colors: &[ColorState],
-    ) -> Result<RenderState, FrameError> {
-        if colors.len() != self.colors.len() {
-            return Err(FrameError::AttachmentContract(self.entry));
-        }
-        let mut state = self.render_state(raster);
-        state.colors = colors.iter().copied().map(Some).collect();
-        Ok(state)
     }
 
     /// The frame's depth that `entry` attaches read-only, for the pass to sample as well as
@@ -248,7 +230,7 @@ fn depth_mode(passes: &[PassDeclaration], index: usize) -> DepthMode {
                 .is_some_and(|written| written.resource == depth.resource && !written.read_only)
     };
     let reused = |later: &PassDeclaration| {
-        matches!(later.slot, PassSlot::Opaque | PassSlot::OpaqueGbuffer)
+        later.slot == PassSlot::Opaque
             && later.depth.as_ref().is_some_and(|loaded| {
                 loaded.resource == depth.resource && loaded.load == AttachmentLoad::Load
             })
@@ -257,7 +239,7 @@ fn depth_mode(passes: &[PassDeclaration], index: usize) -> DepthMode {
         PassSlot::DepthNormalPrepass if passes[index + 1..].iter().any(reused) => {
             DepthMode::Prepass
         }
-        PassSlot::Opaque | PassSlot::OpaqueGbuffer
+        PassSlot::Opaque
             if depth.load == AttachmentLoad::Load && passes[..index].iter().any(completes) =>
         {
             DepthMode::Reuse

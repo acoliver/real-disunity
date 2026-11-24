@@ -36,13 +36,7 @@ fn a_feature_refuses_a_frame_of_another_authority_over_the_same_queue() {
     let other = SubmissionAuthority::new(context.queue().clone());
     assert!(!other.same_authority(context.submission()));
     let foreign = other.begin(context.device()).unwrap();
-    let refused = water.feature_with_depth(
-        (context.device(), &*foreign),
-        &frame(),
-        (0.0, 1),
-        (None, None),
-        DepthMode::Independent,
-    );
+    let refused = water.feature(&foreign, &frame(), (0.0, 1), None, DepthMode::Independent);
     assert!(
         matches!(
             refused,
@@ -55,13 +49,7 @@ fn a_feature_refuses_a_frame_of_another_authority_over_the_same_queue() {
     let own = context.submission().begin(context.device()).unwrap();
     assert!(
         water
-            .feature_with_depth(
-                (context.device(), &*own),
-                &frame(),
-                (0.0, 1),
-                (None, None),
-                DepthMode::Independent,
-            )
+            .feature(&own, &frame(), (0.0, 1), None, DepthMode::Independent,)
             .is_ok(),
         "the installing authority's own frame is accepted"
     );
@@ -81,12 +69,9 @@ fn each_feature_prepares_one_draw_per_body_and_reuses_built_programs() {
     let stats = || water.programs.borrow().runtime().stats();
     let before = stats();
     let encoder = context.submission().begin(context.device()).unwrap();
-    let first = water.feature(
-        (context.device(), &*encoder),
-        &frame(),
-        (0.0, 1),
-        (None, None),
-    );
+    let first = water
+        .feature(&encoder, &frame(), (0.0, 1), None, DepthMode::Independent)
+        .unwrap();
     let after_first = stats();
     assert_eq!(
         first.draws.iter().map(Option::is_some).collect::<Vec<_>>(),
@@ -100,12 +85,9 @@ fn each_feature_prepares_one_draw_per_body_and_reuses_built_programs() {
     );
     assert_eq!(after_first.modules_built - before.modules_built, 1);
     assert_eq!(after_first.pipelines_built - before.pipelines_built, 1);
-    let second = water.feature(
-        (context.device(), &*encoder),
-        &frame(),
-        (0.0, 2),
-        (None, None),
-    );
+    let second = water
+        .feature(&encoder, &frame(), (0.0, 2), None, DepthMode::Independent)
+        .unwrap();
     let after_second = stats();
     assert_eq!(after_second.draws_prepared - after_first.draws_prepared, 2);
     assert_eq!(after_second.modules_built, after_first.modules_built);

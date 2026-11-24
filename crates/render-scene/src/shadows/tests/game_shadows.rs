@@ -8,6 +8,7 @@ use crate::compositor::{
     CascadeSelection, ColorOutput, FrameInputError, FrameShadowHandle, FrameShadows, GameBuild,
     GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, TargetDeclaration, TargetExtent,
 };
+use crate::offscreen::OffscreenTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
@@ -49,7 +50,7 @@ thread_local! {
 
 impl Probe {
     fn install(
-        renderer: &mut ShadowedScene,
+        scheduler: &mut crate::compositor::FrameRenderer,
         context: &GpuContext,
         sample: bool,
     ) -> (Seen, FrameShadowHandle) {
@@ -59,7 +60,7 @@ impl Probe {
                 seen: seen.clone(),
                 sample,
             }))
-            .install(&mut renderer.scheduler, context, None)
+            .install(scheduler, context, None)
             .unwrap();
         let handle = BUILT
             .with(|built| built.borrow_mut().take())
@@ -220,7 +221,7 @@ fn cascaded() -> RenderScene {
 }
 
 fn shadowed(context: &GpuContext) -> (ShadowedScene, OffscreenTarget) {
-    let renderer = ShadowedScene::new(context, &cascaded(), settings()).unwrap();
+    let renderer = super::shadowed(context, &cascaded(), settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     (renderer, target)
 }
@@ -264,8 +265,9 @@ fn gpu_a_game_feature_reads_the_cascades_the_stock_receivers_use() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut renderer, target) = shadowed(&context);
-    let (seen, _) = Probe::install(&mut renderer, &context, false);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let (seen, _) = Probe::install(&mut scheduler, &context, false);
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
 
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 1, "the feature prepared once");
@@ -338,10 +340,11 @@ fn gpu_a_game_feature_reads_the_weakened_shadow_strength_the_stock_receivers_app
         })
         .unwrap();
     let source = source_with(&scene(&[[0, 0, 1_000]], 600_000, None), cascades);
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = super::shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let (seen, _) = Probe::install(&mut renderer, &context, false);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let (seen, _) = Probe::install(&mut scheduler, &context, false);
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
 
     let seen = seen.lock().unwrap();
     let lent = seen[0]
@@ -360,7 +363,7 @@ fn gpu_a_game_feature_reads_the_weakened_shadow_strength_the_stock_receivers_app
 fn gpu_a_same_frame_fitted_capture_lends_the_fitted_cascades() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let mut renderer = ShadowedScene::new(&context, &cascaded(), settings()).unwrap();
+    let mut renderer = super::shadowed(&context, &cascaded(), settings()).unwrap();
     renderer
         .set_depth_fitting(
             &context,
@@ -370,9 +373,10 @@ fn gpu_a_same_frame_fitted_capture_lends_the_fitted_cascades() {
             }),
         )
         .unwrap();
-    let (seen, _) = Probe::install(&mut renderer, &context, false);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let (seen, _) = Probe::install(&mut scheduler, &context, false);
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(renderer.last_depth_fit().is_some(), "the capture fitted");
 
     let seen = seen.lock().unwrap();
@@ -402,9 +406,10 @@ fn gpu_the_handle_lends_nothing_between_frames_and_never_an_earlier_frames_casca
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut renderer, target) = shadowed(&context);
-    let (seen, handle) = Probe::install(&mut renderer, &context, false);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let (seen, handle) = Probe::install(&mut scheduler, &context, false);
     assert_eq!(handle.current().unwrap_err(), FrameInputError::OutsideFrame);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(seen.lock().unwrap()[0].is_ok());
     assert_eq!(
         handle.current().unwrap_err(),
@@ -425,7 +430,7 @@ fn gpu_the_handle_lends_nothing_between_frames_and_never_an_earlier_frames_casca
     assert_eq!(verdict, Some(Some(FrameInputError::NotPrepared)));
     assert_eq!(handle.current().unwrap_err(), FrameInputError::OutsideFrame);
 
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert_eq!(seen.lock().unwrap().len(), 2);
     assert!(
         seen.lock().unwrap()[1].is_ok(),
@@ -438,15 +443,16 @@ fn gpu_a_frame_with_shadows_off_lends_nothing_and_still_renders() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut renderer, target) = shadowed(&context);
-    let (seen, _) = Probe::install(&mut renderer, &context, false);
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let (seen, _) = Probe::install(&mut scheduler, &context, false);
     renderer.set_shadows_enabled(false);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(matches!(
         seen.lock().unwrap().as_slice(),
         [Err(FrameInputError::NotPrepared)]
     ));
     renderer.set_shadows_enabled(true);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(seen.lock().unwrap()[1].is_ok());
 }
 
@@ -455,8 +461,9 @@ fn gpu_a_game_pass_samples_the_cascades_the_stock_casters_wrote_this_frame() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut renderer, target) = shadowed(&context);
-    let (seen, _) = Probe::install(&mut renderer, &context, true);
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let (seen, _) = Probe::install(&mut scheduler, &context, true);
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     assert!(seen.lock().unwrap()[0].is_ok());
 
     let stock = &depth_layers(&context, &renderer)[0];
@@ -475,7 +482,7 @@ fn gpu_a_game_pass_samples_the_cascades_the_stock_casters_wrote_this_frame() {
                 .any(|pair| bits(pair[0]) != bits(pair[1])),
         "the samples are written depths that differ across the layer: {expected:?}"
     );
-    let texture = renderer.scheduler.game_targets().texture(SAMPLED).unwrap();
+    let texture = scheduler.game_targets().texture(SAMPLED).unwrap();
     assert_eq!(read_f32(&context, &texture), expected);
 }
 

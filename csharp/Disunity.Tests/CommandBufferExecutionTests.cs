@@ -30,7 +30,7 @@ internal static class CommandBufferExecutionTests
             ClearOverloads();
             Console.WriteLine("PASS: ClearRenderTarget records which parts clear, the color, the depth and the stencil");
             GlobalsAreRecordedInOrder();
-            Console.WriteLine("PASS: SetGlobal values, textures and keywords are recorded by name and id and not folded into the global state");
+            Console.WriteLine("PASS: SetGlobal values, textures and keywords reach the global state by name and id and are ordered in front of the next record");
             NonFiniteGlobalsAreSentAsZero();
             Console.WriteLine("PASS: a NaN or infinity in a SetGlobal float, vector or matrix is sent as 0, as a material property is");
             PlainTexturesAreReadThroughAnIdentifier();
@@ -58,11 +58,16 @@ internal static class CommandBufferExecutionTests
         }
         finally
         {
+            // An executed buffer's texture globals persist like Shader.SetGlobalTexture and outlive the world; clear them
+            // so the next world is not handed textures this one destroyed.
+            foreach (var name in new[] { "_Plain", "_T", "_T2" }) Shader.SetGlobalTexture(name, (Texture?)null);
             DisunityHost.UnloadWorld();
         }
     }
 
     private static string[] Taken() => CommandWireReader.Take();
+
+    private static string[] TakenOrdered() => CommandWireReader.TakeOrdered();
 
     private static RenderTexture Target(int size = 16, int depth = 0)
     {
@@ -84,35 +89,37 @@ internal static class CommandBufferExecutionTests
         Expect.Equal(3, buffer.commandCount, "three commands are held");
         Expect.Equal(0, Taken().Length, "nothing reaches the world while recording");
         Graphics.ExecuteCommandBuffer(buffer);
-        Same(["Keyword FIRST=True", "SetGlobal _Second=float (2)", "Keyword FIRST=False"], Taken(), "executed in recorded order");
+        Same(["SetGlobal _Second=float (2)", "Keyword FIRST=False"], TakenOrdered(), "executed: each name once, with the value it ends with");
+        Expect.That(!Shader.IsKeywordEnabled("FIRST") && Shader.GetGlobalFloat("_Second") == 2f, "executing sets the globals");
         buffer.Clear();
         Expect.Equal(0, buffer.commandCount, "Clear empties the buffer");
         Graphics.ExecuteCommandBuffer(buffer);
         Expect.Equal(0, Taken().Length, "an emptied buffer sends nothing");
         buffer.EnableShaderKeyword("AFTER");
         Graphics.ExecuteCommandBuffer(buffer);
-        Same(["Keyword AFTER=True"], Taken(), "a buffer records again after Clear");
+        Same(["Keyword AFTER=True"], TakenOrdered(), "a buffer records again after Clear");
     }
 
     private static void ExecutingTwiceDeliversTwice()
     {
+        var (a, b, c) = (Shader.PropertyToID("_A"), Shader.PropertyToID("_B"), Shader.PropertyToID("_C"));
         var buffer = new CommandBuffer();
-        buffer.SetGlobalInt("_A", 1);
-        buffer.SetGlobalInt("_B", 2);
+        buffer.ReleaseTemporaryRT(a);
+        buffer.ReleaseTemporaryRT(b);
         Graphics.ExecuteCommandBuffer(buffer);
         Graphics.ExecuteCommandBuffer(buffer);
-        buffer.SetGlobalInt("_C", 3);
-        Same(["SetGlobal _A=int 1", "SetGlobal _B=int 2", "SetGlobal _A=int 1", "SetGlobal _B=int 2"], Taken(), "two executions");
+        buffer.ReleaseTemporaryRT(c);
+        Same([$"Release {a}", $"Release {b}", $"Release {a}", $"Release {b}"], Taken(), "two executions");
         Graphics.ExecuteCommandBuffer(buffer);
-        Same(["SetGlobal _A=int 1", "SetGlobal _B=int 2", "SetGlobal _C=int 3"], Taken(), "a command recorded after an execution joins the next one");
+        Same([$"Release {a}", $"Release {b}", $"Release {c}"], Taken(), "a command recorded after an execution joins the next one");
     }
 
     private static void ContextExecutesThenSubmits()
     {
         var (first, second) = (new CommandBuffer(), new CommandBuffer());
-        first.EnableShaderKeyword("A");
-        first.EnableShaderKeyword("B");
-        second.EnableShaderKeyword("C");
+        first.ReleaseTemporaryRT(1);
+        first.ReleaseTemporaryRT(2);
+        second.ReleaseTemporaryRT(3);
         var context = new ScriptableRenderContext();
         context.ExecuteCommandBuffer(first);
         context.ExecuteCommandBuffer(second);
@@ -121,7 +128,7 @@ internal static class CommandBufferExecutionTests
         Expect.Equal(0, Taken().Length, "nothing is sent before Submit");
         first.Clear();
         new ScriptableRenderContext().Submit();
-        Same(["Keyword A=True", "Keyword B=True", "Keyword C=True", "Keyword A=True", "Keyword B=True"], Taken(), "submitted in order, copies taken at Execute");
+        Same(["Release 1", "Release 2", "Release 3", "Release 1", "Release 2"], Taken(), "submitted in order, copies taken at Execute");
         Expect.Equal(0, ScriptableRenderContext.PendingCount, "Submit empties the list");
         context.Submit();
         Expect.Equal(0, Taken().Length, "a second Submit sends nothing");
@@ -188,7 +195,6 @@ internal static class CommandBufferExecutionTests
         foreach (var type in new[] { BuiltinRenderTextureType.Depth, BuiltinRenderTextureType.MotionVectors, BuiltinRenderTextureType.GBuffer0, BuiltinRenderTextureType.CurrentActive })
             Throws<NotSupportedException>(() => buffer.SetRenderTarget(type), $"target {type}", $"BuiltinRenderTextureType.{type}", "CommandBuffer.SetRenderTarget");
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(new Texture2D(2, 2)), "a plain texture", "Texture2D", "render target");
-        Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", new Cubemap(2, TextureFormat.RGBA32, false)), "a cubemap", "Cubemap");
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(Target().colorBuffer), "a render buffer", "BufferPtr");
         Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", BuiltinRenderTextureType.Depth), "the camera depth as a texture", "Depth");
         Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", BuiltinRenderTextureType.GBuffer1), "a global texture", "GBuffer1");
@@ -395,32 +401,41 @@ internal static class CommandBufferExecutionTests
         buffer.SetKeyword(keyword, true);
         buffer.EnableShaderKeyword("BY_NAME");
         buffer.DisableShaderKeyword("BY_NAME");
-        var before = Shader.GetGlobalFloat("_F");
+        Expect.Near(0f, Shader.GetGlobalFloat("_F"), "recording sets no global");
         Graphics.ExecuteCommandBuffer(buffer);
-        Expect.Near(before, Shader.GetGlobalFloat("_F"), "executing leaves the managed global alone");
+        Expect.Near(1.5f, Shader.GetGlobalFloat("_F"), "executing sets the managed global");
+        Expect.That(ReferenceEquals(Shader.GetGlobalTexture("_T"), texture), "and the managed global texture");
+        // The world orders each name's last value in front of the next record, by kind and then name; a name set twice with no
+        // record between is one record. SetGlobalInt is a float, as Shader.SetGlobalInt makes it, and SetGlobalInteger an int.
         Same([
-            "SetGlobal _F=float (1.5)",
             "SetGlobal _ByIdFloat=float (-2)",
-            "SetGlobal _I=int 3",
+            "SetGlobal _F=float (1.5)",
+            "SetGlobal _I=float (3)",
             "SetGlobal _I2=int 4",
-            "SetGlobal _V=vector (1 2 3 4)",
             "SetGlobal _C=vector (0.1 0.2 0.3 0.4)",
             "SetGlobal _C2=vector (1 0 0 1)",
+            "SetGlobal _V=vector (1 2 3 4)",
             "SetGlobal _M=matrix (1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)",
             $"SetGlobal _T=texture render:{texture.WorldId} scale=(1 1) offset=(0 0)",
             "SetGlobal _T2=texture none scale=(1 1) offset=(0 0)",
-            "Keyword GLOBAL_FOG=True",
-            "Keyword GLOBAL_FOG=False",
-            "Keyword GLOBAL_FOG=True",
-            "Keyword BY_NAME=True",
             "Keyword BY_NAME=False",
-        ], Taken(), "globals");
+            "Keyword GLOBAL_FOG=True",
+        ], TakenOrdered(), "globals");
         Throws<ArgumentException>(() => buffer.SetGlobalFloat(unchecked((int)0x7ABCDEF1), 1f), "an id with no name");
         Throws<ArgumentNullException>(() => buffer.EnableShaderKeyword(null!), "a null keyword");
         Throws<ArgumentNullException>(() => buffer.SetGlobalFloat((string)null!, 1f), "a null name");
         var empty = new CommandBuffer();
         empty.SetGlobalFloat("", 1f);
-        Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(empty), "an empty name reaches the world and is refused there");
+        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(empty), "an empty name is refused when the buffer runs, before a global changes", "1 to 256");
+        var longName = new CommandBuffer();
+        longName.EnableShaderKeyword(new string('k', 257));
+        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(longName), "a keyword over 256 bytes", "1 to 256");
+        Expect.That(!Shader.IsKeywordEnabled(new string('k', 257)), "a refused keyword is not stored");
+        var wide = new string('g', 257);
+        var wideGlobal = new CommandBuffer();
+        wideGlobal.SetGlobalFloat(wide, 5f);
+        Throws<ArgumentException>(() => Graphics.ExecuteCommandBuffer(wideGlobal), "a 257-byte global name is refused before it enters the store", "1 to 256");
+        Expect.That(Shader.GetGlobalFloat(wide) == 0f, "a refused global float is not stored");
         Taken();
     }
 
@@ -437,7 +452,7 @@ internal static class CommandBufferExecutionTests
             "SetGlobal _F=float (0)",
             "SetGlobal _V=vector (0 0 1 2)",
             "SetGlobal _M=matrix (1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1)",
-        ], Taken(), "non-finite global values");
+        ], TakenOrdered(), "non-finite global values");
     }
 
     private static void TemporariesCarryTheirShape()

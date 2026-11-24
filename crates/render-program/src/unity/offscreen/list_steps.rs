@@ -9,13 +9,14 @@ use worldrunner_render_post::contracts::{
     AllocationKey, ColorAttachment, DepthAttachment, RasterId, RasterPass, TextureRange,
 };
 
-use crate::ids::TextureId;
+use crate::ids::{MaterialId, RendererId, TextureId};
 use crate::packet::{MAX_COLOR_ATTACHMENTS, TargetSignature};
 
 use super::ListDraws;
 use super::depth_range;
+use super::dots;
 use super::error::OffscreenError;
-use super::frame::{Attachment, Attachments, Clear, DrawList, OffscreenFrame};
+use super::frame::{Attachment, Attachments, Clear, DrawList, Instances, OffscreenFrame};
 use super::plan::Services;
 use super::raster::{self, PassRaster};
 use super::steps::{
@@ -284,12 +285,11 @@ fn depth_attachment(
     let view = svc
         .tracker
         .cell_view(key, (mip, 0), wgpu::TextureAspect::All, after)?;
-    let reversed = svc.reversed_depth;
     Ok(Some(DepthAttachment {
         view,
         before: clear.is_none().then_some(before),
         load: clear.map_or(AttachmentLoad::Load, |depth| {
-            AttachmentLoad::ClearDepth(depth_range::depth_clear(depth, reversed))
+            AttachmentLoad::ClearDepth(depth_range::depth_clear(depth))
         }),
         store: wgpu::StoreOp::Store,
         read_only: false,
@@ -374,9 +374,6 @@ fn list_draws(
         else {
             continue;
         };
-        if item.instances == 0 {
-            continue;
-        }
         let look = Look {
             selector: &item.pass,
             values: &list.values,
@@ -385,16 +382,40 @@ fn list_draws(
             globals,
             signature,
             written: cells,
+            dots: None,
         };
-        if let Some(mut draw) =
-            planned_draw(svc, frame, &look, (material, item.renderer, item.slot))?
-        {
-            draw.geometry.instances = 0..item.instances;
+        let ids = (material, item.renderer, item.slot);
+        let mut planned = item_draws(svc, frame, &look, ids, &item.instances)?;
+        for draw in &mut planned {
             draw.raster = raster;
-            draws.push(draw);
         }
+        draws.extend(planned);
     }
     Ok(draws)
+}
+
+/// The draws one list item plans to: one for a count of instances, and none for a count of 0.
+fn item_draws(
+    svc: &mut Services<'_>,
+    frame: &OffscreenFrame,
+    look: &Look<'_>,
+    ids: (MaterialId, RendererId, usize),
+    instances: &Instances,
+) -> Result<Vec<CameraDraw>, OffscreenError> {
+    match instances {
+        Instances::Count(0) => Ok(Vec::new()),
+        Instances::Count(count) => {
+            let planned = planned_draw(svc, frame, look, ids)?;
+            Ok(planned
+                .into_iter()
+                .map(|mut draw| {
+                    draw.geometry.instances = 0..*count;
+                    draw
+                })
+                .collect())
+        }
+        Instances::Dots(batch) => dots::draws(svc, frame, look, ids, batch),
+    }
 }
 
 /// A list: the draws the items plan to, in order, into the attachments, loading what they hold. A
@@ -416,7 +437,7 @@ pub(super) fn list_step(
         svc.counts.missing_channel,
         svc.counts.feedback_loop,
     );
-    let draws = match raster::resolve(&list.raster, size, svc.reversed_depth) {
+    let draws = match raster::resolve(&list.raster, size) {
         Some(raster) => list_draws(svc, frame, globals, list, (signature, raster), &cells)?,
         None => Vec::new(),
     };

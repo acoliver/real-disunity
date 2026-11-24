@@ -2,13 +2,17 @@
 //! and reads levels of its declared textures and targets back by handle after the frame, naming
 //! no GPU type for either.
 use super::common::{self, graphics};
-use super::fixture::{FORMAT, Rig, SIZE, quad_scene};
+use super::fixture::{Rig, SCENE_FORMAT, SIZE, quad_scene};
 use super::shadowed::{capture_fit, fitted, lit_scene};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     BlockSource, GraphicsProgram, ImportedDraw, ImportedGeometry, PreparedProgramDraw, TargetImage,
@@ -19,11 +23,6 @@ use worldrunner_render_scene::{
         ColorOutput, GameBlockDestination, GameBuild, GameFeatureFactory, GameLevel, GamePassSpec,
         GamePasses, GameReadback, GameResourceError, GameResources, GameTargets, GameTexture,
         GameTextureDeclaration, GameTextureLevel, PassTarget, TargetDeclaration, TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
     },
     wgpu,
 };
@@ -882,7 +881,7 @@ fn a_block_transfer_inside_a_shadowed_same_frame_capture_lands_and_reads_back() 
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let _clear = ClearKept;
     let mut rig = rig(Ask::Transfer);
-    let mut scene = fitted(&rig, &lit_scene(), FORMAT);
+    let mut scene = fitted(&rig, &lit_scene(), SCENE_FORMAT);
     let reads = KEPT.with_borrow(|kept| kept.reads.clone());
     capture_fit(&mut rig, &mut scene, 0);
     let delivered = delivered(rig, reads);

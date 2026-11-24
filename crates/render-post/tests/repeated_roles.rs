@@ -103,6 +103,7 @@ fn passes_run_in_authored_order_and_a_role_can_run_twice() {
         config,
         Resources::default(),
         CopyOutput::new(&device, FORMAT),
+        SceneDepth::Independent,
     )
     .unwrap();
     // The enum orders DepthNormalPrepass before Opaque. The author lists Opaque twice and
@@ -208,6 +209,7 @@ fn a_repeated_entry_is_refused_before_any_feature_prepares_or_draws() {
         config,
         Resources::default(),
         CopyOutput::new(&device, FORMAT),
+        SceneDepth::Independent,
     )
     .unwrap();
     let entry = PassEntry::nth(PassSlot::Opaque, 1);
@@ -257,6 +259,7 @@ fn a_prefix_that_encoded_one_entry_of_a_role_does_not_skip_the_next_entry_of_tha
         config,
         Resources::default(),
         CopyOutput::new(&device, FORMAT),
+        SceneDepth::Independent,
     )
     .unwrap();
     let first = PassEntry::new(PassSlot::Opaque);
@@ -350,6 +353,7 @@ fn a_feature_declared_in_two_entries_of_one_role_tells_them_apart() {
         config,
         Resources::default(),
         CopyOutput::new(&device, FORMAT),
+        SceneDepth::Independent,
     )
     .unwrap();
     let first = PassEntry::new(PassSlot::Opaque);

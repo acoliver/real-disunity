@@ -13,7 +13,6 @@ use crate::bind::Snapshot;
 use crate::budget::Reservation;
 use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
-use crate::module::StageProgram;
 use crate::pipeline_key::Key;
 use crate::primitive::Primitive;
 use crate::program::GraphicsProgram;
@@ -520,7 +519,10 @@ impl ProgramRuntime {
                 what: "stencil without a stencil attachment",
             });
         }
-        let key = request.key();
+        let key = request.program.pipeline_keys.get_or_compute(request, || {
+            self.counters.pipeline_key_computed();
+            request.key()
+        });
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
         }
@@ -689,29 +691,17 @@ impl PipelineRequest<'_> {
             .collect()
     }
 
-    /// The pipeline's content key: stage sources, layout, the whole state, the target signature,
-    /// the vertex layouts and the primitive: topology and strip index format.
+    /// The pipeline's content key: the program's identity (stage sources, layout and lent sets), the
+    /// whole state, the target signature, the vertex layouts and the primitive: topology and strip
+    /// index format.
     pub(crate) fn key(&self) -> blake3::Hash {
         let mut key = Key::new("render");
-        key.hash(self.program.vertex.content_key());
-        // A vertex-only program is a different pipeline from any with a fragment stage.
-        key.debug(
-            &self
-                .program
-                .fragment
-                .as_ref()
-                .map(StageProgram::content_key),
-        );
-        key.debug(&self.program.gpu.layout);
-        for lent in &self.program.gpu.external {
-            key.debug(&lent.set);
-            key.identity(&lent.layout);
-        }
-        key.debug(&(self.state, self.signature));
+        key.hash(self.program.identity);
+        key.value(&(self.state, self.signature));
         for layout in self.layouts {
-            key.debug(&(layout.stride, layout.step, layout.attributes));
+            key.value(&(layout.stride, layout.step, layout.attributes));
         }
-        key.debug(&self.primitive);
+        key.value(&self.primitive);
         key.finish()
     }
 }

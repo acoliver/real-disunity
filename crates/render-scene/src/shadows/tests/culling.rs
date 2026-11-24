@@ -1,4 +1,5 @@
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_offscreen_upstream_caster_is_culled_from_color_but_shadows_visible_ground() {
@@ -21,10 +22,11 @@ fn gpu_offscreen_upstream_caster_is_culled_from_color_but_shadows_visible_ground
         depth_half_extent_meters: 0.5,
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut renderer = shadowed(&context, &source, settings).unwrap();
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    render_target(&mut renderer, &context, &view, &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
     let shadow = target.read_rgba8(&context).unwrap();
     assert_eq!(renderer.view_stats().considered, 2);
     assert_eq!(renderer.view_stats().culled, 1);
@@ -34,7 +36,7 @@ fn gpu_offscreen_upstream_caster_is_culled_from_color_but_shadows_visible_ground
         .scene_mut()
         .set_instance_visible(caster, false)
         .unwrap();
-    render_target(&mut renderer, &context, &view, &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
     let baseline = target.read_rgba8(&context).unwrap();
     let point = Vec3::ZERO;
     assert!(
@@ -52,6 +54,6 @@ fn gpu_offscreen_upstream_caster_is_culled_from_color_but_shadows_visible_ground
         .scene_mut()
         .set_instance_visible(caster, true)
         .unwrap();
-    render_target(&mut renderer, &context, &view, &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view, &target).unwrap();
     assert_eq!(target.read_rgba8(&context).unwrap(), shadow);
 }

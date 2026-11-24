@@ -1,6 +1,6 @@
 {
-  "abi_version": 22,
-  "description": "Disunity revision 22: adds disunity_world_advance_teardown, an advance for a host that is tearing the world down: it runs the OnDisable and OnDestroy messages that destruction has queued, and the asset cleanup, and runs no Start, fixed step, Update, coroutine, delayed task, LateUpdate or render phase and leaves the clock and frame count unchanged. Retains revision 21: a texture slot of kind 5 names a texture the data names that the engine did not send (a destroyed or empty texture, one the engine cannot store, one the importer did not build), with texture identity 0, which the world reads as no texture and the host's stand-in census reports as not loaded, and the graphics snapshot encoding carries it from wire version 17. Retains revision 20: a mesh renderer holds a property block for each material slot beside the block of every slot, which the shader property calls reach with scope 4 and the target disunity_mesh_renderer_slot_block_target gives, and the graphics snapshot encoding carries them from wire version 16. Retains revision 19: disunity_environment_read and disunity_environment_write move the world's environment lighting (the ambient light and the default reflection, with a set flag for each section) in the 224-byte DisunityEnvironment, and the graphics snapshot carries the environment from wire version 15. Retains revision 18: Disunity revision 18: a command buffer records a scissor rectangle (disunity_offscreen_enable_scissor and disunity_offscreen_disable_scissor, kinds 20 and 21) and a global depth bias (disunity_offscreen_set_depth_bias, kind 22), which the graphics snapshot carries from wire version 14. Retains revision 17: DisunityTextureInfo, the record of a stored texture, carries depth (the layers of a 2D array, the six faces of a cube or the slices of a 3D texture), graphics_format, dimension (0 or 2 for 2D, 3 for 3D, 4 for a cube, 5 for a 2D array) and a reserved word that is zero, and grows from 48 to 64 bytes. A texture of one or more layers of a layered dimension states its graphics_format, its length is a whole number of layers (a 3D texture with more than one mip level holds its levels one after another, each with its own slices, and need not be), and a 2D texture with depth 0 or 1 reads back as before. Retains revision 16: Disunity revision 16: DisunityRenderTexture carries auto_generate_mips (1 when the host regenerates the smaller mip levels whenever the texture is drawn into) and a padding word that keeps generation aligned, and disunity_offscreen_generate_mips records a request to fill the mip levels of a render texture with more than one level, which a take reports as kind 19 and the graphics snapshot carries as a GenerateMips record. Retains revision 15: a command buffer records a mesh draw with an instance count, which the graphics snapshot encoding carries from wire version 12, and a material binds a compute buffer to a property name as a structured buffer through disunity_material_set_buffer, which the graphics snapshot copies with the draws that use the material; disunity_offscreen_draw_mesh_instanced records the instanced mesh draw. Retains revision 14: Disunity revision 14: a command buffer records a viewport, the rectangle in pixels of the bound targets that the draws after it cover, and the offscreen work list carries it as kind 18. Retains revision 13: Disunity revision 13: DisunityOffscreenWork carries target_kind, so a recorded blit or texture copy writes a render texture (0) or the temporary render texture of a property name id (1), and a texture of kind 4 names a temporary render texture by its property name id as a blit or copy source or a global that recorded work sets. Retains revision 12: Disunity revision 12: a camera has target buffers (one to eight color render textures and an optional depth render texture, set and read by two camera calls, replacing the target texture and replaced by it), and disunity_offscreen_setup_camera takes the buffers the camera had when the script set it up. Retains revision 11: DisunityUiDraw adds distance_mode (0 coverage, 1 fill, 2 outline, 3 glow), distance_spread in atlas pixels, distance_radius in physical screen pixels and effect RGBA. Signed-distance records require textured affine text quads and validated style parameters. Retains revision 10: DisunityUiDraw carries an explicit corner_colors_present flag (0 white, 1 explicit) and sixteen linear straight-alpha RGBA corner channels in bottom-left, bottom-right, top-right, top-left order, multiplied by the common tint. Triangles use the first three colours. Channels must be finite and in 0..=1. Retains revision 9: DisunityRenderTexture carries the texture's dimension (2D, 3D, cube, 2D array or cube array) and volume depth (slices, layers or cube-array faces), and render textures in the graphics snapshot carry both. Retains revision 8: Disunity revision 8: DisunityUiDraw kind low bits 0 mean a graphic quad, 1 means text coverage, and 2 means a graphic triangle using the first three DisunityQuad corners and all three top-row-origin triangle UV pairs. Bit 2 enables scene-depth testing using non-reversed raster depth in the corners. Quad graphics and text have zero triangle UV fields. Managed CanvasRenderer meshes and native annotations share this presentation representation. Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, a native CanvasRenderer component with its own record and material calls, and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components with their own record and calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does. Adds, within revision 7, native shaders, materials, shader properties and keywords, render textures, world materials and property blocks on mesh renderers, recorded offscreen work, every mesh channel and sub-mesh topology for the host, and a sampler for each stored texture and render texture and, for the compute work scripts record, compute shaders, compute buffers, kernel bindings, recorded dispatches and a synchronous GPU flush that a host registers a callback for, on one world or as the default of worlds made later. Revision 8 also adds pixel reads of a render texture: a request for a rectangle, the host's write of its texels and the script's take. Revision 8 also adds renderer lists: two calls that turn a culling result into a drawing list or a shadow caster list, and a call that records the draw of a list. Revision 8 also adds a view and projection change that a command buffer records for the draws after it. Revision 9 also adds the lights of a prepared frame: a count, and a read of each light's settings, object identity and matrix to the frame's view basis. Revision 9 also adds the renderShadows setting of the camera a prepared frame presents. Revision 10 also adds a procedural draw that a command buffer records: a material's passes over a triangle or line list of vertices its shader makes from the vertex and instance index, with no mesh.",
+  "abi_version": 31,
+  "description": "Disunity revision 31. disunity_offscreen_take, disunity_offscreen_detail and disunity_compute_bindings_read are removed: a host reads the frame's work, the material copies its records name, the global state the records replay from and the values each dispatch ran with in the graphics snapshot (disunity_graphics_snapshot), whose wire version 21 puts the work list first in the body. DisunityOffscreenWork keeps the fields that disunity_offscreen_record reads, and the kind labels that a take gave records are gone. Retains revision 30: disunity_texture_store refuses a texture record whose dimension is 0: a 2D texture states dimension 2, and the host reads only 2, 3, 4 and 5. Retains revision 29: A command buffer records a mesh draw of a batch of instances (disunity_offscreen_draw_mesh_batch, kind 23): a stored mesh, a material pass and a window of a compute buffer that the shader reads per instance, the metadata words of the properties the game set by name and the indexes of the instances to draw; the graphics snapshot carries it from wire version 20, with the buffer it names. Retains revision 28: disunity_skinned_renderer_write names the mesh identity a skinned mesh renderer draws and its root bone with the bone's bind pose (16 column-major floats), which place the mesh when its bones are at rest; a renderer with no root bone has no placement and is left out of frames, and a mesh renderer or filter has no skin. Retains revision 27: disunity_script_execution_order sets the execution order of a script (a 32-bit signed integer, 0 by default), so a phase or a batch of lifecycle messages delivers Awake, OnEnable, Start, FixedUpdate, Update, LateUpdate, OnDisable and OnDestroy to the scripts with the lowest order first and to scripts of equal order in the order they were registered, whatever handle each has, and a clone takes its source's order and registers after the scripts that exist. Coroutine resumption is not ordered by it. The host reports the order a scene plan stores for a script class, 0 included, and for a class the plan does not name its DefaultExecutionOrder attribute, else 0. Retains revision 26: a canvas renderer keeps the world material of its main slot 0 (the world_material argument of disunity_canvas_renderer_material_write, 0 for none), and DisunityUiDraw names it with material and material_generation (the draw record grows from 160 to 176 bytes), 0 for none. Retains revision 25: disunity_canvas_renderer_texture_write takes a texture kind (0 a stored image identity, 1 a render texture the world holds), so a canvas renderer can draw with a render texture; DisunityUiGraphicInfo and DisunityUiDraw carry texture_kind and a padding word (the draw record grows from 152 to 160 bytes, the graphic info from 16 to 24), and the quad texture of a draw with kind 1 is the render texture id. A slot of a mesh object draws from the slot's world material alone and draws white with texture 0 when it has none; the renderer record keeps no drawn slots, and DisunityDrawnMaterial is the slot record of disunity_presentation_mesh_object. A texture slot of kind 5 names a texture the data names that the engine did not send (a destroyed or empty texture, one the engine cannot store, one the importer did not build), with texture identity 0, which the world reads as no texture and the host's stand-in census reports as not loaded; the graphics snapshot encoding carries it from wire version 17. A mesh renderer holds a property block for each material slot beside the block of every slot, which the shader property calls reach with scope 4 and the target disunity_mesh_renderer_slot_block_target gives; the graphics snapshot encoding carries them from wire version 16. disunity_environment_read and disunity_environment_write move the world's environment lighting (the ambient light and the default reflection, with a set flag for each section) in the 224-byte DisunityEnvironment, and the graphics snapshot carries the environment from wire version 15. A command buffer records a scissor rectangle (disunity_offscreen_enable_scissor and disunity_offscreen_disable_scissor, kinds 20 and 21) and a global depth bias (disunity_offscreen_set_depth_bias, kind 22), which the graphics snapshot carries from wire version 14. DisunityTextureInfo, the record of a stored texture, is 64 bytes: it carries depth (the layers of a 2D array, the six faces of a cube or the slices of a 3D texture), graphics_format, dimension (2 for 2D, 3 for 3D, 4 for a cube, 5 for a 2D array) and a reserved word that is zero. A texture of one or more layers of a layered dimension states its graphics_format, its length is a whole number of layers (a 3D texture with more than one mip level holds its levels one after another, each with its own slices, and need not be), and a 2D texture has depth 0 or 1. DisunityRenderTexture carries auto_generate_mips (1 when the host regenerates the smaller mip levels whenever the texture is drawn into) and a padding word that keeps generation aligned, and disunity_offscreen_generate_mips records a request to fill the mip levels of a render texture with more than one level, which the graphics snapshot carries as a GenerateMips record. A command buffer records a mesh draw with an instance count (disunity_offscreen_draw_mesh_instanced), which the graphics snapshot encoding carries from wire version 12, and a material binds a compute buffer to a property name as a structured buffer through disunity_material_set_buffer, which the graphics snapshot copies with the draws that use the material. A command buffer records a viewport, the rectangle in pixels of the bound targets that the draws after it cover, and the offscreen work list carries it as kind 18. DisunityOffscreenWork carries target_kind, so a recorded blit or texture copy writes a render texture (0) or the temporary render texture of a property name id (1), and a texture of kind 4 names a temporary render texture by its property name id as a blit or copy source or a global that recorded work sets. A camera has target buffers (one to eight color render textures and an optional depth render texture), set and read by two camera calls that take the place of a single target texture, and disunity_offscreen_setup_camera takes the buffers the camera had when the script set it up. DisunityUiDraw carries distance_mode (0 coverage, 1 fill, 2 outline, 3 glow), distance_spread in atlas pixels, distance_radius in physical screen pixels and effect RGBA; signed-distance records require textured affine text quads and validated style parameters. DisunityUiDraw carries an explicit corner_colors_present flag (0 white, 1 explicit) and sixteen linear straight-alpha RGBA corner channels in bottom-left, bottom-right, top-right, top-left order, multiplied by the common tint. Triangles use the first three colours. Channels must be finite and in 0..=1. DisunityRenderTexture carries the texture's dimension (2D, 3D, cube, 2D array or cube array) and volume depth (slices, layers or cube-array faces), and render textures in the graphics snapshot carry both. DisunityUiDraw kind low bits 0 mean a graphic quad, 1 means text coverage, and 2 means a graphic triangle using the first three DisunityQuad corners and all three top-row-origin triangle UV pairs. Bit 2 enables scene-depth testing using non-reversed raster depth in the corners. Quad graphics and text have zero triangle UV fields. Managed CanvasRenderer meshes and native annotations share this presentation representation. The Camera record carries perspective lenses, culling masks, viewports, render settings and custom matrices, with two matrix calls; a native 3D Light component, a native CanvasGroup component, a native CanvasRenderer component (with material calls), and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components each have their own record and calls. Batch construction, object wake and body position constraints are calls of the world, and canvas scale has its own calls outside the Canvas record, so a canvas can scale with the screen as a CanvasScaler does. The interface also carries native shaders, materials, shader properties and keywords, render textures, world materials and property blocks on mesh renderers, recorded offscreen work, every mesh channel and sub-mesh topology for the host, and a sampler for each stored texture and render texture; for the compute work scripts record, compute shaders, compute buffers, kernel bindings, recorded dispatches and a synchronous GPU flush that a host registers a callback for, on one world or as the default of worlds made later. It carries pixel reads of a render texture (a request for a rectangle, the host's write of its texels and the script's take), renderer lists (two calls that turn a culling result into a drawing list or a shadow caster list, and a call that records the draw of a list), and a view and projection change that a command buffer records for the draws after it. It carries the lights of a prepared frame (a count, and a read of each light's settings, object identity and matrix to the frame's view basis) and the renderShadows setting of the camera a prepared frame presents. A command buffer records a procedural draw: a material's passes over a triangle or line list of vertices its shader makes from the vertex and instance index, with no mesh. disunity_world_advance_teardown is an advance for a host that is tearing the world down: it runs the OnDisable and OnDestroy messages that destruction has queued, and the asset cleanup, and runs no Start, fixed step, Update, coroutine, delayed task, LateUpdate or render phase and leaves the clock and frame count unchanged. A command buffer's global value, array or keyword is a direct write of the world's global state (the disunity_shader_* calls), which the world orders among the take's offscreen records, a write after the last record included; the one global a command buffer records is a texture, through disunity_offscreen_set_global_texture, for the host to set when it reaches the record, because a temporary render texture has no identity that outlives its take.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -355,11 +355,6 @@
     {
       "name": "disunity_error_take",
       "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_compute_bindings_read",
-      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -718,18 +713,8 @@
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_mesh_renderer_slots_read",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
       "name": "disunity_mesh_renderer_slot_block_target",
       "since": "20.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_mesh_renderer_slots_write",
-      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -758,11 +743,6 @@
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_offscreen_detail",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
       "name": "disunity_offscreen_disable_scissor",
       "since": "17.0.0",
       "rets": "DisunityResult"
@@ -770,6 +750,11 @@
     {
       "name": "disunity_offscreen_draw_mesh",
       "since": "9.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_draw_mesh_batch",
+      "since": "28.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -813,23 +798,8 @@
       "rets": "DisunityResult"
     },
     {
-      "name": "disunity_offscreen_set_global",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_offscreen_set_global_keyword",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_offscreen_set_global_matrix_array",
-      "since": "9.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_offscreen_set_global_vector_array",
-      "since": "9.0.0",
+      "name": "disunity_offscreen_set_global_texture",
+      "since": "23.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -849,11 +819,6 @@
     },
     {
       "name": "disunity_offscreen_setup_camera",
-      "since": "7.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_offscreen_take",
       "since": "7.0.0",
       "rets": "DisunityResult"
     },
@@ -980,6 +945,11 @@
     {
       "name": "disunity_shadow_query",
       "since": "10.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_skinned_renderer_write",
+      "since": "27.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -1140,6 +1110,11 @@
     {
       "name": "disunity_script_messages",
       "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_script_execution_order",
+      "since": "27.0.0",
       "rets": "DisunityResult"
     },
     {

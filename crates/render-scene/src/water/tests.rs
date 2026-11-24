@@ -14,6 +14,8 @@ mod contracts;
 mod default_tests;
 #[path = "diffuse_tests.rs"]
 mod diffuse_tests;
+#[path = "key_cost_tests.rs"]
+mod key_cost_tests;
 #[path = "lighting_tests.rs"]
 mod lighting_tests;
 #[path = "numerical.rs"]
@@ -74,15 +76,13 @@ fn settings() -> SceneWaterBody {
     }
 }
 #[test]
-fn absorption_increases_with_distance_and_foreground_is_rejected() {
+fn absorption_increases_with_distance_and_invalid_settings_are_rejected() {
     let _session = crate::test_support::SceneTestSession::acquire();
     for coefficient in [0.05, 0.1, 0.3] {
         assert!((transmittance(coefficient, 0.0) - 1.0).abs() < f32::EPSILON);
         assert!(transmittance(coefficient, 1.0) > transmittance(coefficient, 5.0));
         assert!(transmittance(coefficient, 5.0) > transmittance(coefficient, 20.0));
     }
-    assert_eq!(refraction_pixel([3, 4], [5, 6], 2.0, 3.0), [3, 4]);
-    assert_eq!(refraction_pixel([3, 4], [5, 6], 4.0, 3.0), [5, 6]);
     assert!(matches!(
         validate_settings(&SceneWaterBody {
             roughness_micro: 1_000_001,
@@ -138,9 +138,11 @@ fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_every_supported_sa
         let mut submissions = Vec::new();
         for (slot, red) in [(0, 0.25), (1, 0.5)] {
             renderer.select_frame_slot(slot);
-            renderer
-                .set_frame_time(if slot == 0 { 0.0 } else { 2.0 })
-                .unwrap();
+            renderer.set_frame_time(std::time::Duration::from_secs_f32(if slot == 0 {
+                0.0
+            } else {
+                2.0
+            }));
             let encoder = encode_fixture(&context, &mut renderer, (&color, &depth), &frame, red);
             submissions.push(encoder.finish().submit().unwrap());
         }
@@ -193,11 +195,12 @@ fn encode_fixture(
             context.device(),
             &mut encoder,
             (&[pass], &[color.clone(), depth.clone()]),
+            None,
             &mut [],
-            (*frame, None),
+            &(*frame, None),
         )
         .unwrap();
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
 
     encoder
 }
@@ -380,11 +383,11 @@ fn draw_water_with(
     let water = renderer.water.as_ref().unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let feature = water
-        .feature_with_depth(
-            (context.device(), &*encoder),
+        .feature(
+            &encoder,
             &FrameUniform::new(&fixture_view(), None).unwrap(),
             (2.0, slot),
-            (shadow, None),
+            shadow,
             depth,
         )
         .unwrap();
@@ -433,7 +436,7 @@ fn draw_water_with(
         });
         record(&feature, &mut pass);
     }
-    renderer.targets().encode_resolve(&mut encoder);
+    renderer.encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
     wait(context.device());
 }

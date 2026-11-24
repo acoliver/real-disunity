@@ -4,16 +4,22 @@
 
 use std::collections::BTreeSet;
 
-use worldrunner_disunity_runtime::{PlayerTexture, TextureSampler};
+use worldrunner_disunity_runtime::PlayerTexture;
+use worldrunner_disunity_runtime::TextureSampler;
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::runtime::ProgramRuntime;
 use worldrunner_render_program::unity::offscreen::OffscreenState;
 
-use super::super::assets::{Assets, sampler_of_stored, texture_of};
+use super::super::assets::Assets;
+use super::super::assets::sampler_of_stored;
+use super::super::assets::texture_of;
 use super::super::frame::Report;
 use super::super::ids;
 use super::super::stand_ins::StandInReason;
-use super::{OffscreenAdapter, Settling, Stored, is_over_budget};
+use super::OffscreenAdapter;
+use super::Settling;
+use super::Stored;
+use super::is_over_budget;
 use crate::textures::PlayerTextureError;
 
 /// What uploading a texture the engine stored came to.
@@ -103,7 +109,7 @@ impl OffscreenAdapter {
         let texture = match texture_of(id, stored, sampler.map(sampler_of_stored), blocks) {
             Ok(texture) => texture,
             Err(error) => {
-                notes.fail("texture", &error);
+                notes.fail("texture", None, &error);
                 notes.count(&format!(
                     "textureformat:{} {}x{}, {} bytes",
                     crate::textures::stored_format_name(stored),
@@ -132,7 +138,7 @@ impl OffscreenAdapter {
                 TextureUpload::Held
             }
             Err(error) => {
-                notes.fail("texture", &error);
+                notes.fail("texture", None, &error);
                 // Only a refusal for room is known to pass. Any other is read as before this
                 // distinction was made: once for each generation.
                 if is_over_budget(&error) {

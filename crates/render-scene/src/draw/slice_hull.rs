@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 
 use glam::{Mat4, Vec2, Vec3};
 
-use super::visibility::{Bounds, Frustum, GROUP_MARGIN};
+use super::visibility::{Bounds, Frustum, GROUP_MARGIN, Region};
 use super::{DrawCount, SceneGpu};
 use worldrunner_render_program::runtime::{PassCommands, PreparedPipeline};
 
@@ -17,6 +17,56 @@ use worldrunner_render_program::runtime::{PassCommands, PreparedPipeline};
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SliceHull {
     points: Vec<Vec2>,
+    /// Each point with the vector to the next, which every box test reads.
+    edges: Vec<(Vec2, Vec2)>,
+    /// Lowest and highest coordinates of `points`.
+    extent: (Vec2, Vec2),
+}
+
+/// A cascade map's matrix with the absolute values its box tests read from every column, so
+/// that testing many boxes against one map computes them once.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct LightMap {
+    matrix: Mat4,
+    reaches: [Vec3; 3],
+    translation_reach: Vec3,
+}
+
+impl LightMap {
+    pub fn new(matrix: Mat4) -> Self {
+        Self {
+            matrix,
+            reaches: [matrix.x_axis, matrix.y_axis, matrix.z_axis]
+                .map(|axis| axis.truncate().abs()),
+            translation_reach: matrix.w_axis.truncate().abs(),
+        }
+    }
+
+    /// `bounds.transformed(matrix)`.
+    pub(super) fn transformed(&self, bounds: Bounds) -> Bounds {
+        let (center, half) = bounds.center_half();
+        self.about(self.matrix.transform_point3(center), half)
+    }
+
+    fn about(&self, center: Vec3, half: Vec3) -> Bounds {
+        let extent = self.reaches[0] * half.x + self.reaches[1] * half.y + self.reaches[2] * half.z;
+        Bounds {
+            min: center - extent,
+            max: center + extent,
+        }
+    }
+
+    /// `bounds.transformed_enclosing(matrix)`.
+    pub(super) fn enclosing(&self, bounds: Bounds) -> Bounds {
+        let (center, half) = bounds.center_half();
+        let reach = center.abs() + half;
+        let magnitude = self.reaches[0] * reach.x
+            + self.reaches[1] * reach.y
+            + self.reaches[2] * reach.z
+            + self.translation_reach;
+        self.about(self.matrix.transform_point3(center), half)
+            .expanded(magnitude * GROUP_MARGIN)
+    }
 }
 
 impl SliceHull {
@@ -25,31 +75,48 @@ impl SliceHull {
         let projected = corners
             .iter()
             .map(|&corner| matrix.project_point3(corner).truncate());
+        Self::from_points(convex_hull(grow(projected, margin)))
+    }
+
+    fn from_points(points: Vec<Vec2>) -> Self {
+        let count = points.len();
+        let edges = (0..count)
+            .map(|index| {
+                let (a, b) = (points[index], points[(index + 1) % count]);
+                (a, b - a)
+            })
+            .collect();
+        let extent = points.iter().fold(
+            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+            |(low, high), &point| (low.min(point), high.max(point)),
+        );
         Self {
-            points: convex_hull(grow(projected, margin)),
+            points,
+            edges,
+            extent,
         }
     }
 
     /// This hull grown by `margin` clip units along x and y.
     pub fn grown(&self, margin: f32) -> Self {
-        Self {
-            points: convex_hull(grow(self.points.iter().copied(), margin)),
-        }
+        Self::from_points(convex_hull(grow(self.points.iter().copied(), margin)))
     }
 
     /// Whether every point of `other` lies inside this hull.
     pub fn contains(&self, other: &Self) -> bool {
         other.points.iter().all(|&point| {
-            self.edges()
-                .all(|(a, b)| (b - a).perp_dot(point - a) >= 0.0)
+            self.edges
+                .iter()
+                .all(|&(a, edge)| edge.perp_dot(point - a) >= 0.0)
         })
     }
 
-    /// Whether the light-space footprint of world `bounds` overlaps this hull.
-    pub(super) fn overlaps(&self, bounds: Bounds, matrix: Mat4) -> bool {
-        let light = bounds.transformed(matrix);
+    /// Whether the light-space footprint of world `bounds` overlaps this hull, for a map whose
+    /// matrix columns are already prepared.
+    pub(super) fn overlaps(&self, bounds: Bounds, light: &LightMap) -> bool {
+        let light = light.transformed(bounds);
         let (low, high) = (light.min.truncate(), light.max.truncate());
-        let (hull_low, hull_high) = self.extent();
+        let (hull_low, hull_high) = self.extent;
         if hull_high.x < low.x || hull_low.x > high.x || hull_high.y < low.y || hull_low.y > high.y
         {
             return false;
@@ -61,22 +128,23 @@ impl SliceHull {
             Vec2::new(low.x, high.y),
         ];
         // Separating axes: the rectangle's were tested above, the hull's edges remain.
-        !self.edges().any(|(a, b)| {
+        !self.edges.iter().any(|&(a, edge)| {
             corners
                 .iter()
-                .all(|&corner| (b - a).perp_dot(corner - a) < 0.0)
+                .all(|&corner| edge.perp_dot(corner - a) < 0.0)
         })
     }
 
-    /// Whether `overlaps` is false for every box inside `bounds`, with margins that cover the
-    /// rounding of those tests, so a cascade can reject a group of casters from its box.
-    pub(super) fn excludes(&self, bounds: Bounds, matrix: Mat4) -> bool {
-        let light = bounds.transformed_enclosing(matrix);
+    /// Whether `overlaps` is false for every box inside `bounds`, true for every box inside
+    /// it, or neither, with margins that cover the rounding of those tests, so a cascade can
+    /// reject a group of casters from its box, or skip testing the casters of one.
+    pub(super) fn region(&self, bounds: Bounds, light: &LightMap) -> Region {
+        let light = light.enclosing(bounds);
         let (low, high) = (light.min.truncate(), light.max.truncate());
-        let (hull_low, hull_high) = self.extent();
+        let (hull_low, hull_high) = self.extent;
         if hull_high.x < low.x || hull_low.x > high.x || hull_high.y < low.y || hull_low.y > high.y
         {
-            return true;
+            return Region::Outside;
         }
         let corners = [
             low,
@@ -85,51 +153,27 @@ impl SliceHull {
             Vec2::new(low.x, high.y),
         ];
         let reach = low.abs().max(high.abs());
-        self.edges().any(|(a, b)| {
-            let edge = b - a;
+        let mut covered = self.points.len() >= 3;
+        for &(a, edge) in &self.edges {
             let magnitude =
                 edge.x.abs() * (reach.y + a.y.abs()) + edge.y.abs() * (reach.x + a.x.abs());
-            corners
-                .iter()
-                .all(|&corner| edge.perp_dot(corner - a) < -GROUP_MARGIN * magnitude)
-        })
-    }
-
-    /// Whether `overlaps` is true for every box inside `bounds`: the enclosing light-space
-    /// rectangle lies inside every edge by more than the rounding of those tests.
-    pub(super) fn covers(&self, bounds: Bounds, matrix: Mat4) -> bool {
-        if self.points.len() < 3 {
-            return false;
+            let margin = GROUP_MARGIN * magnitude;
+            let (mut behind, mut ahead) = (true, true);
+            for corner in corners {
+                let side = edge.perp_dot(corner - a);
+                behind &= side < -margin;
+                ahead &= side > margin;
+            }
+            if behind {
+                return Region::Outside;
+            }
+            covered &= ahead;
         }
-        let light = bounds.transformed_enclosing(matrix);
-        let (low, high) = (light.min.truncate(), light.max.truncate());
-        let corners = [
-            low,
-            Vec2::new(high.x, low.y),
-            high,
-            Vec2::new(low.x, high.y),
-        ];
-        let reach = low.abs().max(high.abs());
-        self.edges().all(|(a, b)| {
-            let edge = b - a;
-            let magnitude =
-                edge.x.abs() * (reach.y + a.y.abs()) + edge.y.abs() * (reach.x + a.x.abs());
-            corners
-                .iter()
-                .all(|&corner| edge.perp_dot(corner - a) > GROUP_MARGIN * magnitude)
-        })
-    }
-
-    fn extent(&self) -> (Vec2, Vec2) {
-        self.points.iter().fold(
-            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
-            |(low, high), &point| (low.min(point), high.max(point)),
-        )
-    }
-
-    fn edges(&self) -> impl Iterator<Item = (Vec2, Vec2)> + '_ {
-        let count = self.points.len();
-        (0..count).map(move |index| (self.points[index], self.points[(index + 1) % count]))
+        if covered {
+            Region::Inside
+        } else {
+            Region::Straddles
+        }
     }
 }
 
@@ -207,6 +251,9 @@ impl CascadeSlice {
 }
 
 #[cfg(test)]
+pub(super) mod reference;
+
+#[cfg(test)]
 thread_local! {
     /// Draws every caster in each cascade map, for comparison against slice culling. Refresh
     /// decisions still track the slices, so both paths retain and refresh the same maps.
@@ -260,6 +307,7 @@ impl SceneGpu {
             .as_ref()
             .filter(|t| frustum.intersects(t.bounds))?;
         let slice = self.views[index as usize + 1].slice.for_matrix(matrix);
+        let light = LightMap::new(matrix);
         Some(move |[min, max]: [Vec3; 2]| {
             #[cfg(test)]
             if UNCULLED.get() {
@@ -269,7 +317,7 @@ impl SceneGpu {
             frustum.intersects(bounds)
                 && slice
                     .as_ref()
-                    .is_none_or(|(hull, _)| hull.overlaps(bounds, matrix))
+                    .is_none_or(|(hull, _)| hull.overlaps(bounds, &light))
         })
     }
 
@@ -281,9 +329,6 @@ impl SceneGpu {
         (pipeline, frame): (&PreparedPipeline, &wgpu::BindGroup),
         (index, matrix): (u32, Mat4),
     ) -> DrawCount {
-        if !self.casts_terrain_shadows() {
-            return DrawCount::default();
-        }
         let Some(keep) = self.terrain_caster_selection(index, matrix) else {
             return DrawCount::default();
         };
@@ -364,12 +409,13 @@ mod tests {
             Mat4::IDENTITY,
             0.0,
         );
-        assert!(diamond.overlaps(bounds([-0.1, -0.1], [0.1, 0.1]), Mat4::IDENTITY));
-        assert!(diamond.overlaps(bounds([0.4, 0.4], [0.9, 0.9]), Mat4::IDENTITY));
-        assert!(!diamond.overlaps(bounds([0.6, 0.6], [0.9, 0.9]), Mat4::IDENTITY));
-        assert!(!diamond.overlaps(bounds([1.1, -0.1], [1.5, 0.1]), Mat4::IDENTITY));
+        let overlaps = |bounds, matrix| diamond.overlaps(bounds, &LightMap::new(matrix));
+        assert!(overlaps(bounds([-0.1, -0.1], [0.1, 0.1]), Mat4::IDENTITY));
+        assert!(overlaps(bounds([0.4, 0.4], [0.9, 0.9]), Mat4::IDENTITY));
+        assert!(!overlaps(bounds([0.6, 0.6], [0.9, 0.9]), Mat4::IDENTITY));
+        assert!(!overlaps(bounds([1.1, -0.1], [1.5, 0.1]), Mat4::IDENTITY));
         let shifted = Mat4::from_translation(Vec3::new(-0.7, -0.7, 0.0));
-        assert!(diamond.overlaps(bounds([0.6, 0.6], [0.9, 0.9]), shifted));
+        assert!(overlaps(bounds([0.6, 0.6], [0.9, 0.9]), shifted));
     }
 
     #[test]

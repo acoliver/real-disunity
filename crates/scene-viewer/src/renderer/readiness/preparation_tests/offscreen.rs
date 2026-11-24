@@ -31,7 +31,7 @@ fn offscreen_preparation_pending_rejects_fitted_generation_without_frame_submiss
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host, None)).unwrap();
     host.apply(RetainedUpdate::Terrain(Some(Arc::new(
         updated_terrain.clone(),
     ))))

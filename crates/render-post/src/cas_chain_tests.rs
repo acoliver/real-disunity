@@ -40,7 +40,7 @@ fn with(resolve: PostResolve, sharpness: Option<f32>) -> HdrPostSettings {
 fn resolves() -> [PostResolve; 3] {
     [
         PostResolve::None,
-        PostResolve::fxaa(1.0),
+        PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
         PostResolve::smaa(SmaaPreset::Medium),
     ]
 }
@@ -82,7 +82,7 @@ fn cas_runs_before_the_upscale_stage() {
     let rig = Rig::new();
     let settings = HdrPostSettings {
         sharpen: Some(CasSettings::new(0.5)),
-        resolve: PostResolve::fxaa(1.0),
+        resolve: PostResolve::fxaa(1.0, crate::FxaaQuality::default()),
         upscale: Some(UpscaleSettings {
             mode: UpscaleMode::Easu,
             sharpness: Some(0.0),
@@ -97,6 +97,7 @@ fn cas_runs_before_the_upscale_stage() {
             .unwrap()
             .with_effects(&rig.device, settings)
             .unwrap(),
+        crate::SceneDepth::Independent,
     )
     .unwrap();
     let names: Vec<_> = upscaled.configured[0]

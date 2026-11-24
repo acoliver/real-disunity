@@ -15,6 +15,7 @@ use worldrunner_world_simulation::graphics::{
     GraphicsSnapshot, MaterialId, OffscreenWork, RenderTextureId, TargetRef,
 };
 
+use super::super::adapter::Settling;
 use super::super::assets::{AssetError, Assets};
 use super::super::frame::Report;
 use super::gpu::{MESH, Quad, shader};
@@ -152,9 +153,13 @@ impl Scene {
 impl Room {
     /// Maps the snapshot against `engine`, then waits for the GPU and collects what was released.
     fn adapt_against(&mut self, engine: &Engine, snapshot: &GraphicsSnapshot) -> Report {
-        let adapted = self
-            .adapter
-            .adapt(snapshot, engine, &mut self.state, &mut self.runtime);
+        let adapted = self.adapter.adapt(
+            snapshot,
+            engine,
+            (&mut self.state, &mut self.runtime),
+            (false, &std::collections::BTreeMap::new()),
+            Settling::Wait,
+        );
         let _ = self
             .runtime
             .device()

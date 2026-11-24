@@ -6,16 +6,7 @@ use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record
 
 /// The kind of `record`, as the report names it.
 pub(super) fn kind(record: &Record) -> &'static str {
-    match record {
-        Record::CameraRender { .. } => "CameraRender",
-        Record::Blit { .. } => "Blit",
-        Record::CopyTexture { .. } => "CopyTexture",
-        Record::GenerateMips { .. } => "GenerateMips",
-        Record::Clear { .. } => "Clear",
-        Record::Draws(_) => "Draws",
-        Record::Procedural(_) => "Procedural",
-        Record::Globals(_) => "Globals",
-    }
+    record.kind()
 }
 
 /// The shader and pass `record` draws with, as `shader NAME pass PASS`, when it names a material

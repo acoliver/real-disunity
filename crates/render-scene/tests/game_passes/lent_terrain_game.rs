@@ -15,12 +15,17 @@ use worldrunner_render_plan::{
     TerrainLayeredSource, TerrainLodPolicy, TerrainSplatFilter, TerrainTypeGrid, TexelFormat,
     TextureAnisotropy, TextureColorSpace, TextureHandle,
 };
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
+};
 use worldrunner_render_program::binding::ResourceLayout;
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, Import, ImportedDraw, ImportedResource, PreparedProgramDraw,
 };
 use worldrunner_render_program::state::RasterState;
+use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, EngineConstants, FULLSCREEN_TRIANGLE_WGSL, GameBuild, GameFeatureFactory,
@@ -28,11 +33,6 @@ use worldrunner_render_scene::{
         TargetDeclaration, TargetExtent, TerrainMaterialArrayError, TerrainMaterialChannel,
     },
     draw::{PreparedAppend, SceneGpu},
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
-        ResourceRef,
-    },
     frame::FrameUniform,
     wgpu,
 };
@@ -549,8 +549,9 @@ impl Run {
         self.rig.gpu = SceneGpu::upload(
             device,
             self.rig.context.submission(),
-            scene,
+            PreparedScene::new(scene).unwrap(),
             &self.rig.pipelines,
+            None,
         )
         .unwrap();
         let frame = FrameUniform::unlit(&view(SIZE));

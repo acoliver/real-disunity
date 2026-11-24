@@ -96,8 +96,7 @@ fn derived_budget_tracks_all_live_generations_and_shared_reservations() {
         cap_bytes: Some(512),
     };
     let mut config =
-        Configuration::new_with_policy(&authority, 1, inventory(16), &device.limits(), policy)
-            .unwrap();
+        Configuration::new(&authority, 1, inventory(16), &device.limits(), policy).unwrap();
     assert_eq!(config.budget(), AllocationBudget(288));
     let flight = authority
         .prepare(&device, |_, _| Ok::<_, ()>(()))

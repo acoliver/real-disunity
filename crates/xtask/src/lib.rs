@@ -4,6 +4,7 @@ use std::process::ExitCode;
 mod affected;
 mod commands;
 mod csharp;
+mod formatting;
 mod layers;
 mod metadata;
 mod policy;
@@ -103,7 +104,7 @@ fn affected_command(root: &Path, base: &str) -> Result<(), String> {
 
 fn dispatch_single(root: &Path, command: &str) -> Result<(), String> {
     match command {
-        "fmt" => run_command(root, "cargo", &["fmt", "--all", "--check"]),
+        "fmt" => formatting::check(root),
         command @ ("lint" | "complexity" | "check" | "build" | "test") => {
             commands::standalone(root, command)
         }

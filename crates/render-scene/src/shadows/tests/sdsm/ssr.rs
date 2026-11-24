@@ -1,5 +1,7 @@
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::draw::PreparedScene;
+use crate::shadows::ShadowedTarget;
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use worldrunner_render_post::ToneMap;
 
@@ -71,12 +73,11 @@ fn renderers(context: &GpuContext, source: &RenderScene) -> (FrameRenderer, Shad
         source.effects(),
     )
     .unwrap();
-    let mut renderer = ShadowedScene::with_target(
+    let mut renderer = ShadowedScene::new(
         context,
-        source,
+        PreparedScene::new(source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     renderer
@@ -118,7 +119,13 @@ fn render_frames(context: &GpuContext, source: &RenderScene) {
     .unwrap();
     for source_frame in 0..6 {
         let fit = renderer
-            .render_depth_fitted_with(context, &view, (&color, &depth), source_frame, &mut frame)
+            .render_depth_fitted_host(
+                context,
+                &view,
+                (&color, &depth),
+                (Some(source_frame), false, &[]),
+                &mut frame,
+            )
             .unwrap();
         context
             .device()

@@ -20,9 +20,9 @@ use super::support::{render_texture, snapshot, world};
 
 /// The 8-bit values of the centres of the four columns or rows: 255 * (0.125, 0.375, ...)
 /// rounded to the nearest integer (31.875, 95.625, 159.375, 223.125).
-const CENTRES: [u8; 4] = [32, 96, 159, 223];
+pub(super) const CENTRES: [u8; 4] = [32, 96, 159, 223];
 /// `GraphicsFormat` 8, four 8-bit channels (the managed ARGB32), and 4, the same stored sRGB.
-const ARGB32: u32 = 8;
+pub(super) const ARGB32: u32 = 8;
 const ARGB32_SRGB: u32 = 4;
 /// `GraphicsFormat` 45, one 16-bit float channel (a height map's).
 const HALF: u32 = 45;
@@ -34,7 +34,7 @@ fn stored(byte: u8) -> f32 {
 }
 
 /// A blit of pass `pass` of the gradient shader from `source` into `target`, with `tint`.
-fn blit(
+pub(super) fn blit(
     world: &mut World,
     (source, target): (RenderTextureId, RenderTextureId),
     pass: i32,

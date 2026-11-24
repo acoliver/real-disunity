@@ -112,8 +112,8 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  What a renderer holds to draw: the renderer identity of its texture (0 for none) and the
-    ///  sizes of its mesh.
+    ///  What a renderer holds to draw: its texture (0 for none) with the kind that says what the
+    ///  identity names, and the sizes of its mesh.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityUiGraphicInfo
@@ -121,6 +121,11 @@ namespace Disunity.Native
         public ulong texture;
         public uint vertex_count;
         public uint index_count;
+        /// <summary>
+        ///  0 a stored image identity, 1 a render texture; see `disunity_canvas_renderer_texture_write`.
+        /// </summary>
+        public uint texture_kind;
+        public uint padding;
     }
 
     /// <summary>
@@ -692,9 +697,9 @@ namespace Disunity.Native
     ///  texel), or zero.
     ///
     ///  `dimension` is the texture's `TextureDimension`, the code a shader declares for a property:
-    ///  2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Zero means 2D, so a
-    ///  writer that sets none (every writer before revision 17) stores a plain 2D texture. Any other
-    ///  value is refused, and the record reads back with the value it was stored with.
+    ///  2 for a 2D texture, 3 for a 3D texture, 4 for a cube and 5 for a 2D array. Every writer states
+    ///  it; any other value, zero included, is refused, and the record reads back with the value it was
+    ///  stored with.
     ///
     ///  `depth` counts the layers that make up the texture: the layers of a 2D array, the six faces
     ///  of a cube and the slices of a 3D texture. A 2D texture has 0 or 1. `bytes` holds the layers one

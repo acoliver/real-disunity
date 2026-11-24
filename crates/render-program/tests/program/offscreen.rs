@@ -2,17 +2,20 @@
 //! layers and building the operations of a frame.
 
 mod blit;
+mod blit_values;
 mod block_sources;
 mod buffers;
 mod camera;
 mod camera_probe;
 mod camera_report;
+mod camera_sets;
 mod common_parameters;
 mod comparison;
 mod constants;
 mod copy;
 mod defaults;
 mod depth_only;
+mod dots_instances;
 mod formats;
 mod keep;
 mod layers;
@@ -31,6 +34,7 @@ mod source_array;
 mod stand_ins;
 mod stencil;
 mod storage;
+mod taps;
 mod texel_size;
 mod undeclared;
 mod undeclared_cube;

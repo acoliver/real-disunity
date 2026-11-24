@@ -352,8 +352,8 @@ impl GpuBuffers {
             .chain(self.constants.iter().copied())
     }
 
-    /// Uploads the buffers the materials of `snapshot` bind, ahead of the frame that draws with
-    /// them. A buffer the snapshot no longer holds (destroyed after the material bound it) is
+    /// Uploads the buffers the materials of `snapshot` bind and the buffers its batch draws read,
+    /// ahead of the frame that draws with them. A buffer the snapshot no longer holds (destroyed after the material bound it) is
     /// left out: a draw that needs it is left out and counted by the property's name.
     pub fn upload_material_buffers(
         &mut self,
@@ -361,10 +361,15 @@ impl GpuBuffers {
         snapshot: &GraphicsSnapshot,
     ) -> MaterialBuffers {
         let mut found = MaterialBuffers::default();
+        let batched = snapshot.work.iter().filter_map(|work| match work {
+            OffscreenWork::DrawMeshBatch { batch, .. } => Some(batch.buffer),
+            _ => None,
+        });
         let named = snapshot
             .materials
             .values()
-            .flat_map(|material| material.buffers.iter().map(|(_, id)| *id));
+            .flat_map(|material| material.buffers.iter().map(|(_, id)| *id))
+            .chain(batched);
         for id in named {
             match self.upload(runtime, snapshot, id) {
                 Ok(handle) => {

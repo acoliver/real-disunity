@@ -104,7 +104,7 @@ internal static class SetupCameraTests
         context.SetupCameraProperties(camera);
         context.ExecuteCommandBuffer(after);
         context.Submit();
-        var taken = CommandWireReader.Take();
+        var taken = CommandWireReader.TakeOrdered();
         Expect.Equal(3, taken.Length, "three records");
         Expect.That(taken[0] == "Keyword BEFORE=True" && taken[1].StartsWith("SetupCamera ", StringComparison.Ordinal) && taken[2] == "Keyword AFTER=True", $"in call order: {string.Join(" | ", taken.Select(t => t[..Math.Min(20, t.Length)]))}");
     }

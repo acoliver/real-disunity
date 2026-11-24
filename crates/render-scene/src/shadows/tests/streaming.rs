@@ -1,4 +1,7 @@
 use super::*;
+use crate::draw::PreparedScene;
+use crate::offscreen::OffscreenTarget;
+use crate::shadows::ShadowedTarget;
 
 pub(super) fn multilevel_source() -> RenderScene {
     let source = super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
@@ -51,7 +54,7 @@ fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     renderer
         .set_depth_fitting(
@@ -70,13 +73,15 @@ fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
             }),
         )
         .unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     let preparations = observe_preparations(|| {
         let fit = renderer
-            .render_depth_fitted(
+            .render_depth_fitted_host(
                 &context,
                 &view(),
                 (&target.color_attachment(), &target.depth_attachment()),
-                0,
+                (Some(0), false, &[]),
+                &mut scheduler,
             )
             .unwrap()
             .unwrap();
@@ -97,8 +102,9 @@ fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
     );
     assert_one_selection(&preparations, budget);
     renderer.set_depth_fitting(&context, None).unwrap();
-    let next =
-        observe_preparations(|| render_target(&mut renderer, &context, &view(), &target).unwrap());
+    let next = observe_preparations(|| {
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
+    });
     assert_eq!(
         next[0].buffers.len(),
         7,
@@ -111,10 +117,12 @@ fn ordinary_shadowed_frame_refines_multilevel_terrain_once_per_frame() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
-    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut renderer = shadowed(&context, &source, settings()).unwrap();
     let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
-    let first =
-        observe_preparations(|| render_target(&mut renderer, &context, &view(), &target).unwrap());
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    let first = observe_preparations(|| {
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
+    });
     assert_eq!(first.len(), 1);
     assert_one_selection(&first, 4);
     context
@@ -124,8 +132,9 @@ fn ordinary_shadowed_frame_refines_multilevel_terrain_once_per_frame() {
             timeout: Some(std::time::Duration::from_secs(10)),
         })
         .unwrap();
-    let next =
-        observe_preparations(|| render_target(&mut renderer, &context, &view(), &target).unwrap());
+    let next = observe_preparations(|| {
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
+    });
     assert_eq!(next[0].buffers.len(), 7);
     assert_eq!(next[0].uploads, 4);
 }
@@ -197,12 +206,11 @@ fn streamed_ssao_ssr_prepass_depth_equals_forward_depth_in_shadowed_frame() {
     let context = context();
     let source = screen_source();
     let size = [view().viewport().width, view().viewport().height];
-    let mut resident = ShadowedScene::with_target(
+    let mut resident = ShadowedScene::new(
         &context,
-        &source,
+        PreparedScene::new(&source).unwrap(),
         settings(),
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     let mut frame = crate::compositor::FrameRenderer::hdr(
@@ -230,7 +238,7 @@ fn streamed_ssao_ssr_prepass_depth_equals_forward_depth_in_shadowed_frame() {
                 &view(),
                 (&color, &attachment),
                 encoder,
-                Some(&mut frame),
+                &mut frame,
             )
         })
         .unwrap();
@@ -312,15 +320,16 @@ fn still_streamed_frames_keep_cascades_until_the_resident_chunks_change() {
         refresh_policy: policy,
         ..settings()
     };
-    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut renderer = shadowed(&context, &source, settings).unwrap();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let layers = usize::try_from(renderer.map.depth.layers()).unwrap();
     cascade_passes();
     let mut reasons = Vec::new();
     let mut settled = None;
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
     for _ in 0..8 {
         let prepared = observe_preparations(|| {
-            render_target(&mut renderer, &context, &view(), &target).unwrap();
+            render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
         });
         wait(&context);
         let passes = cascade_passes();
@@ -348,13 +357,13 @@ fn still_streamed_frames_keep_cascades_until_the_resident_chunks_change() {
     let (passes, buffers) = settled.expect("the selection settles under a still camera");
     assert_eq!(passes, 0, "settled terrain keeps every retained cascade");
     let fresh = target.read_rgba8(&context).unwrap();
-    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     wait(&context);
     assert_eq!(cascade_passes(), 0);
     assert_eq!(target.read_rgba8(&context).unwrap(), fresh);
     renderer.invalidate_shadows();
     let refreshed = observe_preparations(|| {
-        render_target(&mut renderer, &context, &view(), &target).unwrap();
+        render_target(&mut renderer, &mut scheduler, &context, &view(), &target).unwrap();
     });
     wait(&context);
     assert_eq!(cascade_passes(), layers);

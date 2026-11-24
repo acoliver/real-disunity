@@ -11,19 +11,23 @@ pub struct RetainedPickHit {
     pub hit: PickHit,
 }
 
-#[derive(Clone)]
-struct State {
-    scene: Arc<RenderScene>,
-    objects: Arc<BTreeMap<ObjectId, SceneObject>>,
-}
+/// What the displayed frame can be asked about.
 struct Snapshot {
-    state: Arc<State>,
+    scene: Arc<RenderScene>,
+    objects: BTreeMap<ObjectId, SceneObject>,
     view: ResolvedView,
     generation: u64,
 }
+/// The newest published geometry plus the way to bring the displayed snapshot up to it.
+/// The snapshot owns its own object table, and presenting replays the edits published since
+/// the previous presentation into it, so a frame's cost follows its edits and not the scene.
 #[derive(Default)]
 pub(super) struct Picking {
-    published: Option<Arc<State>>,
+    scene: Option<Arc<RenderScene>>,
+    objects: BTreeMap<ObjectId, SceneObject>,
+    /// Final state of every object edited since the presented snapshot was last brought up to
+    /// date; `None` means removed. Coalescing bounds it by the object count.
+    since_presented: BTreeMap<ObjectId, Option<SceneObject>>,
     presented: Option<Snapshot>,
     pub(super) windowless: bool,
 }
@@ -34,48 +38,63 @@ impl Picking {
         scene: &RenderScene,
         objects: &BTreeMap<ObjectId, SceneObject>,
     ) {
-        self.published = Some(Arc::new(State {
-            scene: Arc::new(scene.clone()),
-            objects: Arc::new(objects.clone()),
-        }));
+        self.scene = Some(Arc::new(scene.clone()));
+        self.objects = objects.clone();
+        self.since_presented.clear();
+        self.presented = None;
     }
 
     fn publish(&mut self, update: RetainedUpdate, scene: Option<Arc<RenderScene>>) {
-        let state = Arc::make_mut(self.published.as_mut().expect("resolved initial scene"));
-        if let Some(scene) = scene {
-            state.scene = scene;
+        if scene.is_some() {
+            self.scene = scene;
         }
         match update {
             RetainedUpdate::Add { id, object } | RetainedUpdate::Replace { id, object } => {
-                apply_edit(
-                    Arc::make_mut(&mut state.objects),
-                    SceneObjectEdit::Replace { id, object },
-                );
+                self.apply_edit(SceneObjectEdit::Replace { id, object });
             }
-            RetainedUpdate::Remove(id) => {
-                apply_edit(
-                    Arc::make_mut(&mut state.objects),
-                    SceneObjectEdit::Remove(id),
-                );
-            }
+            RetainedUpdate::Remove(id) => self.apply_edit(SceneObjectEdit::Remove(id)),
             RetainedUpdate::Objects(edits) => {
-                let objects = Arc::make_mut(&mut state.objects);
                 for edit in edits {
-                    apply_edit(objects, edit);
+                    self.apply_edit(edit);
                 }
             }
             _ => {}
         }
     }
-}
-fn apply_edit(objects: &mut BTreeMap<ObjectId, SceneObject>, edit: SceneObjectEdit) {
-    match edit {
-        SceneObjectEdit::Add { id, object } | SceneObjectEdit::Replace { id, object } => {
-            objects.insert(id, object);
+
+    fn apply_edit(&mut self, edit: SceneObjectEdit) {
+        let (id, object) = match edit {
+            SceneObjectEdit::Add { id, object } | SceneObjectEdit::Replace { id, object } => {
+                (id, Some(object))
+            }
+            SceneObjectEdit::Remove(id) => (id, None),
+        };
+        match object {
+            Some(object) => self.objects.insert(id, object),
+            None => self.objects.remove(&id),
+        };
+        if self.presented.is_some() {
+            self.since_presented.insert(id, object);
         }
-        SceneObjectEdit::Remove(id) => {
-            objects.remove(&id);
+    }
+
+    fn present(&mut self, view: &ResolvedView, generation: u64) {
+        let mut objects = match self.presented.take() {
+            Some(previous) => previous.objects,
+            None => self.objects.clone(),
+        };
+        for (id, object) in std::mem::take(&mut self.since_presented) {
+            match object {
+                Some(object) => objects.insert(id, object),
+                None => objects.remove(&id),
+            };
         }
+        self.presented = Some(Snapshot {
+            scene: self.scene.clone().expect("resolved initial scene"),
+            objects,
+            view: *view,
+            generation,
+        });
     }
 }
 
@@ -111,13 +130,9 @@ impl RetainedHost {
             .view
             .screen_ray(glam::DVec2::from_array(point).as_vec2())
             .ok()?;
-        let hit = snapshot.state.scene.pick(
+        let hit = snapshot.scene.pick(
             ray,
-            snapshot
-                .state
-                .objects
-                .iter()
-                .map(|(&id, &object)| (id, object)),
+            snapshot.objects.iter().map(|(&id, &object)| (id, object)),
             include,
         )?;
         snapshot
@@ -148,16 +163,7 @@ impl RetainedHost {
     }
 
     pub(crate) fn present_pick(&mut self, view: &ResolvedView) {
-        self.picking.presented = Some(Snapshot {
-            state: self
-                .picking
-                .published
-                .as_ref()
-                .expect("resolved initial scene")
-                .clone(),
-            view: *view,
-            generation: self.readiness.published,
-        });
+        self.picking.present(view, self.readiness.published);
     }
 }
 impl RetainedEventHost<'_> {
@@ -175,3 +181,7 @@ impl RetainedEventHost<'_> {
         self.host.pick(point, include)
     }
 }
+
+#[cfg(test)]
+#[path = "picking_tests.rs"]
+mod tests;

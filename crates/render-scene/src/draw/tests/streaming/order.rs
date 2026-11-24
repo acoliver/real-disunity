@@ -2,6 +2,7 @@ use super::*;
 use crate::draw::streaming::schedule_tests;
 use crate::draw::visibility::{Bounds, Frustum};
 use crate::terrain::streaming::{TerrainChunk, TerrainHeightBounds};
+use crate::test_support::upload_scene;
 
 const SIZE: u32 = 128;
 
@@ -66,12 +67,12 @@ fn keys(gpu: &SceneGpu) -> Vec<TerrainChunk> {
 fn terrain_pixels_are_identical_after_different_completion_schedules() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = source();
-    let immediate =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
-    let delayed =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let mut immediate =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let mut delayed =
+        upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     let first = settle(&context, &immediate, 0);
     let second = settle(&context, &delayed, 4);
     assert_ne!(first, second, "completion schedules must change admission");
@@ -87,9 +88,9 @@ fn terrain_pixels_are_identical_after_different_completion_schedules() {
     )
     .unwrap();
     immediate.set_frame(context.queue(), frame());
-    let first = target.render(&context, &immediate, &pipelines).unwrap();
+    let first = target.render(&context, &mut immediate, &pipelines).unwrap();
     delayed.set_frame(context.queue(), frame());
-    let second = target.render(&context, &delayed, &pipelines).unwrap();
+    let second = target.render(&context, &mut delayed, &pipelines).unwrap();
     assert!(
         lit_pixels(&first.pixels) > 0,
         "terrain must reach the target"
@@ -127,10 +128,9 @@ fn lender_reports_camera_order_and_keeps_offscreen_geometric_neighbors() {
 
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let source = source();
-    let gpu =
-        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
     settle(&context, &gpu, 0);
     let frame = frame();
     let residents = keys(&gpu);

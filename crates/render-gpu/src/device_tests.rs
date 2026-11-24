@@ -77,6 +77,29 @@ fn a_union_keeps_a_preferred_profile_that_still_meets_both_sides_requirements() 
 }
 
 #[test]
+fn a_device_asks_for_the_adapters_storage_images_from_four_up_to_sixteen() {
+    for (offered, asked) in [
+        (0, 4),
+        (3, 4),
+        (4, 4),
+        (5, 5),
+        (16, 16),
+        (17, 16),
+        (1 << 20, 16),
+    ] {
+        let available = Limits {
+            max_storage_textures_per_shader_stage: offered,
+            ..Limits::default()
+        };
+        assert_eq!(
+            storage_images_per_stage(&available),
+            asked,
+            "an adapter offering {offered}"
+        );
+    }
+}
+
+#[test]
 fn a_union_of_requirements_without_profiles_has_none() {
     let both = needs(Features::empty(), Limits::default())
         .union(&needs(Features::empty(), Limits::default()));

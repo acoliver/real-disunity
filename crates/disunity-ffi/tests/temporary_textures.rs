@@ -1,11 +1,17 @@
 //! Temporary render textures through the ABI: texture kind 4 and target kind 1 name one by its
 //! property name id in recorded work, and every other place a texture is written refuses it.
+#[path = "common/frame.rs"]
+mod frame;
+
+use frame::snapshot;
 use worldrunner_disunity_ffi::{
     abi::*, graphics::*, graphics_commands::*, graphics_offscreen::*, graphics_properties::*,
 };
+use worldrunner_world_simulation::graphics::{
+    OffscreenWork, RenderTextureId, TargetRef, TextureRef,
+};
 
 const SCOPE_MATERIAL: u32 = 0;
-const GLOBAL_TEXTURE: u32 = 4;
 const TEXTURE_TEMPORARY: u32 = 4;
 const TARGET_TEMPORARY: u32 = 1;
 const NAME_ID: i32 = -7;
@@ -69,18 +75,6 @@ fn temporary_slot() -> DisunityTextureSlot {
     }
 }
 
-fn take(world: u64) -> Vec<DisunityOffscreenWork> {
-    let mut count = 0;
-    let mut taken = [DisunityOffscreenWork::default(); 4];
-    unsafe {
-        assert_eq!(
-            disunity_offscreen_take(world, taken.as_mut_ptr(), 4, &mut count).code,
-            0
-        );
-    }
-    taken[..usize::try_from(count).unwrap()].to_vec()
-}
-
 #[test]
 fn a_blit_and_a_copy_read_and_write_a_temporary_by_its_name_id() {
     let world = new_world();
@@ -115,7 +109,28 @@ fn a_blit_and_a_copy_read_and_write_a_temporary_by_its_name_id() {
     for record in &records {
         unsafe { assert_eq!(disunity_offscreen_record(world, record).code, 0) };
     }
-    assert_eq!(take(world), records);
+    let held = RenderTextureId::from_bits(held);
+    let copy = |source, target, target_mip| OffscreenWork::CopyTexture {
+        source,
+        source_element: 0,
+        source_mip: 0,
+        target,
+        target_element: 0,
+        target_mip,
+    };
+    assert_eq!(
+        snapshot(world).work,
+        [
+            OffscreenWork::Blit {
+                source: TextureRef::Temporary(NAME_ID),
+                target: TargetRef::Temporary(NAME_ID),
+                material: None,
+                pass: 35,
+            },
+            copy(TextureRef::Temporary(NAME_ID), TargetRef::Render(held), 2),
+            copy(TextureRef::Render(held), TargetRef::Temporary(NAME_ID), 0),
+        ]
+    );
 }
 
 #[test]
@@ -139,7 +154,7 @@ fn a_target_kind_or_name_id_the_world_cannot_hold_is_refused() {
         let result = unsafe { disunity_offscreen_record(world, &record) };
         assert_ne!(result.code, 0, "{record:?}");
     }
-    assert!(take(world).is_empty());
+    assert!(snapshot(world).work.is_empty());
 }
 
 #[test]
@@ -152,16 +167,8 @@ fn a_global_set_by_recorded_work_takes_a_temporary_and_a_material_does_not() {
         let stored =
             disunity_shader_texture_write(world, SCOPE_MATERIAL, material, name, length, &slot);
         assert_ne!(stored.code, 0);
-        let recorded = disunity_offscreen_set_global(
-            world,
-            GLOBAL_TEXTURE,
-            name,
-            length,
-            std::ptr::null(),
-            0,
-            &slot,
-        );
+        let recorded = disunity_offscreen_set_global_texture(world, name, length, &slot);
         assert_eq!(recorded.code, 0);
     }
-    assert_eq!(take(world).len(), 1);
+    assert_eq!(snapshot(world).work.len(), 1);
 }

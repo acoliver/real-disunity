@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::upload_scene;
 
 fn phases(time: f32, period: f32) -> ([f32; 2], [f32; 2]) {
     let a = (time / period).rem_euclid(1.0);
@@ -200,19 +201,14 @@ fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh(
     for samples in crate::msaa_tests::supported_samples(&context) {
         for (field, shore) in [(false, false), (true, false), (false, true), (true, true)] {
             let (bodies, source) = phased_scene(field, shore);
-            let pipelines = crate::renderer::ScenePipelines::with_samples(
+            let pipelines = crate::renderer::ScenePipelines::new(
                 context.device(),
                 wgpu::TextureFormat::Rgba16Float,
                 samples,
             )
             .unwrap();
-            let mut gpu = crate::draw::SceneGpu::upload(
-                context.device(),
-                context.submission(),
-                &source,
-                &pipelines,
-            )
-            .unwrap();
+            let mut gpu =
+                upload_scene(context.device(), context.submission(), &source, &pipelines).unwrap();
             let mut renderer = ConfiguredFrameRenderer::new(
                 &context,
                 configuration(samples, bodies),
@@ -224,7 +220,7 @@ fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh(
                 .into_iter()
                 .enumerate()
             {
-                renderer.set_frame_time(time).unwrap();
+                renderer.set_frame_time(std::time::Duration::from_secs_f32(time));
                 encode(&context, &mut renderer, &mut gpu, &pipelines);
                 let (normal, _, _) = renderer.water_receivers().unwrap();
                 for sample in 0..samples {

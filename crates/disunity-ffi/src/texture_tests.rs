@@ -1,5 +1,10 @@
 use super::textures::*;
-use crate::{DisunityResult, lock_store, store::create_world};
+use crate::{
+    DisunityResult,
+    abi::{DisunityErrorReason, result_code},
+    lock_store,
+    store::create_world,
+};
 
 const FIRST: u64 = FIRST_PLAYER_TEXTURE;
 
@@ -12,6 +17,7 @@ fn info(identity: u64, length: u32) -> DisunityTextureInfo {
         mips: 1,
         linear: 1,
         length,
+        dimension: TEX_2D,
         ..Default::default()
     }
 }
@@ -316,7 +322,7 @@ fn a_texture_with_no_depth_reads_back_as_it_did() {
             plain.graphics_format,
             plain.reserved
         ),
-        (0, 0, 0, 0)
+        (0, TEX_2D, 0, 0)
     );
     for (identity, dimension, depth) in [(FIRST + 1, TEX_2D, 0), (FIRST + 2, TEX_2D, 1)] {
         let described = DisunityTextureInfo {
@@ -631,5 +637,23 @@ fn a_sampler_at_the_ends_of_each_engine_range_is_accepted() {
             (out.wrap_u, out.filter, out.aniso_level),
             (sampler.wrap_u, sampler.filter, sampler.aniso_level)
         );
+    }
+}
+
+#[test]
+fn a_dimension_the_engine_does_not_define_is_refused_naming_its_value() {
+    let world = new_world();
+    for dimension in [0, 1, 6, 7, 99] {
+        let described = DisunityTextureInfo {
+            dimension,
+            ..info(FIRST, 8)
+        };
+        let result = store_described(world, &described, &[0; 8]);
+        assert_eq!(result.code, result_code::ERROR, "dimension {dimension}");
+        assert_eq!(result.detail, DisunityErrorReason::InvalidArgument as u64);
+        let message = crate::store::last_error(world).unwrap().unwrap();
+        let named = format!("dimension {dimension} is refused");
+        assert!(message.contains(&named), "{message}");
+        assert_eq!(read(world, FIRST, 0).1.present, 0);
     }
 }

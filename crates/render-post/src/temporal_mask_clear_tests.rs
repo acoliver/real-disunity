@@ -11,7 +11,7 @@ fn targets(device: &wgpu::Device) -> FrameTargets {
         velocity: false,
         temporal_mask: true,
     };
-    FrameTargets::with_options(device, config, options).unwrap()
+    FrameTargets::new(device, config, options, crate::SceneDepth::Independent).unwrap()
 }
 
 /// The `Rg8Unorm` bytes of a mask, row major.
@@ -109,7 +109,13 @@ fn clearing_targets_without_a_mask_encodes_nothing() {
     let gpu = crate::gpu_tests::gpu();
     let config =
         FrameConfig::new(OUTPUT, wgpu::TextureFormat::Rgba16Float, 1).with_render_extent(RENDER);
-    let plain = FrameTargets::new(&gpu.0, config).unwrap();
+    let plain = FrameTargets::new(
+        &gpu.0,
+        config,
+        crate::TargetOptions::default(),
+        crate::SceneDepth::Independent,
+    )
+    .unwrap();
     let mut encoder = gpu
         .0
         .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

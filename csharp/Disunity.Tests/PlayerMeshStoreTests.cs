@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /// <summary>A mesh a filter holds reaches the host with its data and again, once per frame, after it changes; a
-/// renderer's materials give the host a colour and texture identity per slot.</summary>
+/// renderer's materials reach the host as world materials, which draw the slots (see PlayerMeshLiveMaterialTests).</summary>
 internal static class PlayerMeshStoreTests
 {
     public static void Run()
@@ -17,9 +17,6 @@ internal static class PlayerMeshStoreTests
             LeavesOutOtherTopologiesAndAppliesBaseVertex();
             GivesEachMeshOneIdentityAboveTheTextures();
             ClearsTheDrawnMeshWithTheFilter();
-            SendsColourAndTexturePerSlot();
-            SendsNoTextureWhenEitherSideIsEmpty();
-            DropsTheSlotsTheMaterialsNoLongerHold();
         }
         finally { DisunityHost.UnloadWorld(); }
     }
@@ -153,77 +150,5 @@ internal static class PlayerMeshStoreTests
         filter.sharedMesh = null;
         Expect.That(ReadDrawn(filter) == 0, "no mesh draws nothing");
         Console.WriteLine("PASS: a filter's drawn mesh follows its shared mesh");
-    }
-
-    private static unsafe DisunityDrawnMaterial[] ReadSlots(Renderer renderer)
-    {
-        uint count;
-        DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_renderer_slots_read(DisunityHost.WorldHandle, renderer.Handle, null, 0, &count));
-        var slots = new DisunityDrawnMaterial[count];
-        fixed (DisunityDrawnMaterial* pointer = slots)
-            DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_renderer_slots_read(DisunityHost.WorldHandle, renderer.Handle, pointer, count, &count));
-        return slots;
-    }
-
-    /// <summary>A material on a shader that declares no properties, holding only <paramref name="property"/>.</summary>
-    private static Material Coloured(string property, Color color)
-    {
-        var material = new Material(DisunityHost.RegisterShader("Test/PlayerMesh/Plain"));
-        material.SetColor(property, color);
-        return material;
-    }
-
-    private static void SendsColourAndTexturePerSlot()
-    {
-        var renderer = NewObject().AddComponent<MeshRenderer>();
-        var texture = new Texture2D(2, 2);
-        var textured = Coloured("_Color", new Color(0.1f, 0.2f, 0.3f, 0.4f));
-        textured.mainTexture = texture;
-        var based = Coloured("_BaseColor", new Color(0.5f, 0.6f, 0.7f, 1f));
-        var plain = new Material(DisunityHost.RegisterShader("Test/PlayerMesh/Plain"));
-        var undrawn = new Material(DisunityHost.RegisterShader("Test/PlayerMesh/Plain")) { mainTexture = new Texture2D(0, 0) };
-        renderer.sharedMaterials = [textured, based, plain, null, undrawn];
-        var slots = ReadSlots(renderer);
-        Expect.That(slots.Length == 5, "one slot per material");
-        Expect.That(Math.Abs(slots[0].r - 0.1f) < 1e-6f && Math.Abs(slots[0].a - 0.4f) < 1e-6f && slots[0].texture == texture.RendererIdentity,
-            "a material sends its _Color and the identity of its Texture2D");
-        Expect.That(Math.Abs(slots[1].g - 0.6f) < 1e-6f && slots[1].texture == 0, "_BaseColor is used when there is no _Color");
-        Expect.That(slots[2].r == 1 && slots[2].g == 1 && slots[2].b == 1 && slots[2].a == 1 && slots[2].texture == 0, "a material with neither colour is white");
-        Expect.That(slots[3].r == 1 && slots[3].texture == 0, "an empty slot is white and untextured");
-        Expect.That(slots[4].texture == 0, "a texture of no size sends no texture");
-        Expect.That(texture.RendererIdentity >= DisunityHost.FirstPlayerTextureIdentity, "the texture identity is a player texture's");
-        renderer.sharedMaterial = Coloured("_Color", new Color(-1f, float.NaN, 2f, 1f));
-        var clamped = ReadSlots(renderer);
-        Expect.That(clamped.Length == 5 && clamped[0].r == 0 && clamped[0].g == 1 && clamped[0].b == 2, "negative channels clamp to 0 and a value that is not a number is 1");
-        Console.WriteLine("PASS: a renderer sends each slot's colour and player texture identity when its materials are set");
-    }
-
-    private static void SendsNoTextureWhenEitherSideIsEmpty()
-    {
-        var renderer = NewObject().AddComponent<MeshRenderer>();
-        var wide = Coloured("_Color", Color.white);
-        wide.mainTexture = new Texture2D(2, 0);
-        var tall = Coloured("_Color", Color.white);
-        tall.mainTexture = new Texture2D(0, 2);
-        var whole = Coloured("_Color", Color.white);
-        whole.mainTexture = new Texture2D(1, 1);
-        renderer.sharedMaterials = [wide, tall, whole];
-        var slots = ReadSlots(renderer);
-        Expect.That(slots[0].texture == 0 && slots[1].texture == 0, "a texture with no width or no height has no pixels to draw");
-        Expect.That(slots[2].texture != 0, "a one pixel texture is drawn");
-        Console.WriteLine("PASS: a texture with no pixels is not sent");
-    }
-
-    private static void DropsTheSlotsTheMaterialsNoLongerHold()
-    {
-        var renderer = NewObject().AddComponent<MeshRenderer>();
-        renderer.sharedMaterials = [Coloured("_Color", Color.red), Coloured("_Color", Color.blue)];
-        Expect.That(ReadSlots(renderer).Length == 2, "two materials, two slots");
-        renderer.sharedMaterials = [Coloured("_Color", Color.green)];
-        var slots = ReadSlots(renderer);
-        Expect.That(slots.Length == 1 && slots[0].g == 1 && slots[0].r == 0, "setting fewer materials replaces the slots");
-        renderer.sharedMaterials = [];
-        Expect.That(ReadSlots(renderer).Length == 0, "no materials, no slots");
-        Console.WriteLine("PASS: setting the materials replaces the slots");
     }
 }

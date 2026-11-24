@@ -3,7 +3,54 @@ use crate::instances::fade::{Distances, Fade};
 use crate::instances::slot_bounds::Slot;
 use worldrunner_render_plan::MaterialHandle;
 
+/// Which of a batch's materials can fade a placement out, which decides whether a placement
+/// need measure its distances at all: a material fades fragments out only within a band,
+/// its own or the placement's.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct FadeReach {
+    /// Some drawn material can fade every fragment out at some distance.
+    capable: bool,
+    /// Some such material has a band of its own.
+    banded: bool,
+}
+
+impl FadeReach {
+    /// This reach with the material of `fade` drawn too.
+    pub fn with(mut self, fade: Fade) -> Self {
+        if fade.can_empty() {
+            self.capable = true;
+            self.banded |= fade.has_band();
+        }
+        self
+    }
+
+    /// Whether `fade_empty` can be true for a placement whose own fade band is `band`. When it
+    /// cannot, the placement is not faded out, whatever its distance.
+    pub fn applies(self, band: Option<[f32; 2]>) -> bool {
+        self.capable && (self.banded || band.is_some())
+    }
+}
+
 impl MeshSelection {
+    /// What the material slots of the mesh's levels can fade out of a placement, whichever
+    /// material the placement draws with.
+    pub(super) fn slot_fade_reach(&self, fades: &[Fade]) -> FadeReach {
+        let mut reach = FadeReach::default();
+        for slots in self.material_slots.iter().flatten() {
+            if slots.is_empty() {
+                // A level that draws nothing is faded out at every distance.
+                return FadeReach {
+                    capable: true,
+                    banded: true,
+                };
+            }
+            for slot in slots {
+                reach = reach.with(fades[slot.material().raw() as usize]);
+            }
+        }
+        reach
+    }
+
     /// Whether every fragment a placement drawn with `material` and the level inputs of `slot`
     /// could draw at `lod`, including the preceding level's handoff, is faded out. `fades` is
     /// the material table.

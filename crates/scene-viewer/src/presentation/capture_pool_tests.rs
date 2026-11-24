@@ -140,7 +140,7 @@ fn capture_pool_maximum_extent_does_not_enforce_request_byte_limit() {
     ] {
         let options = crate::ViewerOptions {
             size: [32, 32],
-            frame_profile: crate::FrameProfile::Legacy,
+            frame_profile: crate::tests::CLAMP,
             capture_pool,
             ..crate::tests::options()
         };
@@ -166,7 +166,7 @@ fn derived_pool_is_constant_across_smaller_and_larger_surfaces() {
         matches!(host.captures.take_event(), Some(crate::RetainedEvent::Capture { id: actual, .. }) if actual == id)
     );
     let mut driver = Driver;
-    let mut run = host.windowless(&mut driver).unwrap();
+    let mut run = host.windowless(&mut driver, None).unwrap();
     for extent in [[128, 96], [3000, 1600]] {
         run.resize(extent).unwrap();
         assert!(run.frame().unwrap());
@@ -325,11 +325,11 @@ fn recipe_raster_override_preserves_declared_surface_pool() {
         width: 64,
         height: 48,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         None,
         &PresentationPolicy {
             game: crate::GameRendering::default(),
@@ -386,7 +386,7 @@ fn derived_capture_pool_keeps_initial_effect_format_on_configuration() {
         width: 33,
         height: 2,
     };
-    let mut presentation = Presentation::with_settings(
+    let mut presentation = Presentation::new(
         &context,
         COLOR,
         [size, size],

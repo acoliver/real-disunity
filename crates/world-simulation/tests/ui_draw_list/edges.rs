@@ -133,7 +133,14 @@ fn append_remaps_only_glyph_ids_and_preserves_image_namespace_and_order() {
     assert_eq!(combined.coverage.len(), 2);
     assert_eq!(
         combined.draws.iter().map(|d| d.texture).collect::<Vec<_>>(),
-        [Some(0), Some(0), Some(0), Some(0), Some(1), Some(1)]
+        [
+            Some(UiTexture::Image(0)),
+            Some(UiTexture::Coverage(0)),
+            Some(UiTexture::Coverage(0)),
+            Some(UiTexture::Image(0)),
+            Some(UiTexture::Coverage(1)),
+            Some(UiTexture::Coverage(1)),
+        ]
     );
     assert_eq!(
         combined

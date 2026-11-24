@@ -78,15 +78,12 @@ pub enum PropertyValue {
 }
 
 /// The colour property a material draws with. The managed `Material` stores `color` and
-/// `SetColor` under it (csharp/Disunity/Material.cs) and `Renderer.DrawnOf` reads it first
-/// (csharp/Disunity/RendererDrawn.cs).
+/// `SetColor` under it (csharp/Disunity/Material.cs), and a mesh slot's colour reads it first.
 pub const MAIN_COLOR: &str = "_Color";
-/// The colour property a material draws with when it has no [`MAIN_COLOR`]; the managed
-/// `Renderer.DrawnOf` reads it second (csharp/Disunity/RendererDrawn.cs).
+/// The colour property a material draws with when it has no [`MAIN_COLOR`].
 pub const BASE_COLOR: &str = "_BaseColor";
 /// The texture property the managed `mainTexture` and `SetTexture("_MainTex")` set
-/// (csharp/Disunity/Material.cs), and the one a renderer draws its slot with
-/// (csharp/Disunity/RendererDrawn.cs).
+/// (csharp/Disunity/Material.cs), and the one a renderer draws its slot with.
 pub const MAIN_TEXTURE: &str = "_MainTex";
 
 /// Named shader values, one list per kind, each sorted by name. Setting a name that a list holds

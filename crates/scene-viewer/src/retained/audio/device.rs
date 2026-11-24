@@ -3,12 +3,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, atomic::Ordering};
 
 impl AudioService {
-    /// Explicitly opens the default device. Never called by constructors or tests.
-    /// Windowless null sessions cannot open a physical device.
-    pub fn start_device(&mut self) -> Result<(), AudioServiceError> {
-        self.start_device_with(Self::open_device)
-    }
-    pub(in crate::retained) fn start_device_with(
+    /// Explicitly starts output through `open`, which attaches a device or reports why it
+    /// cannot. Pass [`AudioService::open_default_device`] for the system output. Constructors
+    /// never call this. Windowless null sessions cannot open a physical device.
+    pub fn start_device(
         &mut self,
         open: impl FnOnce(&mut Self) -> Result<(), (AudioUnavailable, String)>,
     ) -> Result<(), AudioServiceError> {
@@ -33,7 +31,8 @@ impl AudioService {
             }
         }
     }
-    fn open_device(&mut self) -> Result<(), (AudioUnavailable, String)> {
+    /// Opens the default output device with its default configuration.
+    pub fn open_default_device(&mut self) -> Result<(), (AudioUnavailable, String)> {
         let device = cpal::default_host()
             .default_output_device()
             .ok_or_else(|| {

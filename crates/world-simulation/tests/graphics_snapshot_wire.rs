@@ -12,7 +12,7 @@ use worldrunner_world_simulation::graphics::{
     WorldComputeShader, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
-use worldrunner_world_simulation::{MeshRenderer, World};
+use worldrunner_world_simulation::{MeshRenderer, RendererKind, SkinRoot, World};
 
 mod graphics_world;
 use graphics_world::{
@@ -127,6 +127,17 @@ fn add_renderers(world: &mut World, blit: MaterialId) {
     };
     renderer_with(world, (0, true), (1 << 41) + 1, block);
     renderer(world, 4, (1 << 41) + 2, vec![Some(blit)]);
+    let bone = renderer(world, 4, (1 << 41) + 3, vec![]);
+    let mut skinned = MeshRenderer::of_kind(RendererKind::Skinned);
+    skinned.skin.drawn_mesh = (1 << 41) + 4;
+    skinned.skin.root = Some(SkinRoot {
+        bone,
+        bind_pose: std::array::from_fn(|i| f32::from(u8::try_from(i).unwrap())),
+    });
+    renderer_with(world, (0, true), 0, skinned);
+    let mut unrooted = MeshRenderer::of_kind(RendererKind::Skinned);
+    unrooted.skin.drawn_mesh = (1 << 41) + 5;
+    renderer_with(world, (0, true), 0, unrooted);
 }
 
 /// A compute shader with a sized and an unsized kernel, a buffer bound to the first and every
@@ -205,7 +216,9 @@ fn record_work(
 #[test]
 fn a_snapshot_with_every_variant_and_field_round_trips_exactly() {
     let snapshot = full_snapshot();
-    assert_eq!(snapshot.work.len(), 5);
+    // Five records, and the direct writes of every property kind and one keyword ordered ahead of them.
+    let direct_writes = every_property(TextureRef::None).len() + 1;
+    assert_eq!(snapshot.work.len(), 5 + direct_writes);
     assert!(snapshot.global.is_some() && !snapshot.cameras.is_empty());
     assert!(!snapshot.renderers.is_empty() && !snapshot.compute_buffers.is_empty());
     let bytes = encode(&snapshot).unwrap();
@@ -234,17 +247,41 @@ fn a_renderer_view_keeps_the_block_of_each_slot_apart_from_the_all_slot_block() 
 }
 
 #[test]
+fn the_count_of_skinned_renderers_left_out_round_trips() {
+    let full = full_snapshot();
+    assert_eq!(full.skinned_not_drawn, 1);
+    let decoded = decode(&encode(&full).unwrap()).unwrap();
+    assert_eq!(decoded.skinned_not_drawn, 1);
+    assert_eq!(
+        decoded.renderers.len(),
+        4,
+        "the rooted skinned renderer is listed"
+    );
+}
+
+#[test]
 fn floats_keep_their_bits_including_negative_zero_and_nan_payloads() {
     let mut snapshot = full_snapshot();
     let global = snapshot.global.as_mut().unwrap();
-    global.properties.floats[0].1 = f32::from_bits(0x7FC0_1234);
-    global.properties.vectors[0].1 = [-0.0, f32::INFINITY, f32::NEG_INFINITY, f32::from_bits(1)];
+    // The state the frame replays from holds only what an earlier frame left, and the setters
+    // refuse the values this test needs, so it puts them in the copy itself.
+    global
+        .properties
+        .floats
+        .push(("_Bits".into(), f32::from_bits(0x7FC0_1234)));
+    global.properties.vectors.push((
+        "_Edge".into(),
+        [-0.0, f32::INFINITY, f32::NEG_INFINITY, f32::from_bits(1)],
+    ));
     let view = snapshot.cameras.values_mut().next().unwrap();
     view.settings.background = [f64::from_bits(0x7FF8_0000_0000_0042), -0.0, 1.0e-300, 0.0];
     let back = decode(&encode(&snapshot).unwrap()).unwrap();
     let global = back.global.as_ref().unwrap();
-    assert_eq!(global.properties.floats[0].1.to_bits(), 0x7FC0_1234);
-    let vector = global.properties.vectors[0].1;
+    assert_eq!(
+        global.properties.float("_Bits").unwrap().to_bits(),
+        0x7FC0_1234
+    );
+    let vector = global.properties.vector("_Edge").unwrap();
     assert_eq!(
         vector.map(f32::to_bits),
         [
@@ -358,7 +395,7 @@ fn a_body_longer_than_the_snapshot_it_holds_is_refused() {
     assert_eq!(decode(&bytes), Err(WireError::TrailingBytes));
 }
 
-/// The bytes of a snapshot whose only content is `work`, so a test can corrupt one field.
+/// The bytes of a snapshot with `body`, the work list first, so a test can corrupt one field.
 fn with_header(body: &[u8]) -> Vec<u8> {
     let mut bytes = b"DGSN".to_vec();
     bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());
@@ -367,23 +404,13 @@ fn with_header(body: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Seven empty maps and lists, then `tail`: shaders, materials, render textures, no global and no
-/// environment.
-fn empty_until_work(tail: &[u8]) -> Vec<u8> {
-    let mut body = vec![0; 4 * 3];
-    body.push(0);
-    body.extend_from_slice(&[0; 2]);
-    body.extend_from_slice(tail);
-    with_header(&body)
-}
-
 #[test]
 fn a_count_over_the_cap_or_longer_than_the_input_is_refused() {
     let huge = u32::MAX.to_le_bytes();
-    assert_eq!(decode(&empty_until_work(&huge)), Err(WireError::TooLong));
+    assert_eq!(decode(&with_header(&huge)), Err(WireError::TooLong));
     let beyond_input = 1_000_u32.to_le_bytes();
     assert_eq!(
-        decode(&empty_until_work(&beyond_input)),
+        decode(&with_header(&beyond_input)),
         Err(WireError::Truncated)
     );
 }
@@ -392,10 +419,7 @@ fn a_count_over_the_cap_or_longer_than_the_input_is_refused() {
 fn an_unknown_work_kind_is_refused_by_name() {
     let mut tail = 1_u32.to_le_bytes().to_vec();
     tail.push(200);
-    assert_eq!(
-        decode(&empty_until_work(&tail)),
-        Err(WireError::UnknownTag(200))
-    );
+    assert_eq!(decode(&with_header(&tail)), Err(WireError::UnknownTag(200)));
 }
 
 #[test]
@@ -410,8 +434,10 @@ fn text_that_is_not_utf8_is_refused() {
 
 #[test]
 fn a_map_that_holds_a_key_twice_is_refused() {
-    // The first map holds shaders: a key, a name and no source, twice with the same key.
-    let mut shaders = 2_u32.to_le_bytes().to_vec();
+    // After an empty work list, the first map holds shaders: a key, a name and no source, twice
+    // with the same key.
+    let mut shaders = 0_u32.to_le_bytes().to_vec();
+    shaders.extend_from_slice(&2_u32.to_le_bytes());
     for name in ["A", "B"] {
         shaders.extend_from_slice(&(1_u64 << 32 | 1).to_le_bytes());
         shaders.extend_from_slice(&1_u32.to_le_bytes());

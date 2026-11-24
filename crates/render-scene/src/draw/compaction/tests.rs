@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use std::collections::BTreeMap;
 
-use super::gather::{SOURCE, run_bytes, workgroups};
+use super::gather::{SOURCE, run_bytes, workgroups, write_run_bytes};
 use super::mirror::{Extent, Layout};
-use super::plan::{Plan, RUN_RECORDS, Run};
+use super::plan::{Gather, Plan, RUN_RECORDS, Run, Workspace};
 use crate::draw::visibility::SelectedRange;
 use crate::geometry::INSTANCE_BYTES;
 use crate::instances::BatchKey;
@@ -355,5 +355,223 @@ fn runs_look_up_each_batch_once_and_still_read_every_record_from_its_own_base() 
             }
         }
         assert_eq!(read, expected, "seed {seed}");
+    }
+}
+
+/// A layout holding the five `BATCHES` and `extra` more batches around them, whose ranges were
+/// handed out in an order that has nothing to do with the keys, so a base is never a function
+/// of how many keys come before it.
+fn scrambled_layout(extra: usize, seed: u64) -> Layout {
+    let mut keys: Vec<BatchKey> = BATCHES.to_vec();
+    keys.extend((0..extra).map(|index| (index % 3, index / 3 % 2, 10 + index)));
+    let mut state = seed;
+    keys.sort_by_cached_key(|_| below(&mut state, 1 << 20));
+    let mut layout = Layout {
+        capacity: 1 << 24,
+        ..Layout::default()
+    };
+    for (index, key) in keys.into_iter().enumerate() {
+        assert!(layout.reserve(key, 70 + u32::try_from(index % 5).unwrap()));
+    }
+    layout
+}
+
+fn distinct_batches(plan: &Plan) -> usize {
+    let mut keys: Vec<BatchKey> = plan.copies.iter().map(|copy| copy.key).collect();
+    keys.dedup();
+    keys.len()
+}
+
+#[test]
+fn runs_from_an_ascending_cursor_equal_runs_from_an_indexed_lookup() {
+    let mut compared = 0;
+    // A few extra batches are walked past; hundreds are searched for.
+    for extra in [0, 6, 600] {
+        for seed in 0..32 {
+            let layout = scrambled_layout(extra, seed);
+            let plan = Plan::new(&generated(seed, &BATCHES)).unwrap();
+            let mut bases = layout.bases(distinct_batches(&plan));
+            let by_cursor = plan.runs(|key| bases.base(key));
+            let by_index = plan.runs(|key| layout.base(key));
+            assert_eq!(by_cursor, by_index, "extra {extra} seed {seed}");
+            compared += by_index.len();
+        }
+    }
+    assert!(compared > 1_000, "{compared} runs compared");
+}
+
+/// The run list as the shader reads it, decoded into destination record -> mirror record.
+fn decoded(bytes: &[u8]) -> BTreeMap<u32, u32> {
+    let words: Vec<u32> = bytes
+        .chunks_exact(4)
+        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .collect();
+    assert_eq!(words.len(), 1 + 3 * words[0] as usize);
+    let mut gathered = BTreeMap::new();
+    for run in words[1..].chunks_exact(3) {
+        assert!(run[2] > 0 && run[2] <= RUN_RECORDS);
+        for offset in 0..run[2] {
+            assert!(
+                gathered.insert(run[1] + offset, run[0] + offset).is_none(),
+                "a record is written twice"
+            );
+        }
+    }
+    gathered
+}
+
+#[test]
+fn the_run_list_bytes_gather_each_record_from_where_a_plain_copy_reads_it() {
+    for seed in 0..32 {
+        let layout = scrambled_layout(30, seed);
+        let plan = Plan::new(&generated(seed, &BATCHES)).unwrap();
+        let mut cursor = layout.bases(distinct_batches(&plan));
+        let runs = plan.runs(|key| cursor.base(key));
+        let mut reference = BTreeMap::new();
+        for copy in &plan.copies {
+            for offset in 0..copy.source.end - copy.source.start {
+                reference.insert(
+                    copy.destination + offset,
+                    layout.base(copy.key) + copy.source.start + offset,
+                );
+            }
+        }
+        assert_eq!(decoded(&run_bytes(&runs)), reference, "seed {seed}");
+    }
+}
+
+#[test]
+fn a_reused_run_byte_buffer_holds_only_the_latest_list() {
+    let big: Vec<Run> = (0..300).map(|index| run(index * 7, index * 3, 5)).collect();
+    let small = [run(9, 8, 7)];
+    let mut bytes = Vec::new();
+    write_run_bytes(&big, &mut bytes);
+    assert_eq!(bytes, run_bytes(&big));
+    write_run_bytes(&small, &mut bytes);
+    assert_eq!(bytes, run_bytes(&small));
+    write_run_bytes(&big, &mut bytes);
+    assert_eq!(bytes, run_bytes(&big));
+}
+
+/// Everything a gather takes from a plan, as a fresh plan and a stable sort give it.
+#[derive(Debug, PartialEq, Eq)]
+struct Arranged {
+    groups: Vec<(BatchKey, usize, Range<u32>)>,
+    copies: Vec<Gather>,
+    total: u32,
+    keys: Vec<BatchKey>,
+    runs: Vec<Run>,
+}
+
+fn arranged(work: &mut Workspace, ranges: &[SelectedRange], layout: &Layout) -> Option<Arranged> {
+    if !work.arrange(ranges) {
+        return None;
+    }
+    let mut bases = layout.bases(work.keys().len());
+    let runs = work.runs(|key| bases.base(key)).to_vec();
+    Some(Arranged {
+        groups: work
+            .plan()
+            .groups
+            .iter()
+            .map(|group| (group.key, group.lod, group.slots.clone()))
+            .collect(),
+        copies: work.plan().copies.clone(),
+        total: work.plan().total,
+        keys: work.keys().to_vec(),
+        runs,
+    })
+}
+
+/// The same selection through a plan and the indexed lookup, which hold no earlier selection.
+fn reference(ranges: &[SelectedRange], layout: &Layout) -> Option<Arranged> {
+    let plan = Plan::new(ranges)?;
+    let mut keys: Vec<BatchKey> = plan.copies.iter().map(|copy| copy.key).collect();
+    keys.dedup();
+    let runs = plan.runs(|key| layout.base(key));
+    Some(Arranged {
+        groups: plan
+            .groups
+            .iter()
+            .map(|group| (group.key, group.lod, group.slots.clone()))
+            .collect(),
+        copies: plan.copies,
+        total: plan.total,
+        keys,
+        runs,
+    })
+}
+
+#[test]
+fn a_reused_workspace_arranges_as_a_fresh_one_after_big_small_and_big_selections() {
+    let overflow = [range(A, 0, 0..u32::MAX), range(B, 0, 0..2)];
+    let mut turned = BATCHES;
+    turned.rotate_left(2);
+    for seed in 0..48 {
+        let layout = scrambled_layout(8, seed);
+        let mut reused = Workspace::default();
+        let selections = [
+            generated(seed, &BATCHES),
+            generated(seed + 1, &BATCHES[..1]),
+            generated(seed + 2, &turned),
+            Vec::new(),
+            overflow.to_vec(),
+            generated(seed + 3, &BATCHES),
+            generated(seed + 4, &BATCHES[2..4]),
+        ];
+        for (index, ranges) in selections.iter().enumerate() {
+            let fresh = arranged(&mut Workspace::default(), ranges, &layout);
+            let again = arranged(&mut reused, ranges, &layout);
+            assert_eq!(again, fresh, "seed {seed} selection {index}");
+            assert_eq!(again, reference(ranges, &layout), "seed {seed} {index}");
+        }
+    }
+}
+
+#[test]
+fn a_workspace_reserves_for_its_selection_and_stops_growing_when_it_has_seen_the_largest() {
+    let layout = scrambled_layout(8, 1);
+    let selections: Vec<_> = (0..24).map(|seed| generated(seed, &BATCHES)).collect();
+    let mut work = Workspace::default();
+    for ranges in &selections {
+        arranged(&mut work, ranges, &layout).unwrap();
+        let [order, groups, copies, ..] = work.buffers();
+        assert!(order.1 >= ranges.len() && groups.1 >= ranges.len() && copies.1 >= ranges.len());
+    }
+    let warm = work.buffers();
+    for _ in 0..3 {
+        for ranges in selections.iter().rev() {
+            arranged(&mut work, ranges, &layout).unwrap();
+        }
+    }
+    assert_eq!(work.buffers(), warm, "a buffer grew or moved");
+}
+
+#[test]
+fn levels_of_batches_with_many_ranges_order_as_a_stable_sort_does() {
+    // Past the length a small sort handles by insertion, equal keys keep their order only
+    // when the sort is told to keep it.
+    let long = |key: BatchKey, ranges: u32| -> Vec<SelectedRange> {
+        (0..ranges)
+            .map(|index| {
+                range(
+                    key,
+                    usize::try_from(index % 3).unwrap(),
+                    2 * index..2 * index + 1,
+                )
+            })
+            .collect()
+    };
+    let in_key_order: Vec<_> = BATCHES[..3].iter().flat_map(|&key| long(key, 90)).collect();
+    let mut out_of_order: Vec<_> = BATCHES[..3].iter().flat_map(|&key| long(key, 90)).collect();
+    out_of_order.rotate_left(100);
+    for ranges in [in_key_order, out_of_order] {
+        let plan = Plan::new(&ranges).unwrap();
+        let copies: Vec<_> = plan
+            .copies
+            .iter()
+            .map(|copy| (copy.key, copy.source.clone(), copy.destination))
+            .collect();
+        assert_eq!(copies, sorted_copies(&ranges));
     }
 }

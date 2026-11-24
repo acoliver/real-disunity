@@ -20,6 +20,7 @@ use worldrunner_unity_serialized::{
     compute_shader::{
         ComputeBinding, ComputeBuffer, ComputeShader, ComputeVariant, SPIRV_RENDERER,
     },
+    spirv_prep::prepare,
 };
 
 use crate::{
@@ -28,7 +29,7 @@ use crate::{
     player_module_resources::{ResourceClass, module_resources},
     player_objects::OpenFile,
     player_parameters::Tally,
-    shader_prep::{Backend, NagaModule, PrepareError, check_with_naga, prepare},
+    shader_prep::{Backend, NagaModule, PrepareError, check_with_naga},
 };
 
 /// Counts from preparing and laying out a player's compute kernels.

@@ -14,6 +14,7 @@ use super::{DrawError, SceneGpu};
 use crate::device::GpuContext;
 use crate::frame::FrameUniform;
 use crate::renderer::{DEPTH_FORMAT, ScenePipelines, depth_texture};
+use crate::test_support::upload_scene;
 use crate::view::{CameraPose, SceneView, Viewport};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Color, CommandEncoder, CommandEncoderDescriptor,
@@ -40,6 +41,7 @@ mod append_skinning;
 mod compaction;
 mod compaction_gather;
 mod compaction_mirror;
+mod compaction_scratch;
 mod contours;
 mod curved_wind;
 mod decal_mip_bias;
@@ -52,6 +54,8 @@ mod fold_only;
 pub(crate) mod fold_translucency;
 mod foliage;
 mod foliage_fixes;
+mod gather_sources;
+mod idle_flush;
 pub(crate) mod impostor;
 mod impostor_flat_mask;
 mod impostor_mip_bias;
@@ -63,6 +67,7 @@ mod mask_mip_bias;
 mod material_channels;
 mod material_factors;
 mod merged_metadata;
+mod mesh_arena;
 mod mip_bias;
 mod mip_end_to_end;
 mod mip_rig;
@@ -95,6 +100,10 @@ mod view_pins;
 
 /// The colour format every test renders into.
 const COLOR_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
+
+/// The scene colour of every configured renderer, which its output stage shows in
+/// [`COLOR_FORMAT`].
+const SCENE_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 /// Edge length of the render target, chosen so a readback stays cheap.
 const TARGET: u32 = 64;
@@ -623,8 +632,8 @@ fn render_from(context: &GpuContext, scene: &RenderScene, pose: CameraPose) -> V
 fn render_frame(context: &GpuContext, scene: &RenderScene, frame: &FrameUniform) -> Vec<u8> {
     let device = context.device();
     let queue = context.queue();
-    let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
-    let gpu = SceneGpu::upload(device, context.submission(), scene, &pipelines)
+    let pipelines = ScenePipelines::new(device, COLOR_FORMAT, 1).unwrap();
+    let gpu = upload_scene(device, context.submission(), scene, &pipelines)
         .expect("the fixture scene uploads");
     gpu.set_frame(queue, *frame);
 

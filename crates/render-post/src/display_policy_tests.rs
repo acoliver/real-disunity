@@ -61,7 +61,7 @@ fn fxaa_quality_defaults_and_validation() {
         ] {
             assert!(
                 HdrPostSettings {
-                    resolve: crate::PostResolve::fxaa_with(1.0, quality),
+                    resolve: crate::PostResolve::fxaa(1.0, quality),
                     ..Default::default()
                 }
                 .validate()
@@ -72,7 +72,7 @@ fn fxaa_quality_defaults_and_validation() {
     for value in [0.0, 1.0] {
         assert!(
             HdrPostSettings {
-                resolve: crate::PostResolve::fxaa_with(
+                resolve: crate::PostResolve::fxaa(
                     1.0,
                     FxaaQuality {
                         edge_threshold: value,

@@ -1,18 +1,18 @@
 //! What a game's targets cost the allocation budget: a backing a replacement keeps is charged
 //! once, and a backing a replacement makes anew is charged beside the old one.
-use super::fixture::{FORMAT, SIZE};
+use super::fixture::{FORMAT, SCENE_FORMAT, SIZE};
 use std::sync::Arc;
 use worldrunner_render_gpu::configuration::{AllocationBudget, ConfigurationError};
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
+    FrameFeature, PassDeclaration, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_scene::{
     compositor::{
         ConfiguredFrameRenderer, GameBuild, GameFeatureFactory, GamePasses, RendererConfiguration,
         TargetDeclaration, TargetExtent,
     },
     device::GpuContext,
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-        FrameFeature, PassDeclaration, PrepareContext, PreparedFeature,
-    },
     wgpu,
 };
 
@@ -130,7 +130,8 @@ fn context() -> GpuContext {
 }
 
 fn settings(size: [u32; 2], passes: GamePasses) -> RendererConfiguration {
-    let mut settings = RendererConfiguration::legacy(size, FORMAT);
+    let mut settings =
+        RendererConfiguration::new(size, FORMAT, worldrunner_render_post::ToneMap::Clamp);
     settings.game_passes = passes;
     settings
 }
@@ -199,7 +200,7 @@ fn a_resize_charges_the_old_and_the_new_backing_until_the_old_one_retires() {
     .passes();
     let small = settings(SIZE, passes.clone());
     let mut large = small.clone();
-    large.frame = FrameConfig::new(LARGER, FORMAT, 1);
+    large.frame = FrameConfig::new(LARGER, SCENE_FORMAT, 1);
     let (before, after) = (charged(&context, &small), charged(&context, &large));
     // The fixed backing is kept; the frame-sized one and the stock targets exist twice.
     let peak = before + after - FIXED_BYTES;

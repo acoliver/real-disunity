@@ -10,7 +10,7 @@ fn filled_circle_and_ring_match_analytic_pixel_masks() {
     for thickness in [None, Some(4.)] {
         let mut driver = Driver::default();
         let events = driver.events.clone();
-        let mut run = overlay_host().windowless(&mut driver).unwrap();
+        let mut run = overlay_host().windowless(&mut driver, None).unwrap();
         assert!(run.host().presented_view().is_none());
         let baseline = capture(&mut run, &events).1;
         let fonts = FontBook::new(UiLimits::default()).unwrap();
@@ -30,7 +30,12 @@ fn filled_circle_and_ring_match_analytic_pixel_masks() {
             .unwrap();
         run.host_mut()
             .apply(RetainedUpdate::Ui(std::sync::Arc::new(
-                UiOverlay::from_presentation(&plan, &std::collections::BTreeMap::new()).unwrap(),
+                UiOverlay::from_presentation(
+                    &plan,
+                    &std::collections::BTreeMap::new(),
+                    &worldrunner_world_simulation::ui::presentation::UiLayers::default(),
+                )
+                .unwrap(),
             )))
             .unwrap();
         let image = capture(&mut run, &events).1;
@@ -101,7 +106,7 @@ fn triangle_arrow_head_draws_exact_bytes_and_respects_clip() {
     ui.graphics[0].clip_rect = [30, 0, 34, 64];
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     let baseline = capture(&mut run, &events).1;
     apply(&mut run, ui);
     let image = capture(&mut run, &events).1;

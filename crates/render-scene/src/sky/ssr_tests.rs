@@ -1,7 +1,6 @@
 use super::scene_tests::{base_effects, quad, scene, view};
-use crate::{
-    compositor::FrameRenderer, device::GpuContext, draw::SceneGpu, renderer::ScenePipelines,
-};
+use crate::test_support::upload_scene;
+use crate::{compositor::FrameRenderer, device::GpuContext, renderer::ScenePipelines};
 use worldrunner_render_plan::*;
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef, ToneMap};
 
@@ -59,13 +58,13 @@ fn render(reflections: bool, velocity: bool) -> Vec<u8> {
         source.effects(),
     )
     .unwrap();
-    let upload = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float);
+    let upload = ScenePipelines::new(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap();
     let selected = if velocity {
         ScenePipelines::with_taa_velocity(device, wgpu::TextureFormat::Rgba16Float, 1).unwrap()
     } else {
         upload.clone()
     };
-    let mut gpu = SceneGpu::upload(device, context.submission(), &source, &upload).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), &source, &upload).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("celestial SSR color"),
         renderer.targets().scene().texture(),
@@ -80,8 +79,7 @@ fn render(reflections: bool, velocity: bool) -> Vec<u8> {
     context
         .submission()
         .prepare(device, |encoder, _| {
-            crate::compositor::encode_scene(
-                &mut renderer,
+            renderer.encoding().encode_scene(
                 device,
                 encoder,
                 (&mut gpu, &selected),

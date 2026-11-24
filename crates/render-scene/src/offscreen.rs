@@ -252,31 +252,34 @@ impl OffscreenTarget {
         self.layout.viewport
     }
 
-    /// Clears to opaque black, draws a resident scene, and reads its pixels.
-    /// The caller must set the scene's frame and use pipelines with [`Self::COLOR_FORMAT`].
+    /// Clears to opaque black, draws a resident scene through the stock frame with the frame
+    /// the caller set on it, and reads its pixels. Use pipelines with [`Self::COLOR_FORMAT`].
     pub fn render(
         &mut self,
         context: &GpuContext,
-        scene: &SceneGpu,
+        scene: &mut SceneGpu,
         pipelines: &ScenePipelines,
     ) -> Result<RgbaImage, OffscreenError> {
         self.wait_for_terrain_pages(context, scene)?;
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
+                let frame = scene.resident_frame();
                 let color = self.color_attachment();
                 let depth = self.depth_attachment();
                 let renderer = self
                     .scheduler
                     .get_or_insert_with(|| crate::compositor::FrameRenderer::new(context.device()));
-                crate::compositor::encode_resident(
-                    renderer,
-                    context.device(),
-                    encoder,
-                    (scene, pipelines),
-                    (&color, &depth),
-                )
-                .map_err(worldrunner_render_post::PostError::from)?;
+                renderer
+                    .encoding()
+                    .encode_scene(
+                        context.device(),
+                        encoder,
+                        (scene, pipelines),
+                        (&color, &depth),
+                        frame,
+                    )
+                    .map_err(worldrunner_render_post::PostError::from)?;
                 self.encode_readback(encoder)?;
                 Ok::<_, OffscreenError>(())
             })
@@ -289,7 +292,7 @@ impl OffscreenTarget {
     pub fn render_with_clear_color(
         &mut self,
         context: &GpuContext,
-        scene: &SceneGpu,
+        scene: &mut SceneGpu,
         pipelines: &ScenePipelines,
         color: wgpu::Color,
     ) -> Result<RgbaImage, OffscreenError> {
@@ -394,10 +397,16 @@ pub fn capture_scene(
     // Reject oversized targets before uploading any scene resources.
     let mut target = OffscreenTarget::new(context.device(), view.viewport())?;
     let frame = FrameUniform::new(view, scene.effects())?;
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines)?;
+    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1)?;
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        crate::draw::PreparedScene::new(scene)?,
+        &pipelines,
+        None,
+    )?;
     gpu.set_frame(context.queue(), frame);
-    target.render(context, &gpu, &pipelines)
+    target.render(context, &mut gpu, &pipelines)
 }
 
 #[cfg(test)]

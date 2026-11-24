@@ -8,22 +8,24 @@ use super::lighting::ssao;
 use super::shadowed::{capture_fit, effects_with, shadowed};
 use std::sync::{Arc, Mutex};
 use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_post::{
+    AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
+    GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
+};
 use worldrunner_render_program::binding::{EngineSemantic, ResourceLayout};
 use worldrunner_render_program::module::StageDeclarations;
 use worldrunner_render_program::runtime::{
     GraphicsProgram, Import, ImportedDraw, ImportedGeometry, PreparedProgramDraw, ProgramRuntime,
 };
 use worldrunner_render_program::state::RasterState;
+use worldrunner_render_scene::draw::PreparedScene;
+use worldrunner_render_scene::shadows::ShadowedTarget;
 use worldrunner_render_scene::{
     compositor::{
         ColorOutput, DepthAccess, FrameEnvironmentHandle, FrameOcclusionHandle,
         FrameSceneTexturesHandle, FrameShadowHandle, FrameTerrainHandle, GameBuild,
         GameFeatureFactory, GamePassSpec, GamePasses, GameTargets, PassTarget, TargetDeclaration,
         TargetExtent,
-    },
-    executor::{
-        AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        GamePlace, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
     },
     frame::metadata::FrameProduct,
     shadows::{
@@ -412,17 +414,6 @@ fn near(range: DepthRange) -> f32 {
     }
 }
 
-fn colour(rig: &mut Rig) -> Vec<[u8; 4]> {
-    let mut encoder = rig
-        .context
-        .submission()
-        .begin(rig.context.device())
-        .unwrap();
-    rig.renderer.targets().encode_resolve(&mut encoder);
-    encoder.finish().submit().unwrap();
-    rig.read(rig.renderer.targets().texture())
-}
-
 #[test]
 fn a_shadowed_capture_admits_every_write_of_a_prefix_pass_over_several_frames() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
@@ -447,7 +438,7 @@ fn a_shadowed_capture_admits_every_write_of_a_prefix_pass_over_several_frames() 
         let fit = capture_fit(&mut rig, &mut scene, frame);
         assert_eq!(fit.depth, first.depth, "frame {frame} fits the same depth");
         assert_eq!(
-            Rig::pixel(&colour(&mut rig), 3, 20),
+            Rig::pixel(&rig.output(), 3, 20),
             [255, 0, 0, 255],
             "frame {frame} reads the target frame 0's prefix pass wrote"
         );
@@ -513,9 +504,9 @@ fn shadowed_with_ssao(inventory: GamePasses) -> (Rig, ShadowedScene) {
     let rig = Rig::with_ssao(&lit, SIZE, ssao(), |settings| {
         settings.game_passes = inventory;
     });
-    let mut scene = ShadowedScene::with_target(
+    let mut scene = ShadowedScene::new(
         &rig.context,
-        &lit,
+        PreparedScene::new(&lit).unwrap(),
         DirectionalShadowSettings {
             focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
             half_extent_meters: 4.0,
@@ -525,8 +516,7 @@ fn shadowed_with_ssao(inventory: GamePasses) -> (Rig, ShadowedScene) {
             normal_bias_meters: 0.01,
             refresh_policy: CascadeRefreshPolicy::default(),
         },
-        wgpu::TextureFormat::Rgba16Float,
-        1,
+        ShadowedTarget::new(wgpu::TextureFormat::Rgba16Float, 1),
     )
     .unwrap();
     scene

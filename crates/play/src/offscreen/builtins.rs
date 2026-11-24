@@ -31,14 +31,19 @@
 //!   script's matrix is. Which order a shader reads is not measured here; it is inferred from
 //!   there being one way to write a matrix.
 //! * `unity_WorldToObject` is its inverse, left out when the matrix has none.
+//! * A blit with a material draws a quad over clip space with no renderer and no camera
+//!   ([`blit_layer`]): `unity_ObjectToWorld`, `unity_WorldToObject` and `unity_MatrixVP` are the
+//!   identity. Old World's terrain bake blits its normal through a pass of the post-processing
+//!   material whose vertex stage reads `unity_ObjectToWorld` and `unity_MatrixVP` and nothing else
+//!   per draw (the constants of the pass as the engine packs them), so with no value for them the
+//!   quad collapsed to a point and the tile normal stayed empty.
 //! * `unity_MatrixV` is [`world_to_camera`](super::camera::world_to_camera).
 //! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
 //!   projection times the view. The projection is the engine layer's; the clip space is the one
-//!   `render-program`'s conventions tests measured, with depth running the way the run's
-//!   [`DepthRange`](super::DepthRange) says: forward (near 0, far w), or reversed (near w, far 0),
-//!   which is the player's default (see that type for the evidence). The projection builtins
-//!   `glstate_matrix_projection` and `_ZBufferParams` are not supplied (see "Left missing"), so
-//!   a shader that reads them gets zero whichever range the run uses.
+//!   `render-program`'s conventions tests measured, with depth reversed: near is w and far is 0
+//!   (see the module documentation of [`offscreen`](super) for the evidence). The projection
+//!   builtins `glstate_matrix_projection` and `_ZBufferParams` are not supplied (see "Left
+//!   missing"), so a shader that reads them gets zero.
 //! * `_WorldSpaceCameraPos` is the translation of the inverse of the view, with 0 in the fourth
 //!   component for a member of three floats to ignore.
 //! * `_MainLightPosition` and `_MainLightColor` (four floats each) come from the main light of the
@@ -59,22 +64,30 @@
 //! * `unity_SHAr`, `unity_SHAg`, `unity_SHAb`, `unity_SHBr`, `unity_SHBg`, `unity_SHBb`, `unity_SHC`
 //!   and `unity_SpecCube0_HDR` are the default ambient of [`add_ambient`], in the frame's starting
 //!   globals like the main light (see "Left missing" for what it is and is not).
-//! * `unity_OrthoParams` (2,766 variants) carries 1 in its fourth component for a view whose
-//!   projection has no perspective divide and 0 for one that has it ([`view_layer`]). In the same
-//!   shaders (`Mohawk/StandardShader`, `LakeShader`) the fragment stage compares that component
-//!   with 0 and nothing else: 0 takes the view vector from `_WorldSpaceCameraPos` to the surface,
-//!   anything else takes the third row of `unity_MatrixV`. The first three components are 0; no
-//!   scanned stage reads them.
-//! * `_ProjectionParams` (3,522) holds +1 and the near-plane distance of the view's projection,
-//!   then two zeros ([`view_layer`]). `LakeShader`'s vertex stage puts
+//! * `unity_OrthoParams` (2,766 variants) carries the projection kind in its fourth component: 1
+//!   for a view whose projection has no perspective divide and 0 for one that has it
+//!   ([`view_layer`]). In the same shaders (`Mohawk/StandardShader`, `LakeShader`) the fragment
+//!   stage compares that component with 0 and nothing else: 0 takes the view vector from
+//!   `_WorldSpaceCameraPos` to the surface, anything else takes the third row of `unity_MatrixV`.
+//!   The first two components are the half width and half height of the view. The captured frames
+//!   of the original's perspective camera hold (8.889, 5, 0, 0) at 1280 by 720: the camera's
+//!   orthographic half height of 5, kept while it draws in perspective, and that times the aspect
+//!   of 16 to 9. The host writes the same for a camera, from the camera's half height and the
+//!   aspect of the projection, and for an orthographic projection the two sizes come from its x
+//!   and y scales. No scanned stage reads the first three components.
+//! * `_ProjectionParams` (3,522) holds +1, the near-plane distance, the far-plane distance and
+//!   its reciprocal ([`view_layer`]). The captured frames of the original hold
+//!   (1, 0.3, 209.9977, 0.004762) for its main camera and (1, 0.3, 1000, 0.001) for another. The
+//!   host derives both distances from the z row of the projection the view draws with, so a view
+//!   a script gave an explicit projection holds them too, and the far plane carries the rounding
+//!   of the matrix (a far plane of 210 gives 209.9977 in both). `LakeShader`'s vertex stage puts
 //!   `(0.5 (x + w), 0.5 (y * _ProjectionParams.x + w))` in its screen position and the fragment
 //!   samples the depth texture there. Play draws positive clip y into the high rows (see
 //!   [`clip_from_gl`](super::camera::clip_from_gl)), so the fragment addresses its own texel
 //!   only with +1.
 //!   `Mohawk/Transparent/WaterShader` ends its view-space reflection ray at
 //!   `z = -_ProjectionParams.y` when it would pass the near plane, so the second component is
-//!   the near distance. No scanned stage reads the last two. A projection with no finite near
-//!   plane leaves the name missing.
+//!   the near distance. A projection with no finite near or far plane leaves the name missing.
 //! * `unity_WorldTransformParams` (2,011) carries the sign of the object-to-world determinant in
 //!   its fourth component, -1 for a mirrored renderer and 1 otherwise, including a singular one
 //!   ([`draw_layer`]). `Mohawk/StandardShader`'s vertex stage multiplies its bitangent,
@@ -92,10 +105,10 @@
 //!   one, so it wins over a `--global unity_LightData=` value and over a script's global for a
 //!   frame that has a directional light; a frame with none leaves the name to those.
 //! * `_ScreenParams` (2,389) holds the width and height in pixels of the target the view draws
-//!   into, the mip's for a mip target ([`add_screen_size`]). `Mohawk/StandardShader` multiplies the
-//!   0..1 screen position by its first two components and then by 0.25 for a four-pixel tile. The
-//!   last two are 0; no scanned stage reads them. A command-list draw with no bound target has
-//!   none.
+//!   into, the mip's for a mip target, then 1 + 1 / width and 1 + 1 / height ([`view_layer`]); the
+//!   original's frames hold (1280, 720, 1.00078, 1.00139). `Mohawk/StandardShader` multiplies the
+//!   0..1 screen position by its first two components and then by 0.25 for a four-pixel tile. A
+//!   command-list draw with no bound target has none.
 //!
 //! # Left missing
 //!
@@ -136,7 +149,6 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 
 use super::camera::{clip_from_gl, projection, world_to_camera};
-use super::depth_range::DepthRange;
 use crate::scene_light::{AMBIENT_SKY_IRRADIANCE, main_light_index};
 use worldrunner_world_simulation::graphics::{CameraView, WorldLight};
 
@@ -163,23 +175,32 @@ pub const SPEC_CUBE0_HDR: &str = "unity_SpecCube0_HDR";
 /// A matrix is singular when its determinant is this small next to 1.
 const SINGULAR: f32 = 1.0e-12;
 
+/// The per-draw values of a draw whose object matrices the shader reads per instance from a
+/// buffer: the sign of the matrix determinant is not known, so the handedness is positive.
+#[must_use]
+pub fn instanced_draw_layer() -> PropertyLayer {
+    let mut layer = PropertyLayer::default();
+    layer.values.set(
+        WORLD_TRANSFORM_PARAMS,
+        PropertyValue::Vector([0.0, 0.0, 0.0, 1.0]),
+    );
+    layer
+}
+
 /// The per-draw values of a renderer at `local_to_world`.
 #[must_use]
 pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
     let matrix = Mat4::from_cols_array(local_to_world);
-    let mut layer = PropertyLayer::default();
+    let mut layer = instanced_draw_layer();
     layer
         .values
         .set(OBJECT_TO_WORLD, PropertyValue::Matrix(*local_to_world));
-    let handedness = if matrix.determinant() < 0.0 {
-        -1.0
-    } else {
-        1.0
-    };
-    layer.values.set(
-        WORLD_TRANSFORM_PARAMS,
-        PropertyValue::Vector([0.0, 0.0, 0.0, handedness]),
-    );
+    if matrix.determinant() < 0.0 {
+        layer.values.set(
+            WORLD_TRANSFORM_PARAMS,
+            PropertyValue::Vector([0.0, 0.0, 0.0, -1.0]),
+        );
+    }
     if matrix.determinant().abs() > SINGULAR {
         layer.values.set(
             WORLD_TO_OBJECT,
@@ -189,22 +210,46 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
     layer
 }
 
-/// The values of a camera that draws into a target `aspect` wide over high, with depth running as
-/// `depth` says.
+/// The values a blit with a material draws with. The blit's quad is in clip space (see
+/// `adapter::blit_mesh`), so the pass places it with the identity as its object-to-world,
+/// world-to-object and world-to-clip matrices. A blit has no renderer and no camera, so no other
+/// layer holds them, and without them a vertex stage that multiplies its position by one packs a
+/// zero matrix and puts every vertex at the origin.
 #[must_use]
-pub fn camera_layer(view: &CameraView, aspect: f32, depth: DepthRange) -> PropertyLayer {
+pub fn blit_layer() -> PropertyLayer {
+    let mut layer = PropertyLayer::default();
+    for name in [OBJECT_TO_WORLD, WORLD_TO_OBJECT, VIEW_PROJECTION] {
+        layer
+            .values
+            .set(name, PropertyValue::Matrix(Mat4::IDENTITY.to_cols_array()));
+    }
+    layer
+}
+
+/// The values of a camera that draws into a target of `size` pixels.
+#[must_use]
+pub fn camera_layer(view: &CameraView, size: [u32; 2]) -> PropertyLayer {
+    let aspect = pixels(size[0]) / pixels(size[1]);
     view_layer(
         &world_to_camera(view),
         &projection(&view.settings, aspect),
-        depth,
+        Some(size),
+        Some(view.settings.half_height),
     )
 }
 
 /// The values of a view from the world to the camera `world_to_camera` and the OpenGL projection
-/// `projection`, which a script sets as they are, with depth running as `depth` says.
+/// `projection`, which a script sets as they are, drawn into a target of `size` pixels when one is
+/// bound. `camera_half_height` is the orthographic half height of the camera the view belongs to,
+/// which `unity_OrthoParams` keeps while the camera draws in perspective.
 #[must_use]
-pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4, depth: DepthRange) -> PropertyLayer {
-    let view_projection = clip_from_gl(depth) * *projection * *world_to_camera;
+pub fn view_layer(
+    world_to_camera: &Mat4,
+    projection: &Mat4,
+    size: Option<[u32; 2]>,
+    camera_half_height: Option<f32>,
+) -> PropertyLayer {
+    let view_projection = clip_from_gl() * *projection * *world_to_camera;
     let position: Vec4 = world_to_camera.inverse().w_axis;
     let mut layer = PropertyLayer::default();
     layer
@@ -220,12 +265,18 @@ pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4, depth: DepthRange) 
     );
     layer.values.set(
         ORTHO_PARAMS,
-        PropertyValue::Vector([0.0, 0.0, 0.0, orthographic_flag(projection)]),
+        PropertyValue::Vector(ortho_params(projection, camera_half_height)),
     );
-    if let Some(near) = near_plane(projection) {
+    if let Some((near, far)) = clip_planes(projection) {
         layer.values.set(
             PROJECTION_PARAMS,
-            PropertyValue::Vector([1.0, near, 0.0, 0.0]),
+            PropertyValue::Vector([1.0, near, far, far.recip()]),
+        );
+    }
+    if let Some([width, height]) = size.map(|size| size.map(pixels)) {
+        layer.values.set(
+            SCREEN_PARAMS,
+            PropertyValue::Vector([width, height, 1.0 + width.recip(), 1.0 + height.recip()]),
         );
     }
     layer
@@ -310,34 +361,45 @@ pub fn add_ambient(layer: &mut PropertyLayer) {
     }
 }
 
-/// Adds the size in pixels of the target a view draws into: `_ScreenParams` holds the width and
-/// height, with 0 in the last two components, which no scanned shader reads.
-pub fn add_screen_size(layer: &mut PropertyLayer, size: [u32; 2]) {
-    let [width, height] = size.map(pixels);
-    layer.values.set(
-        SCREEN_PARAMS,
-        PropertyValue::Vector([width, height, 0.0, 0.0]),
-    );
-}
-
 /// A side in pixels as a float. Sides above 65535 saturate, and no render texture reaches them.
 fn pixels(side: u32) -> f32 {
     f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 
-/// The near-plane distance of an OpenGL `projection`, from the z row: `n = t / (s - 1)` for a
-/// perspective projection and `n = (t + 1) / s` for an orthographic one, where `s` is the
-/// row's z scale (`z_axis.z`) and `t` its translation (`w_axis.z`). `None` when the matrix has
-/// no finite near plane. A script projection with an oblique near plane rewrites that row, so
-/// for it the value is no longer the camera's near distance.
-fn near_plane(projection: &Mat4) -> Option<f32> {
+/// The near and far plane distances of an OpenGL `projection`, from the z row: with `s` the row's
+/// z scale (`z_axis.z`) and `t` its translation (`w_axis.z`), a perspective projection has
+/// `n = t / (s - 1)` and `f = t / (s + 1)`, and an orthographic one `n = (t + 1) / s` and
+/// `f = (t - 1) / s`. `None` when the matrix has no finite near plane or no finite far plane
+/// other than 0. The far plane is a difference of two nearly equal numbers for a distant one, so
+/// it carries the rounding of the matrix: a camera with far 210 gives 209.9977 here and in the
+/// captured frames of the original. A script projection with an oblique near plane rewrites that
+/// row, so for it the values are no longer the camera's distances.
+fn clip_planes(projection: &Mat4) -> Option<(f32, f32)> {
     let (scale, offset) = (projection.z_axis.z, projection.w_axis.z);
-    let near = if orthographic_flag(projection) > 0.0 {
-        (offset + 1.0) / scale
+    let (near, far) = if orthographic_flag(projection) > 0.0 {
+        ((offset + 1.0) / scale, (offset - 1.0) / scale)
     } else {
-        offset / (scale - 1.0)
+        (offset / (scale - 1.0), offset / (scale + 1.0))
     };
-    near.is_finite().then_some(near)
+    (near.is_finite() && far.is_finite() && far.recip().is_finite()).then_some((near, far))
+}
+
+/// `unity_OrthoParams`: the half width and half height of the view, then 0 and the projection
+/// kind. An orthographic projection holds both sizes in its x and y scales. A perspective one
+/// holds none, and the player's frames carry the orthographic half height of the camera instead
+/// (5 by default) with the half width that the aspect of the projection gives. A view of no
+/// camera has 0 for them. The aspect is the ratio of the y scale to the x scale.
+fn ortho_params(projection: &Mat4, camera_half_height: Option<f32>) -> [f32; 4] {
+    let kind = orthographic_flag(projection);
+    let (x_scale, y_scale) = (projection.x_axis.x, projection.y_axis.y);
+    let half_height = if kind > 0.0 {
+        y_scale.recip()
+    } else {
+        camera_half_height.unwrap_or(0.0)
+    };
+    let half_width = half_height * y_scale / x_scale;
+    let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
+    [finite(half_width), finite(half_height), 0.0, kind]
 }
 
 /// 1 for a projection without a perspective divide, whose clip w does not depend on depth, and 0

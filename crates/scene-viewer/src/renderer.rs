@@ -3,6 +3,7 @@ mod budget_tests;
 mod texture_tiers;
 
 use std::sync::{Arc, mpsc};
+use worldrunner_render_scene::shadows::ShadowedTarget;
 
 use winit::{event_loop::OwnedDisplayHandle, window::Window};
 use worldrunner_render_gpu::surface::{Presenter, SurfaceError, SurfacePolicy};
@@ -14,7 +15,7 @@ mod capture;
 mod environment;
 mod execution;
 mod game_screen;
-mod live;
+mod readback;
 mod readiness;
 mod resource_edit;
 mod retained;
@@ -22,8 +23,8 @@ mod shared;
 pub(crate) use shared::Shared;
 mod target;
 pub(crate) mod timing;
+mod ui_targets;
 mod windowless;
-pub(crate) use live::SceneSource;
 use worldrunner_render_plan::{RenderScene, SceneEffects, SceneTexture};
 use worldrunner_render_program::offscreen::PendingOffscreen;
 use worldrunner_render_scene::{
@@ -53,8 +54,6 @@ pub(super) struct Renderer {
     errors: mpsc::Receiver<String>,
     clock: crate::clock::Clock,
     pub(crate) frame_time: std::time::Duration,
-    live_upload: Option<live::Upload>,
-    live_pending: Option<live::Pending>,
     streaming: readiness::Streaming,
     game_screen: game_screen::Frames,
 }
@@ -68,13 +67,6 @@ struct PlainScene {
     pipelines: ScenePipelines,
     effects: Option<SceneEffects>,
     clear: Option<wgpu::Color>,
-}
-
-/// What an admitted frame draws. A retained host's view is resolved once, after admission and
-/// publication, so a frame that is not admitted resolves no camera.
-enum FrameSource<'a> {
-    View(&'a SceneView),
-    Retained(&'a mut crate::RetainedHost),
 }
 
 impl Renderer {
@@ -98,7 +90,8 @@ impl Renderer {
         .await
     }
 
-    /// As [`Self::new`] with no shadows and the legacy profile, on a device made before the window.
+    /// As [`Self::new`] with no shadows and the clamped HDR test profile, on a device made before
+    /// the window.
     #[cfg(all(test, target_os = "linux"))]
     pub async fn new_shared(
         display: OwnedDisplayHandle,
@@ -110,10 +103,29 @@ impl Renderer {
             Ok(Resolved {
                 scene: std::borrow::Cow::Borrowed(scene),
                 shadows: None,
-                profile: crate::FrameProfile::Legacy,
+                profile: crate::tests::CLAMP,
                 startup: 2.into(),
             })
         })
+        .await
+    }
+
+    /// A renderer for the window of `host`, whose initial scene and options decide the startup.
+    pub async fn from_host(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        host: &mut crate::RetainedHost,
+        shared: Option<Shared>,
+    ) -> Result<Self, ViewerError> {
+        let monitor = crate::window_size::display_info(&window);
+        Self::surface(
+            display,
+            window,
+            shared,
+            |adapter, surface_extent, census| {
+                startup::resolve(host, adapter, surface_extent, monitor, census)
+            },
+        )
         .await
     }
 
@@ -223,44 +235,49 @@ impl Renderer {
         self.check_errors()
     }
 
-    /// Admission and completion progress never wait for GPU work on the event thread.
-    pub fn render(
-        &mut self,
-        view: &SceneView,
-        update: &mut crate::SceneUpdate,
-    ) -> Result<bool, ViewerError> {
-        Ok(self
-            .render_admitted(FrameSource::View(view), update, None)?
-            .is_some())
+    /// Whether a frame would be admitted now. Completed submissions retire only when the device
+    /// is polled, so call this after [`Self::poll`].
+    pub(crate) fn frame_slot_free(&self) -> bool {
+        self.execution.flight().has_free_slot()
     }
 
+    /// Draws `view` with no host. Admission and completion progress never wait for GPU work on the
+    /// event thread. Only the Linux window tests (`mod tests`) draw without a host.
+    #[cfg(all(test, target_os = "linux"))]
+    pub fn render(&mut self, view: &SceneView) -> Result<bool, ViewerError> {
+        let Some(ready) = self.acquire_render_frame()? else {
+            return Ok(false);
+        };
+        self.draw_admitted(ready, view, None)?;
+        Ok(true)
+    }
+
+    /// Draws the host's view when a frame is admitted. The view is resolved once, after admission
+    /// and publication, so a frame that is not admitted resolves no camera.
     fn render_admitted(
         &mut self,
-        mut source: FrameSource<'_>,
-        update: &mut crate::SceneUpdate,
-        capture: Option<&mut live::Capture>,
+        host: &mut crate::RetainedHost,
     ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
-        if let FrameSource::Retained(host) = &mut source
-            && host.offscreen.is_some()
-            && !self.admit_retained_offscreen(host)?
-        {
+        if host.offscreen.is_some() && !self.admit_retained_offscreen(host)? {
             return Ok(None);
         }
-        let Some(ready) = self.acquire_render_frame(update)? else {
+        let Some(ready) = self.acquire_render_frame()? else {
             return Ok(None);
         };
-        let retained_view;
-        let (view, mut host) = match source {
-            FrameSource::View(view) => (view, None),
-            FrameSource::Retained(host) => {
-                if host.offscreen.is_none() {
-                    self.publish_retained(host)?;
-                }
-                self.apply_retained_shadow_policy(host)?;
-                retained_view = host.view()?.expect("admitted retained extent");
-                (&retained_view, Some(host))
-            }
-        };
+        if host.offscreen.is_none() {
+            self.publish_retained(host)?;
+        }
+        self.apply_retained_shadow_policy(host)?;
+        let view = host.view()?.expect("admitted retained extent");
+        self.draw_admitted(ready, &view, Some(host)).map(Some)
+    }
+
+    fn draw_admitted(
+        &mut self,
+        ready: execution::ReadyFrame,
+        view: &SceneView,
+        mut host: Option<&mut crate::RetainedHost>,
+    ) -> Result<worldrunner_render_gpu::flight::CompletionTicket, ViewerError> {
         if let Some(host) = host.as_deref() {
             self.reject_offscreen_depth_fitting(host)?;
         }
@@ -274,21 +291,37 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         // The offer comes first: capture preparation refuses what a screen frame cannot supply,
         // and it does so before the frame takes the host's queued operations.
+        if let Some(host) = host.as_deref() {
+            self.streaming.ui.offer(
+                &self.context,
+                (&mut self.resident, &mut self.presentation),
+                &host.ui_targets,
+            )?;
+        }
         self.game_screen
             .offer(host.as_deref().and_then(|host| host.game_screen.as_ref()));
+        self.bind_ui_layers(host.as_deref().and_then(|host| host.ui_layers.as_ref()))?;
         let capture::HostCapture {
             request: mut retained_capture,
             misses,
         } = self.prepare_host_capture(host.as_deref_mut(), view, &ready.frame.texture)?;
         let image = retained_capture.as_mut().map(|(_, image)| image);
         let offscreen = host.as_deref_mut().and_then(|host| host.offscreen.take());
-        let prepared = self.encode_frame(view, (capture, offscreen), &output, image, misses)?;
+        let prepared = self.encode_frame(view, offscreen, &output, image, misses)?;
         let ticket = self
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
         self.game_screen.submitted();
         retained::finish_admitted_frame(self, host, view, retained_capture, ticket.clone())?;
-        Ok(Some(ticket))
+        Ok(ticket)
+    }
+
+    /// Points the overlay's runs of UI draws at the texture the host offers for them.
+    fn bind_ui_layers(&mut self, layers: Option<&wgpu::Texture>) -> Result<(), ViewerError> {
+        self.resident
+            .scene_mut()
+            .bind_ui_layers(self.context.device(), self.context.submission(), layers)
+            .map_err(|error| ViewerError::Gpu(error.to_string()))
     }
 
     fn apply_retained_shadow_policy(
@@ -305,31 +338,20 @@ impl Renderer {
         self.resident.apply_shadow_policy(policy)
     }
 
-    fn acquire_render_frame(
-        &mut self,
-        update: &mut crate::SceneUpdate,
-    ) -> Result<Option<execution::ReadyFrame>, ViewerError> {
+    fn acquire_render_frame(&mut self) -> Result<Option<execution::ReadyFrame>, ViewerError> {
         self.poll()?;
-        let resident = &mut self.resident;
-        let upload = &mut self.live_upload;
-        self.execution.acquire(&self.context, || {
-            if let Some(upload) = upload.take() {
-                resident.upload_live(&self.context, upload)?;
-            }
-            update(resident.scene_mut()).map_err(ViewerError::from)
-        })
+        self.execution.acquire(&self.context)
     }
 
     fn encode_frame(
         &mut self,
         view: &SceneView,
-        work: (Option<&mut live::Capture>, Option<PendingOffscreen>),
+        mut offscreen: Option<PendingOffscreen>,
         output: &wgpu::TextureView,
         retained: Option<&mut capture::Products>,
         misses: game_screen::ViewMisses,
     ) -> Result<worldrunner_render_gpu::submission::PreparedFrame, ViewerError> {
-        let (capture, mut offscreen) = work;
-        let fitted = self.fit_stock_scene(view, capture.is_some(), retained.as_deref())?;
+        let fitted = self.fit_stock_scene(view, retained.as_deref())?;
         self.context
             .submission()
             .prepare(self.context.device(), |encoder, _| {
@@ -355,7 +377,7 @@ impl Renderer {
                     resident: &self.resident,
                     presentation: &self.presentation,
                 }
-                .encode(encoder, output, capture, retained, fitted)
+                .encode(encoder, output, retained, fitted)
             })
             .map_err(|error| ViewerError::Gpu(error.to_string()))
     }
@@ -378,9 +400,7 @@ impl Renderer {
         self.resident.select_frame_slot(slot);
         self.presentation.scheduler.select_frame_slot(slot);
         self.frame_time = self.clock.time();
-        self.presentation
-            .scheduler
-            .set_frame_time_duration(self.frame_time)?;
+        self.presentation.scheduler.set_frame_time(self.frame_time);
         Ok(())
     }
 }
@@ -531,13 +551,14 @@ impl Resident {
     ) -> Result<Self, ViewerError> {
         let scene = prepared.scene().clone();
         Ok(if let Some(settings) = shadows {
-            let mut shadowed = ShadowedScene::with_prepared_target_reusing(
+            let mut shadowed = ShadowedScene::new(
                 context,
                 prepared,
                 settings,
-                profile.target().0,
-                profile.target().1,
-                previous,
+                ShadowedTarget {
+                    previous,
+                    ..ShadowedTarget::new(profile.target().0, profile.target().1)
+                },
             )?;
             shadowed.set_scene_depth_fitting(
                 context,
@@ -557,10 +578,10 @@ impl Resident {
             let constructor = if scene.effects().and_then(|effects| effects.ssao()).is_some() {
                 ScenePipelines::with_ssao
             } else {
-                ScenePipelines::with_samples
+                ScenePipelines::new
             };
             let pipelines = constructor(context.device(), profile.target().0, profile.target().1)?;
-            let gpu = SceneGpu::upload_prepared_reusing(
+            let gpu = SceneGpu::upload(
                 context.device(),
                 context.submission(),
                 prepared,
@@ -593,17 +614,10 @@ impl Resident {
         if scene.depth_fitting_settings().is_none() {
             return Ok(false);
         }
-        let color = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene color"),
-            targets.color.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        let depth = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene depth"),
-            targets.depth.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        scheduler.render_depth_fitted_terms(context, view, (&color, &depth), frame, scene)?;
+        let (color, depth) = targets
+            .scene_attachments()
+            .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        scheduler.render_depth_fitted(context, view, (color, depth), frame, scene)?;
         Ok(true)
     }
     fn render(
@@ -614,26 +628,19 @@ impl Resident {
         encoder: &mut wgpu::CommandEncoder,
         mut scheduler: worldrunner_render_scene::compositor::FrameEncoding<'_>,
     ) -> Result<(), ViewerError> {
-        let color = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene color"),
-            targets.color.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
-        let depth = worldrunner_render_post::AttachmentView::new(
-            worldrunner_render_post::ResourceRef::new("scene depth"),
-            targets.depth.texture(),
-        )
-        .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
+        let (color, depth) = targets
+            .scene_attachments()
+            .map_err(worldrunner_render_scene::shadows::ShadowError::from)?;
         match self {
             Resident::Shadowed(renderer) => {
-                scheduler.encode_shadowed(context, view, (&color, &depth), encoder, renderer)?;
+                scheduler.encode_shadowed(context, view, (color, depth), encoder, renderer)?;
             }
             Resident::Plain(plain) => {
                 scheduler.encode_scene(
                     context.device(),
                     encoder,
                     (&mut plain.gpu, &plain.pipelines),
-                    (&color, &depth),
+                    (color, depth),
                     FrameUniform::new(view, plain.effects.as_ref())?,
                 )?;
             }

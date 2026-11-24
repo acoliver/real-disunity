@@ -237,19 +237,9 @@ impl Readback {
         device: &wgpu::Device,
         submission: Option<wgpu::SubmissionIndex>,
     ) -> Result<Vec<u8>, ReadbackError> {
-        let bytes = self.read_encoded_padded(device, submission)?;
-        unpad_rows(self.pitch, self.row, self.size[1], &bytes)
-    }
-
-    /// Padded native bytes for diagnostic exporters that retain the copy layout in receipts.
-    pub fn read_encoded_padded(
-        &mut self,
-        device: &wgpu::Device,
-        submission: Option<wgpu::SubmissionIndex>,
-    ) -> Result<Vec<u8>, ReadbackError> {
         let bytes = read_buffer(device, &self.buffer, submission);
         self.pending.set(false);
-        bytes
+        unpad_rows(self.pitch, self.row, self.size[1], &bytes?)
     }
 
     /// Starts a nonblocking map of this slot's submitted copy.

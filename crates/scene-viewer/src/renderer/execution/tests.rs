@@ -1,53 +1,4 @@
 #[test]
-fn blocked_redraws_do_not_advance_retained_placement_state() {
-    use super::super::{Resident, retained_tests::terrain_source};
-    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
-    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
-    let mut resident = Resident::new(
-        &context,
-        &terrain_source(),
-        None,
-        crate::FrameProfile::Legacy,
-    )
-    .unwrap();
-    let handle = resident.scene_mut().instance_handles().next().unwrap();
-    let flight = FrameAdmission::new(1).unwrap();
-    let mut surface = Surface::new();
-    let updates = Cell::new(0u32);
-    let mut update = || {
-        updates.set(updates.get() + 1);
-        resident
-            .scene_mut()
-            .set_instance_visible(handle, updates.get().is_multiple_of(2))?;
-        Ok(())
-    };
-    surface.outcomes.push_back(false);
-    assert!(
-        acquire_frame(&mut surface, &flight, &mut update)
-            .unwrap()
-            .is_none()
-    );
-    let first = acquire_frame(&mut surface, &flight, &mut update)
-        .unwrap()
-        .unwrap();
-    for _ in 0..4 {
-        assert!(
-            acquire_frame(&mut surface, &flight, &mut update)
-                .unwrap()
-                .is_none()
-        );
-    }
-    assert_eq!(updates.get(), 1);
-    drop(first);
-    let second = acquire_frame(&mut surface, &flight, &mut update)
-        .unwrap()
-        .unwrap();
-    assert_eq!(updates.get(), 2);
-    drop(second);
-    assert!(resident.scene_mut().instance(handle).unwrap().1);
-}
-
-#[test]
 fn close_drops_surface_with_a_real_submission_pending_without_joining() {
     let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = pollster::block_on(GpuContext::request_with_features_for_test(
@@ -57,9 +8,7 @@ fn close_drops_surface_with_a_real_submission_pending_without_joining() {
     let flight = FrameAdmission::new(1).unwrap();
     let mut surface = Surface::new();
     let dropped = surface.dropped.clone();
-    let (admission, _) = acquire_frame(&mut surface, &flight, || Ok(()))
-        .unwrap()
-        .unwrap();
+    let (admission, _) = acquire_frame(&mut surface, &flight).unwrap().unwrap();
     let ticket = flight.submit(admission, context.submission(), [], || {});
     assert!(!ticket.is_complete());
     drop(surface);
@@ -139,30 +88,18 @@ fn recovery_and_configuration_run_on_the_calling_event_thread_after_retirement()
     surface.state.lost();
     surface.state.resize([640, 480]);
     for _ in 0..3 {
-        assert!(
-            acquire_frame(&mut surface, &flight, || panic!("blocked update"))
-                .unwrap()
-                .is_none()
-        );
+        assert!(acquire_frame(&mut surface, &flight).unwrap().is_none());
     }
     drop(second);
-    assert!(
-        acquire_frame(&mut surface, &flight, || panic!("blocked update"))
-            .unwrap()
-            .is_none()
-    );
+    assert!(acquire_frame(&mut surface, &flight).unwrap().is_none());
     assert!(surface.operations.is_empty());
     drop(first);
-    let ready = acquire_frame(&mut surface, &flight, || Ok(()))
-        .unwrap()
-        .unwrap();
+    let ready = acquire_frame(&mut surface, &flight).unwrap().unwrap();
     assert_eq!(ready.1, [640, 480]);
     assert_eq!(surface.operations, [("recreate", [640, 480])]);
     drop(ready);
     surface.state.resize([320, 240]);
-    acquire_frame(&mut surface, &flight, || Ok(()))
-        .unwrap()
-        .unwrap();
+    acquire_frame(&mut surface, &flight).unwrap().unwrap();
     assert_eq!(surface.operations[1], ("configure", [320, 240]));
 }
 
@@ -173,7 +110,7 @@ fn close_with_pending_acquisition_or_submission_has_no_worker_join() {
         let dropped = surface.dropped.clone();
         let flight = FrameAdmission::new(1).unwrap();
         let ready = if acquired {
-            acquire_frame(&mut surface, &flight, || Ok(())).unwrap()
+            acquire_frame(&mut surface, &flight).unwrap()
         } else {
             None
         };
@@ -192,58 +129,31 @@ fn acquisition_panic_propagates_and_releases_admission_without_a_later_redraw() 
     surface.panic_acquire = true;
     let flight = FrameAdmission::new(1).unwrap();
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let _ = acquire_frame(&mut surface, &flight, || panic!("unexpected update"));
+        let _ = acquire_frame(&mut surface, &flight);
     }));
     assert!(result.is_err());
     assert!(flight.is_idle());
 }
 
 #[test]
-fn updates_require_a_usable_frame_and_never_run_for_blocked_or_suspended_redraws() {
+fn a_frame_is_admitted_only_when_the_surface_is_usable_and_a_slot_is_free() {
     let mut surface = Surface::new();
     let flight = FrameAdmission::new(2).unwrap();
-    let updates = Cell::new(0);
-    let update = || {
-        updates.set(updates.get() + 1);
-        Ok(())
-    };
     surface.outcomes.push_back(false);
-    assert!(
-        acquire_frame(&mut surface, &flight, update)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(updates.get(), 0);
-    let first = acquire_frame(&mut surface, &flight, update)
-        .unwrap()
-        .unwrap();
-    let second = acquire_frame(&mut surface, &flight, update)
-        .unwrap()
-        .unwrap();
-    assert_eq!(updates.get(), 2);
+    assert!(acquire_frame(&mut surface, &flight).unwrap().is_none());
+    let first = acquire_frame(&mut surface, &flight).unwrap().unwrap();
+    let second = acquire_frame(&mut surface, &flight).unwrap().unwrap();
     for _ in 0..8 {
-        assert!(
-            acquire_frame(&mut surface, &flight, update)
-                .unwrap()
-                .is_none()
-        );
+        assert!(acquire_frame(&mut surface, &flight).unwrap().is_none());
     }
     surface.state.resize([0, 480]);
     surface.state.lost();
     drop(first);
     drop(second);
-    assert!(
-        acquire_frame(&mut surface, &flight, update)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(updates.get(), 2);
+    assert!(acquire_frame(&mut surface, &flight).unwrap().is_none());
     surface.state.resize([640, 480]);
-    let ready = acquire_frame(&mut surface, &flight, update)
-        .unwrap()
-        .unwrap();
+    let ready = acquire_frame(&mut surface, &flight).unwrap().unwrap();
     assert_eq!(ready.1, [640, 480]);
-    assert_eq!(updates.get(), 3);
     assert_eq!(surface.operations, [("recreate", [640, 480])]);
 }
 
@@ -270,23 +180,13 @@ fn delayed_submission_completion_defers_lifecycle_without_waiting() {
     surface.state.resize([900, 700]);
     surface.state.lost();
     surface.state.resize([0, 480]);
-    assert!(
-        acquire_frame(&mut surface, &flight, || panic!("suspended update"))
-            .unwrap()
-            .is_none()
-    );
+    assert!(acquire_frame(&mut surface, &flight).unwrap().is_none());
     surface.state.resize([640, 480]);
-    assert!(
-        acquire_frame(&mut surface, &flight, || panic!("pending update"))
-            .unwrap()
-            .is_none()
-    );
+    assert!(acquire_frame(&mut surface, &flight).unwrap().is_none());
     assert!(surface.operations.is_empty());
     ticket.wait(context.device()).unwrap();
     done.recv().unwrap();
-    let ready = acquire_frame(&mut surface, &flight, || Ok(()))
-        .unwrap()
-        .unwrap();
+    let ready = acquire_frame(&mut surface, &flight).unwrap().unwrap();
     assert_eq!(ready.1, [640, 480]);
     assert_eq!(surface.operations, [("recreate", [640, 480])]);
 }

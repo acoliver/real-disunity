@@ -8,7 +8,7 @@ pub(super) fn streaming_present(event_loop: &EventLoop<()>, window: &Arc<Window>
         window.clone(),
         &scene,
         None,
-        crate::FrameProfile::Legacy,
+        crate::tests::CLAMP,
         2.into(),
     ))
     .unwrap();

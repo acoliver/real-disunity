@@ -1,4 +1,4 @@
-use worldrunner_render_scene::executor::ResourceRef;
+use worldrunner_render_post::ResourceRef;
 use worldrunner_render_scene::frame::metadata::{FrameProduct, MetadataMeaning, MetadataSampling};
 use worldrunner_render_scene::wgpu::TextureFormat;
 

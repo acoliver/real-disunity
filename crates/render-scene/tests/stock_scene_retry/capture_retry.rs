@@ -3,13 +3,13 @@ use worldrunner_render_gpu::submission::capture::{
     CaptureError, CaptureOutcome, CaptureWrites, WriteError, WriteKey,
 };
 use worldrunner_render_plan::RenderScene;
+use worldrunner_render_post::{
+    AttachmentView, BorrowedFeature, FrameError, FramePlan, PassDeclaration, PassEntry, PassSlot,
+    ResourceRef,
+};
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
     device::GpuContext,
-    executor::{
-        AttachmentView, BorrowedFeature, FrameError, FramePlan, PassDeclaration, PassEntry,
-        PassSlot, ResourceRef,
-    },
     wgpu,
 };
 
@@ -71,7 +71,6 @@ fn refuse(
     assert_eq!(scene.frame.has_temporal_history(), history);
     let refused = Products::read(context, scene);
     refused.assert_completed_unchanged(completed);
-    refused.assert_instance_motion(completed);
     refused
 }
 
@@ -163,10 +162,7 @@ fn capture_writes(
     let color = scene.frame.targets().scene().texture().clone();
     let depth = scene.frame.targets().depth().texture().clone();
     let velocity = scene.frame.targets().velocity_texture().cloned().unwrap();
-    let shared = scene
-        .frame
-        .capture_texture_keys(&[&depth, &velocity])
-        .unwrap();
+    let shared = scene.frame.capture_texture_keys(&[&depth]).unwrap();
     let mut suffix = scene_keys.clone();
     suffix.extend(scene.frame.capture_write_keys());
     suffix.extend(scene.frame.capture_effect_keys(device).unwrap());
@@ -176,7 +172,8 @@ fn capture_writes(
             .capture_texture_keys(&[&color, &depth, &velocity])
             .unwrap(),
     );
-    // Depth and velocity remain shared; the other prefix attachments are complete.
+    // Depth remains shared; the other prefix attachments are complete. Velocity is the suffix's
+    // alone: the forward Opaque pass writes it, the prefix does not.
     suffix.retain(|key| shared.contains(key) || !metadata.contains(key));
     let mut first = scene_keys;
     first.extend(metadata);
@@ -213,7 +210,7 @@ fn encode_suffix(
     let (passes, views) = (plan.passes.to_vec(), plan.views.to_vec());
     let (declaration, frame) = (stock.declaration(), stock.frame());
     let offscreen = stock.take_offscreen_operations();
-    scene.frame.encode_frame_with(
+    scene.frame.encode_frame(
         device,
         encoder,
         (&passes, &views),

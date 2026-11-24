@@ -1,6 +1,6 @@
 //! Camera settings beyond the orthographic lens: defaults, validation, what a frame can present,
 //! and which objects a culling mask admits.
-use worldrunner_world_simulation::presentation::extraction::{SpriteTextures, extract_world};
+use worldrunner_world_simulation::presentation::extraction::extract_world;
 use worldrunner_world_simulation::presentation::{
     Camera, CameraClear, CameraFlags, Projection, Sprite, SpriteRenderer,
 };
@@ -38,7 +38,7 @@ fn sprite_on(world: &mut World, layer: u8) {
 }
 
 fn quads(world: &World) -> Result<usize, WorldError> {
-    extract_world(world, &SpriteTextures::default(), [64, 64]).map(|plan| plan.quads.len())
+    extract_world(world, [64, 64]).map(|plan| plan.quads.len())
 }
 
 fn unsupported(field: &'static str) -> WorldError {

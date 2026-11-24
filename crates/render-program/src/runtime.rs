@@ -6,48 +6,89 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::task::{Context, Poll, Waker};
+use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::PoisonError;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
+use std::task::Waker;
 
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
-use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
+use worldrunner_render_gpu::configuration::AllocationBudget;
+use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_gpu::submission::Publications;
+use worldrunner_render_gpu::submission::SubmissionAuthority;
 
-use crate::budget::{Ledger, Note, Reservation};
+use crate::budget::Ledger;
+use crate::budget::Note;
+use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::module::StageProgram;
 use crate::registry::Registry;
-use crate::resources::{Pins, Store};
+use crate::resources::Pins;
+use crate::resources::Store;
 use crate::stats::Counters;
 
-pub use crate::arena::{AdmittedPrograms, ProgramArena};
-pub use crate::batch::{
-    GeometryDraw, PassCommands, PipelineDraw, PreparedPipeline, VertexBufferSpec, VertexLayoutSpec,
-};
-pub use crate::block_transfer::{
-    BlockDestination, BlockImageTransfer, BlockSource, LentBlockDestination, PreparedBlockTransfer,
-};
+pub use crate::arena::AdmittedPrograms;
+pub use crate::arena::ProgramArena;
+pub use crate::batch::GeometryDraw;
+pub use crate::batch::PassCommands;
+pub use crate::batch::PipelineDraw;
+pub use crate::batch::PreparedPipeline;
+pub use crate::batch::VertexBufferSpec;
+pub use crate::batch::VertexLayoutSpec;
+pub use crate::block_transfer::BlockDestination;
+pub use crate::block_transfer::BlockImageTransfer;
+pub use crate::block_transfer::BlockSource;
+pub use crate::block_transfer::LentBlockDestination;
+pub use crate::block_transfer::PreparedBlockTransfer;
 pub use crate::budget::Holding;
 pub use crate::create::TextureShape;
-pub use crate::dispatch::{DispatchRequest, ImportedDispatch, PreparedDispatch};
-pub use crate::draw::{DrawRequest, Geometry, VertexInput};
+pub use crate::dispatch::DispatchRequest;
+pub use crate::dispatch::ImportedDispatch;
+pub use crate::dispatch::PreparedDispatch;
+pub use crate::draw::DrawRequest;
+pub use crate::draw::Geometry;
+pub use crate::draw::VertexInput;
 pub use crate::external_group::ExternalGroup;
 pub use crate::external_hold::ExternalHold;
-pub use crate::import::{
-    BorrowedGeometry, Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource,
-    ImportedTexture, ImportedVertexInput, whole_range,
-};
-pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
-pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
-pub use crate::program::{ComputeProgram, ExternalSet, GraphicsProgram};
-pub use crate::readback::{
-    MappingTargetRead, PendingBufferRead, PendingTargetRead, TargetImage, TextureLevel,
-};
-pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
-pub use crate::resources::{
-    BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,
-};
-pub use crate::set::{ImportTable, PreparedSet};
+pub use crate::import::BorrowedGeometry;
+pub use crate::import::Import;
+pub use crate::import::ImportedDraw;
+pub use crate::import::ImportedGeometry;
+pub use crate::import::ImportedIndices;
+pub use crate::import::ImportedResource;
+pub use crate::import::ImportedTexture;
+pub use crate::import::ImportedVertexInput;
+pub use crate::import::whole_range;
+pub use crate::material::MaterialDraw;
+pub use crate::material::MaterialHandle;
+pub use crate::material::MaterialPacket;
+pub use crate::packet::DrawPacket;
+pub use crate::packet::MAX_COLOR_ATTACHMENTS;
+pub use crate::packet::PreparedProgramDraw;
+pub use crate::packet::TargetSignature;
+pub use crate::program::ComputeProgram;
+pub use crate::program::ExternalSet;
+pub use crate::program::GraphicsProgram;
+pub use crate::readback::MappingTargetRead;
+pub use crate::readback::PendingBufferRead;
+pub use crate::readback::PendingTargetRead;
+pub use crate::readback::TargetImage;
+pub use crate::readback::TextureLevel;
+pub use crate::registry::ProgramDesc;
+pub use crate::registry::ProgramHandle;
+pub use crate::registry::StageDesc;
+pub use crate::registry::VariantDesc;
+pub use crate::resources::BoundResource;
+pub use crate::resources::BufferHandle;
+pub use crate::resources::Keepalive;
+pub use crate::resources::Resource;
+pub use crate::resources::TargetHandle;
+pub use crate::resources::TextureHandle;
+pub use crate::set::ImportTable;
+pub use crate::set::PreparedSet;
 pub use crate::stats::RuntimeStats;
 
 /// Shares the caller's wgpu device and `SubmissionAuthority`, owns the resources it creates by
@@ -167,7 +208,7 @@ impl ProgramRuntime {
     /// name before anything is created.
     pub(crate) fn admit(
         &self,
-        allocations: AllocationSet,
+        allocations: &AllocationSet,
         note: Note,
     ) -> Result<Reservation, ProgramError> {
         self.collect();

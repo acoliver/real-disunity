@@ -5,6 +5,7 @@
 //! becomes one record for each pass of its material's shader, in pass order.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
@@ -24,10 +25,9 @@ use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
 use super::builtins::{
-    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, add_screen_size, camera_layer,
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_ambient, add_main_light, blit_layer, camera_layer,
 };
 use super::defaults::{DefaultTexture, ShaderFill, StandInLook};
-use super::depth_range::DepthRange;
 use super::environment::add_environment;
 use super::ids;
 use super::mips::AutoMips;
@@ -35,6 +35,7 @@ use super::properties::{
     Textures, Undeclared, bind_buffers, fallback_layer, layer, layer_with_defaults, slot_layers,
     split_below_globals,
 };
+use super::record_sets::RecordSet;
 use super::script::Script;
 use super::stand_ins::StandInReason;
 use super::supplied::{SuppliedGlobal, add_supplied, host_filled};
@@ -78,14 +79,14 @@ pub struct Settings {
     /// The size of the screen a command buffer's `CameraTarget` draws into when no camera texture
     /// names it, or `None` for a host with no screen, where such a record is left out.
     pub screen: Option<[u32; 2]>,
-    /// How depth runs in the camera renders: the clip space of every camera's view-projection,
-    /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
-    /// Forward unless the caller says otherwise.
-    pub depth: DepthRange,
     /// Globals the run supplies by name, as fallbacks under the world's own (see `supplied`).
     pub supplied: Vec<SuppliedGlobal>,
     /// How the stand-in textures the host supplies look: their declared colours, or magenta.
     pub stand_in_look: StandInLook,
+    /// Whether the project's colour space is Linear. A colour property a material leaves unset
+    /// then takes its declared default as the linear form of that colour, as a colour the game
+    /// sets does (the managed property store), and a Gamma project uses the default as authored.
+    pub linear_colour_space: bool,
 }
 
 impl Settings {
@@ -99,13 +100,6 @@ impl Settings {
             untagged_light_mode: Some(UNTAGGED_LIGHT_MODE.to_owned()),
             ..Self::default()
         }
-    }
-
-    /// These settings with depth running as `depth` says.
-    #[must_use]
-    pub fn with_depth(mut self, depth: DepthRange) -> Self {
-        self.depth = depth;
-        self
     }
 
     /// These settings with the stand-in textures looking as `look` says.
@@ -224,14 +218,37 @@ pub enum Skip {
     NoSuchPass,
     /// A mesh draw of a mesh with nothing to draw, or of a sub-mesh with no indices.
     EmptyMesh,
+    /// A batch draw over a compute buffer the host does not hold.
+    BufferUnavailable,
+    /// A batch draw whose pass tags name no pass of the material's shader.
+    NoTaggedPass,
 }
 
 /// Why a renderer was left out of the frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RendererSkip {
     MeshUnavailable,
+    /// No slot names a material.
     NoMaterial,
+    /// The slots name materials, but the first of them left out names a shader the host has no
+    /// program for (a null or sourceless shader reference, or a shader that failed to load).
+    ShaderUnavailable,
+    /// The slots name materials, but the first of them left out is not in the snapshot.
+    StaleMaterial,
     EmptySlot,
+    /// A skinned mesh renderer the snapshot leaves out because its skin names no root bone that is
+    /// in the world, so nothing says where its mesh goes. It is counted once for the frame.
+    SkinnedNotDrawn,
+}
+
+impl RendererSkip {
+    /// The renderer skip for a slot whose material `material()` left out for `skip`.
+    fn of_material(skip: Skip) -> Self {
+        match skip {
+            Skip::StaleMaterial => Self::StaleMaterial,
+            _ => Self::ShaderUnavailable,
+        }
+    }
 }
 
 /// What kind of texture a reference names, for reports.
@@ -275,11 +292,6 @@ pub(super) fn render_dimension(texture: &WorldRenderTexture) -> RenderDimension 
         dimension::CUBE_ARRAY => RenderDimension::CubeArray(depth / 6),
         other => RenderDimension::Unknown(other),
     }
-}
-
-/// A render texture's side as a float. Sides above 65535 saturate, and none reaches them.
-fn texels(side: u32) -> f32 {
-    f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 
 /// Whether a camera's normalized rectangle is the whole target.
@@ -341,6 +353,7 @@ pub fn adapt_probing(
     }
     mapper.records();
     mapper.renderers();
+    mapper.skinned_renderers();
     mapper.finish()
 }
 
@@ -354,7 +367,9 @@ pub(super) struct Mapper<'a> {
     /// What the frame's commands have set so far.
     pub(super) script: Script,
     pub(super) placements: Vec<Placed>,
-    cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
+    cameras: BTreeMap<(ComponentHandle, [u32; 2], u32), CameraId>,
+    /// The renderer sets of the snapshot's camera renders, by their index in the snapshot.
+    pub(super) sets: BTreeMap<u32, Arc<BTreeSet<RendererId>>>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
     /// The render textures whose camera renders are examined, and those with a scratch copy.
     probed: BTreeSet<RenderTextureId>,
@@ -371,8 +386,11 @@ impl<'a> Mapper<'a> {
         available: &'a Available,
         settings: &'a Settings,
     ) -> Self {
-        let mut textures = Textures::new(&snapshot.render_textures, &available.textures)
-            .with_refused(&available.refused_textures);
+        let mut textures = Textures::new(
+            &snapshot.render_textures,
+            &available.textures,
+            &available.refused_textures,
+        );
         let mut frame = OffscreenFrame {
             // A texture nothing sets and the shader does not declare reads the grey default,
             // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot
@@ -423,6 +441,7 @@ impl<'a> Mapper<'a> {
             script,
             placements: Vec::new(),
             cameras: BTreeMap::new(),
+            sets: BTreeMap::new(),
             queued: BTreeMap::new(),
             probed: BTreeSet::new(),
             scratch: BTreeSet::new(),
@@ -456,13 +475,19 @@ impl<'a> Mapper<'a> {
         };
     }
 
-    pub(super) fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
+    pub(super) fn record(
+        &mut self,
+        index: usize,
+        work: &OffscreenWork,
+    ) -> Result<Vec<Record>, Skip> {
         match work {
             OffscreenWork::Dispatch { .. } => unreachable!("dispatches are placed, not mapped"),
             OffscreenWork::CameraRender { camera, target } => {
-                let mut records = vec![self.camera_render(*camera, *target)?];
+                // The world fixes a set for every camera render whose camera it can read.
+                let set = self.record_set(index).ok_or(Skip::StaleCamera)?;
+                let mut records = vec![self.camera_render(*camera, *target, set.clone())?];
                 if self.probed.contains(target) {
-                    records.extend(self.test_renders(*camera, *target)?);
+                    records.extend(self.test_renders(*camera, *target, set)?);
                 }
                 Ok(records)
             }
@@ -491,6 +516,15 @@ impl<'a> Mapper<'a> {
                 }])
             }
             OffscreenWork::ReadPixels { .. } => unreachable!("pixel reads are placed, not mapped"),
+            OffscreenWork::Cull {
+                id,
+                culling_mask,
+                planes,
+                ..
+            } => {
+                self.cull(index, *id, *culling_mask, planes);
+                Ok(Vec::new())
+            }
             _ => self.command(work),
         }
     }
@@ -547,6 +581,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         handle: ComponentHandle,
         target: RenderTextureId,
+        set: RecordSet,
     ) -> Result<Record, Skip> {
         let view = self
             .snapshot
@@ -563,12 +598,14 @@ impl<'a> Mapper<'a> {
             return Err(Skip::PartialViewport);
         }
         let target = self.target(target)?;
-        let id = if let Some(id) = self.cameras.get(&(handle, size)) {
+        let key = (handle, size, set.id);
+        let id = if let Some(id) = self.cameras.get(&key) {
             *id
         } else {
             let id = CameraId(self.frame.cameras.len() as u64);
-            self.frame.cameras.insert(id, self.camera(view, size));
-            self.cameras.insert((handle, size), id);
+            let camera = self.camera(view, size, set.renderers);
+            self.frame.cameras.insert(id, camera);
+            self.cameras.insert(key, id);
             id
         };
         Ok(Record::CameraRender { camera: id, target })
@@ -582,6 +619,7 @@ impl<'a> Mapper<'a> {
         &mut self,
         handle: ComponentHandle,
         target: RenderTextureId,
+        set: RecordSet,
     ) -> Result<Vec<Record>, Skip> {
         let view = self
             .snapshot
@@ -593,7 +631,7 @@ impl<'a> Mapper<'a> {
             .render_textures
             .get(&target)
             .ok_or(Skip::StaleTarget)?;
-        let mut camera = self.camera(view, [texture.width, texture.height]);
+        let mut camera = self.camera(view, [texture.width, texture.height], set.renderers);
         camera.clear_color = Some(TEST_CLEAR.map(f64::from));
         self.scratch.insert(target);
         let variants = if self.available.test_variants {
@@ -623,23 +661,26 @@ impl<'a> Mapper<'a> {
     }
 
     /// What the camera clears, from its clear flags, and what it draws.
-    fn camera(&self, view: &CameraView, size: [u32; 2]) -> Camera {
+    fn camera(
+        &self,
+        view: &CameraView,
+        size: [u32; 2],
+        renderers: Arc<BTreeSet<RendererId>>,
+    ) -> Camera {
         let (clear_color, clear_depth) = match view.settings.clear {
             CameraClear::Skybox | CameraClear::SolidColor => (Some(view.settings.background), true),
             CameraClear::DepthOnly => (None, true),
             CameraClear::Nothing => (None, false),
         };
-        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]), self.settings.depth);
-        add_screen_size(&mut values, size);
+        let values = camera_layer(view, size);
         Camera {
             culling_mask: view.settings.culling_mask,
             clear_color,
             clear_depth,
             pass: self.settings.pass_selector(),
             values,
-            // Unity winds front faces clockwise as seen with up up. The image is the other way up
-            // (see `camera::clip_from_gl`), which reverses a winding.
-            front_face: wgpu::FrontFace::Ccw,
+            front_face: super::lists::IMAGE_FRONT_FACE,
+            renderers,
         }
     }
 
@@ -663,6 +704,7 @@ impl<'a> Mapper<'a> {
         };
         let (id, passes) = self.material_and_passes(material)?;
         self.frame.blit_mesh = Some(BLIT_MESH);
+        self.frame.blit_values = blit_layer();
         let passes = match usize::try_from(pass) {
             Ok(pass) => pass..pass + 1,
             Err(_) => 0..passes,
@@ -806,15 +848,20 @@ impl<'a> Mapper<'a> {
         // drawn one are simply not listed.
         let mut slots = Vec::new();
         let mut gap = false;
+        let mut cause = None;
         for slot in &view.materials {
-            match slot.and_then(|id| self.material(id, view.render_queue).ok()) {
-                Some(_) if gap => return Err(RendererSkip::EmptySlot),
-                Some(named) => slots.push(named),
+            match slot.map(|id| self.material(id, view.render_queue)) {
+                Some(Ok(_)) if gap => return Err(RendererSkip::EmptySlot),
+                Some(Ok(named)) => slots.push(named),
+                Some(Err(skip)) => {
+                    cause.get_or_insert(RendererSkip::of_material(skip));
+                    gap = true;
+                }
                 None => gap = true,
             }
         }
         if slots.is_empty() {
-            return Err(RendererSkip::NoMaterial);
+            return Err(cause.unwrap_or(RendererSkip::NoMaterial));
         }
         let block = view
             .property_block
@@ -919,6 +966,7 @@ impl<'a> Mapper<'a> {
         }
         if let Some(global) = &self.snapshot.global {
             for (name, slot) in &global.properties.textures {
+                self.report.global_reads.set.insert(name.clone());
                 let kind = texture_kind(&slot.texture);
                 *self
                     .report

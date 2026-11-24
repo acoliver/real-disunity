@@ -3,7 +3,7 @@ mod ordering;
 mod scrolled;
 use super::*;
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiVertex,
+    Canvas, CanvasMode, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiVertex,
 };
 use worldrunner_world_simulation::{ComponentDesc, ObjectHandle, ParentSpace};
 
@@ -17,7 +17,13 @@ pub(super) fn graphic_world() -> (World, ObjectHandle) {
         )
         .unwrap();
     world
-        .add_component(canvas, ComponentDesc::Canvas(Canvas::default()))
+        .add_component(
+            canvas,
+            ComponentDesc::Canvas(Canvas {
+                mode: CanvasMode::ScreenSpaceOverlay,
+                ..Canvas::default()
+            }),
+        )
         .unwrap();
     let object = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -52,7 +58,7 @@ pub(super) fn graphic_world() -> (World, ObjectHandle) {
 }
 
 pub(super) fn extracted(world: &World) -> UiRenderPlan {
-    worldrunner_render_plan::ui::extract_ui(
+    worldrunner_world_simulation::ui::contribution::extract_ui(
         world,
         &FontBook::new(UiLimits::default()).unwrap(),
         [64, 64],
@@ -65,7 +71,7 @@ fn opaque_graphic_is_drawn_on_the_shadowed_retained_frame() {
     let (world, _) = graphic_world();
     let mut driver = Driver::default();
     let events = driver.events.clone();
-    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let mut run = overlay_host().windowless(&mut driver, None).unwrap();
     // Present generation 0 before the UI update, so its frame reports the scene's initial uploads.
     capture(&mut run, &events);
     apply(&mut run, extracted(&world));

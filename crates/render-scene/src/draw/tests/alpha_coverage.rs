@@ -53,6 +53,7 @@ fn multisampled_masked_pipelines_support_velocity_and_reflection_targets() {
 }
 
 use super::*;
+use crate::test_support::upload_scene;
 use worldrunner_render_plan::TexelFormat;
 
 fn gradient_scene(enabled: Option<bool>) -> RenderScene {
@@ -124,7 +125,7 @@ fn coverage(context: &GpuContext, enabled: Option<bool>, samples: u32) -> Vec<u8
         crate::shader::TERRAIN_WGSL,
         None,
     );
-    let gpu = SceneGpu::upload(
+    let gpu = upload_scene(
         device,
         context.submission(),
         &gradient_scene(enabled),
@@ -274,9 +275,9 @@ fn single_sample_alpha_coverage_keeps_hard_cutoff_bytes() {
 fn metadata_prepass_and_shadow_keep_hard_cutoff_bytes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT, 1).unwrap();
     let capture = |enabled| {
-        let gpu = SceneGpu::upload(
+        let gpu = upload_scene(
             context.device(),
             context.submission(),
             &gradient_scene(Some(enabled)),
@@ -317,7 +318,7 @@ fn background(context: &GpuContext, pipelines: &ScenePipelines, frame: &FrameUni
         bytes: vec![0, 0, 255, 255].into(),
     };
     let scene = build(texture, &material(SceneAlphaMode::Opaque, true), quad(), 1);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, pipelines).unwrap();
+    let gpu = upload_scene(context.device(), context.submission(), &scene, pipelines).unwrap();
     gpu.set_frame(
         context.queue(),
         FrameUniform {

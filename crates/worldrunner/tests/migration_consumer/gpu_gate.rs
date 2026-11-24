@@ -13,7 +13,7 @@ mod stage;
 #[path = "views.rs"]
 mod views;
 use gpu::{
-    device::GpuContext,
+    device::{DeviceRequest, GpuContext},
     draw::SceneGpu,
     dynamic::DynamicQuad,
     frame::FrameUniform,
@@ -63,12 +63,16 @@ fn pixel(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {
 
 #[test]
 fn external_device_target_and_live_contribution_reach_landmark_pixels() {
-    let context = wait(GpuContext::request_with_features(wgpu::Features::empty()))
-        .expect("required GPU consumer requires an admitted adapter");
+    let context = wait(GpuContext::request(&DeviceRequest {
+        features: wgpu::Features::empty(),
+        ..DeviceRequest::default()
+    }))
+    .expect("required GPU consumer requires an admitted adapter");
     eprintln!("migration adapter: {:?}", context.adapter().get_info());
     let resolved = super::camera::planar([65, 47], ViewHandedness::RightHanded);
     let view = gpu::SceneView::from_resolved(resolved, [0, -10_000, 0]);
-    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let pipelines =
+        ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT, 1).unwrap();
     let mut scene = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
     let contribution = DynamicQuad {
         tint: [1.0, 0.0, 0.0, 1.0],
@@ -77,7 +81,7 @@ fn external_device_target_and_live_contribution_reach_landmark_pixels() {
     apply_contribution(&mut scene, &context, &pipelines, &contribution);
     scene.set_frame(context.queue(), FrameUniform::unlit(&view));
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
-    let image = target.render(&context, &scene, &pipelines).unwrap();
+    let image = target.render(&context, &mut scene, &pipelines).unwrap();
     assert_eq!(
         pixel(&image, 32, 23),
         [255, 0, 0, 255],

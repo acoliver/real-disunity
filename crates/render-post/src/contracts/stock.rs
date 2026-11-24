@@ -12,10 +12,13 @@ use crate::{
     ResourceRef, StageId,
 };
 
-fn import_views(
+/// What the frame holds for each resource: its allocation and the view it attaches.
+type Held<'a> = BTreeMap<ResourceRef, (super::AllocationKey, &'a wgpu::TextureView)>;
+
+fn import_views<'a>(
     registry: &mut ResourceRegistry,
-    views: &[AttachmentView],
-) -> Result<BTreeMap<ResourceRef, super::AllocationKey>, ContractError> {
+    views: &'a [AttachmentView],
+) -> Result<Held<'a>, ContractError> {
     views
         .iter()
         .map(|view| {
@@ -30,8 +33,9 @@ fn import_views(
                             other.texture() == view.texture() && other.allocation_initialized()
                         })
                         .then_some(0),
+                    &[],
                 )
-                .map(|key| (view.resource(), key))
+                .map(|key| (view.resource(), (key, view.view())))
         })
         .collect()
 }
@@ -118,7 +122,7 @@ pub(crate) fn compile(
 /// attachment's output is.
 fn storage_writes(
     registry: &ResourceRegistry,
-    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    keys: &Held<'_>,
     versions: &mut BTreeMap<ResourceRef, u32>,
     pass: &PassDeclaration,
 ) -> Result<Vec<ResourceUse>, ContractError> {
@@ -139,7 +143,7 @@ fn storage_writes(
 /// declared prepared, versioned as an attachment's output is.
 fn prepared_writes(
     registry: &ResourceRegistry,
-    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    keys: &Held<'_>,
     versions: &mut BTreeMap<ResourceRef, u32>,
     views: &[AttachmentView],
 ) -> Result<Vec<ResourceUse>, ContractError> {
@@ -171,19 +175,21 @@ fn initial_versions(views: &[AttachmentView]) -> BTreeMap<ResourceRef, u32> {
 
 fn checked_view(
     registry: &ResourceRegistry,
-    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    keys: &Held<'_>,
     resource: ResourceRef,
     version: u32,
 ) -> Result<CheckedView, ContractError> {
-    registry.view(
-        keys[&resource],
+    let (key, held) = keys[&resource];
+    registry.view_holding(
+        key,
         TextureRange::single(resource.mip, resource.layer, wgpu::TextureAspect::All),
         version,
+        held,
     )
 }
 fn output(
     registry: &ResourceRegistry,
-    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    keys: &Held<'_>,
     versions: &mut BTreeMap<ResourceRef, u32>,
     attachment: &AttachmentDeclaration,
 ) -> Result<(CheckedView, Option<u32>), ContractError> {
@@ -201,7 +207,7 @@ fn output(
 /// pass's sampled reads and later passes see the same version.
 fn depth_view(
     registry: &ResourceRegistry,
-    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    keys: &Held<'_>,
     versions: &mut BTreeMap<ResourceRef, u32>,
     attachment: &AttachmentDeclaration,
 ) -> Result<(CheckedView, Option<u32>), ContractError> {

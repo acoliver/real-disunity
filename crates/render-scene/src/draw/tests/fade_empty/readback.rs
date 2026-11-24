@@ -3,6 +3,7 @@ use crate::draw::lod_material::FixedSink;
 use crate::draw::object_runtime::PreparedSink;
 use crate::pipeline::PipelineKey;
 use crate::scene_metadata::{MetadataOutput, SceneMetadata};
+use crate::test_support::upload_scene;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Kind {
@@ -31,7 +32,7 @@ impl Setup {
     fn new(device: &Device, kind: Kind) -> Self {
         let hdr = TextureFormat::Rgba16Float;
         let mut setup = Self {
-            pipelines: ScenePipelines::new(device, hdr),
+            pipelines: ScenePipelines::new(device, hdr, 1).unwrap(),
             group: None,
             formats: vec![hdr],
             shadow: None,
@@ -124,7 +125,7 @@ pub(super) fn capture(
 ) -> (Vec<Vec<u8>>, super::super::super::DrawCount) {
     let device = context.device();
     let setup = Setup::new(device, kind);
-    let mut gpu = SceneGpu::upload(device, context.submission(), scene, &setup.pipelines).unwrap();
+    let mut gpu = upload_scene(device, context.submission(), scene, &setup.pipelines).unwrap();
     gpu.instances.fade_cull_disabled = cull != Cull::Enabled;
     let frame = frame_from(CameraPose {
         eye_millimeters: [0, -4000, 1000],
@@ -189,9 +190,18 @@ pub(super) fn capture(
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
                 .total()
         } else {
-            let mut sink = PreparedSink::new(&mut pass, &gpu.objects, forward.object_context());
-            gpu.record_selection(&mut sink, (None, &frame), &selected.ranges)
-                .total()
+            let mut scratch = gpu.sink_scratch.borrow_mut();
+            let mut sink = PreparedSink::new(
+                &mut pass,
+                &gpu.objects,
+                forward.object_context(),
+                &mut scratch,
+            );
+            let total = gpu
+                .record_selection(&mut sink, (None, &frame), &selected.ranges)
+                .total();
+            sink.finish();
+            total
         }
     };
     let buffers: Vec<_> = colors

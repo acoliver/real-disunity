@@ -1,6 +1,7 @@
 //! The object shadow casters record through the program runtime of the receivers' family.
 
 use super::*;
+use crate::offscreen::OffscreenTarget;
 
 /// The object pipelines the family of `renderer` has built after one frame of `camera`.
 fn built_after_one_frame(
@@ -9,10 +10,11 @@ fn built_after_one_frame(
     camera: &SceneView,
     shadows: bool,
 ) -> u64 {
-    let mut renderer = ShadowedScene::new(context, source, settings()).unwrap();
+    let mut renderer = shadowed(context, source, settings()).unwrap();
     renderer.set_shadows_enabled(shadows);
     let target = OffscreenTarget::new(context.device(), camera.viewport()).unwrap();
-    render_target(&mut renderer, context, camera, &target).unwrap();
+    let mut scheduler = crate::compositor::FrameRenderer::new(context.device());
+    render_target(&mut renderer, &mut scheduler, context, camera, &target).unwrap();
     renderer
         .scene_and_pipelines_mut()
         .1

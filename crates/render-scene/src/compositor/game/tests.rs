@@ -1,7 +1,7 @@
 //! The seam's pure rules: which attachments a pass is given, and the depth rules a draw into it
 //! follows. The frames that run them are in `tests/game_passes.rs`.
 use super::{
-    ColorOutput, GamePassSpec, GameTargets, PassTarget, PostWaterDepth, SnapshotReads,
+    ColorOutput, DepthAccess, GamePassSpec, GameTargets, PassTarget, PostWaterDepth, SnapshotReads,
     reconcile_loads,
 };
 use std::sync::Arc;
@@ -423,4 +423,147 @@ mod resize_keeps_device_depth {
         assert!(renderer.resize(device, [16, 16]).unwrap());
         assert_eq!(renderer.snapshot_statistics(), owned);
     }
+}
+
+const TIMING_NAMES: [&str; 38] = [
+    "timing.0",
+    "timing.1",
+    "timing.2",
+    "timing.3",
+    "timing.4",
+    "timing.5",
+    "timing.6",
+    "timing.7",
+    "timing.8",
+    "timing.9",
+    "timing.10",
+    "timing.11",
+    "timing.12",
+    "timing.13",
+    "timing.14",
+    "timing.15",
+    "timing.16",
+    "timing.17",
+    "timing.18",
+    "timing.19",
+    "timing.20",
+    "timing.21",
+    "timing.22",
+    "timing.23",
+    "timing.24",
+    "timing.25",
+    "timing.26",
+    "timing.27",
+    "timing.28",
+    "timing.29",
+    "timing.30",
+    "timing.31",
+    "timing.32",
+    "timing.33",
+    "timing.34",
+    "timing.35",
+    "timing.36",
+    "timing.37",
+];
+
+#[test]
+fn a_pass_reading_38_targets_of_5_layers_plans_in_time() {
+    use super::TargetDeclaration;
+
+    let declarations: Vec<TargetDeclaration> = TIMING_NAMES
+        .iter()
+        .map(|name| {
+            TargetDeclaration::new(
+                name,
+                TextureFormat::R32Float,
+                super::TargetExtent::Fixed(SIZE),
+            )
+            .layers(5)
+            .mips(4)
+        })
+        .collect();
+    let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let store = super::TargetStore::build(&device, None, &declarations, SIZE);
+    let targets = GameTargets::new(Arc::new(store));
+    let mut reads = Vec::new();
+    for name in TIMING_NAMES {
+        for layer in 0..5 {
+            reads.push(ResourceRef {
+                name,
+                version: 0,
+                mip: 0,
+                layer,
+            });
+        }
+    }
+    let spec = GamePassSpec::new(GamePlace::AfterOpaqueSnapshots, 0)
+        .writing([ColorOutput::Frame])
+        .with_depth(DepthAccess::ReadOnlySampled)
+        .reading(reads);
+    let iters = 20;
+    let start = std::time::Instant::now();
+    let mut read_count = 0;
+    for _ in 0..iters {
+        let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
+        let mut views = Vec::new();
+        let planned = targets.plan_pass(&spec, &mut passes, &mut views).unwrap();
+        read_count = planned.reads.len();
+    }
+    let micros = start.elapsed().as_secs_f64() * 1_000_000.0 / f64::from(iters);
+    println!("plan_pass 38x5: {micros:.1} micros/call, {read_count} reads");
+}
+
+#[test]
+fn a_mixed_read_dedupes_layer_expansion_and_reports_the_hazard() {
+    use super::TargetDeclaration;
+    use worldrunner_render_post::AttachmentView;
+
+    let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let declarations = [
+        TargetDeclaration::new(
+            "mixed",
+            TextureFormat::R32Float,
+            super::TargetExtent::Fixed(SIZE),
+        )
+        .layers(2)
+        .mips(2),
+        TargetDeclaration::new(
+            "decoy",
+            TextureFormat::R32Float,
+            super::TargetExtent::Fixed(SIZE),
+        ),
+    ];
+    let store = super::TargetStore::build(&device, None, &declarations, SIZE);
+    let targets = GameTargets::new(Arc::new(store));
+    let layer0 = ResourceRef {
+        name: "mixed",
+        version: 0,
+        mip: 0,
+        layer: 0,
+    };
+    let mip1 = ResourceRef { mip: 1, ..layer0 };
+    let spec = GamePassSpec::new(GamePlace::AfterOpaqueSnapshots, 0)
+        .writing([ColorOutput::Frame])
+        .with_depth(DepthAccess::ReadOnlySampled)
+        .reading([layer0, layer0])
+        .reading_mips([mip1]);
+
+    let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
+    let mut views = Vec::new();
+    let planned = targets.plan_pass(&spec, &mut passes, &mut views).unwrap();
+    let mixed: Vec<ResourceRef> = planned
+        .reads
+        .iter()
+        .copied()
+        .take_while(|resource| resource.name == "mixed")
+        .collect();
+    assert_eq!(mixed, vec![layer0, mip1]);
+
+    let decoy_texture = targets.texture("decoy").unwrap();
+    let mut views = vec![AttachmentView::new(layer0, &decoy_texture).unwrap()];
+    let mut passes = vec![opaque(AttachmentLoad::ClearDepth(1.0))];
+    assert_eq!(
+        targets.plan_pass(&spec, &mut passes, &mut views),
+        Err(FrameError::AttachmentHazard(layer0))
+    );
 }

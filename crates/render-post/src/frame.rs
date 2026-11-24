@@ -1,14 +1,16 @@
 //! Geometry declarations for the same linear executor as post stages.
-use std::collections::BTreeMap;
-use std::sync::{Arc, OnceLock};
-
 use crate::FrameTargets;
+use crate::plan_hash::{PlanMap, map_with_capacity, set_with_capacity};
+use std::sync::{Arc, OnceLock};
 
 mod compute;
 mod error;
 mod finish;
 mod frozen;
 mod game;
+mod index;
+#[cfg(test)]
+mod index_tests;
 mod operations;
 #[cfg(test)]
 mod prefix_participant_tests;
@@ -21,6 +23,7 @@ pub use compute::StorageWrite;
 pub use error::FrameError;
 pub(crate) use frozen::validate_stock_order;
 pub use game::GamePlace;
+pub(crate) use index::{EntryFeatures, Textures};
 pub use operations::FrameOperations;
 pub(crate) use operations::GroupOutputs;
 pub use operations::OperationsGroup;
@@ -36,7 +39,7 @@ pub use prepared::PreparedRefusal;
 pub use prepared::PreparedWrite;
 pub(crate) use registered::RegisteredFeature;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PassSlot {
     ShadowCasters(u32),
     DepthNormalPrepass,
@@ -70,7 +73,7 @@ pub enum PassSlot {
 /// that role it is. A role may appear in a frame more than once, so a role alone does
 /// not name an entry. `new(slot)` is the first appearance, which is what every
 /// single-appearance declaration means.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PassEntry {
     slot: PassSlot,
     occurrence: u32,
@@ -102,7 +105,7 @@ impl std::fmt::Display for PassEntry {
 }
 
 /// A specific texture version and subresource, never an implicit latest value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceRef {
     pub name: &'static str,
     pub version: u32,
@@ -253,13 +256,8 @@ pub(crate) fn validate_frame_inputs(
     operations: &[OperationsGroup<'_>],
 ) -> Result<(), FrameError> {
     validate_transparency(features)?;
-    let repeated = passes.iter().enumerate().find_map(|(index, pass)| {
-        passes[..index]
-            .iter()
-            .any(|previous| previous.entry() == pass.entry())
-            .then(|| pass.entry())
-    });
-    if let Some(entry) = repeated {
+    let entries = index::EntryFeatures::new(passes, features);
+    if let Some(entry) = entries.repeated() {
         return Err(FrameError::DuplicatePass(entry));
     }
     for effect in requested {
@@ -270,15 +268,8 @@ pub(crate) fn validate_frame_inputs(
             return Err(FrameError::UnsupportedEffect(effect));
         }
     }
-    for feature in features {
-        for feature_pass in &feature.passes {
-            if !passes
-                .iter()
-                .any(|pass| pass.entry() == feature_pass.entry())
-            {
-                return Err(FrameError::MissingPass(feature_pass.entry()));
-            }
-        }
+    if let Some(entry) = entries.unauthored() {
+        return Err(FrameError::MissingPass(entry));
     }
     let outputs = GroupOutputs::new(passes, operations);
     if let Some(view) = views
@@ -289,50 +280,69 @@ pub(crate) fn validate_frame_inputs(
     }
     // A retained view a group writes has contents only from the group's position on. A prepared
     // view holds the contents its preparation writes before the frame's first pass.
-    let mut produced: BTreeMap<_, _> = views
-        .iter()
-        .filter(|view| (view.retained || view.prepared) && !outputs.writes(view.resource()))
-        .map(|view| {
-            (
-                view.resource(),
-                AttachmentDeclaration {
-                    resource: view.resource(),
-                    format: view.format(),
-                    size: view.size(),
-                    samples: view.texture().sample_count(),
-                    load: AttachmentLoad::Load,
-                    store: wgpu::StoreOp::Store,
-                    read_only: false,
-                },
-            )
-        })
-        .collect();
+    let mut produced: Produced = map_with_capacity(views.len());
+    produced.extend(
+        views
+            .iter()
+            .filter(|view| (view.retained || view.prepared) && !outputs.writes(view.resource()))
+            .map(|view| {
+                (
+                    view.resource(),
+                    Product {
+                        format: view.format(),
+                        size: view.size(),
+                        samples: view.texture().sample_count(),
+                        store: wgpu::StoreOp::Store,
+                    },
+                )
+            }),
+    );
+    let mut attachments = Vec::new();
     for (index, pass) in passes.iter().enumerate() {
         outputs.refuse_writes(pass)?;
         produced.extend(outputs.left_before(index));
         if let Some(compute) = &pass.compute {
-            compute::validate_compute_pass(pass, compute, features, &mut produced)?;
+            compute::validate_compute_pass(pass, compute, entries.of_pass(index), &mut produced)?;
             continue;
         }
-        let attachments: Vec<_> = pass
-            .color
-            .iter()
-            .chain(&pass.additional_colors)
-            .chain(&pass.depth)
-            .collect();
-        validate_attachments(pass, &produced)?;
-        for feature in features
-            .iter()
-            .flat_map(|feature| &feature.passes)
-            .filter(|feature| feature.entry() == pass.entry())
-        {
+        attachments.clear();
+        attachments.extend(
+            pass.color
+                .iter()
+                .chain(&pass.additional_colors)
+                .chain(&pass.depth),
+        );
+        validate_attachments(pass, &attachments, &produced)?;
+        for feature in entries.of_pass(index) {
             validate_feature(pass, feature, &attachments, &produced)?;
         }
-        for attachment in attachments {
-            produced.insert(attachment.resource, attachment.clone());
+        for attachment in &attachments {
+            produced.insert(attachment.resource, Product::of(attachment));
         }
     }
     Ok(())
+}
+
+/// What the earlier passes of a frame left of each resource, for the passes that read or load it.
+type Produced = PlanMap<ResourceRef, Product>;
+
+/// The shape and storage a pass left a resource with.
+#[derive(Clone, Copy)]
+struct Product {
+    format: wgpu::TextureFormat,
+    size: [u32; 2],
+    samples: u32,
+    store: wgpu::StoreOp,
+}
+impl Product {
+    const fn of(attachment: &AttachmentDeclaration) -> Self {
+        Self {
+            format: attachment.format,
+            size: attachment.size,
+            samples: attachment.samples,
+            store: attachment.store,
+        }
+    }
 }
 /// Each transparent entry may hold one transparent feature. Entries run in the order the frame
 /// lists them, so water and alpha in separate entries compose in that order; several features in
@@ -377,19 +387,14 @@ pub(crate) fn sample_count_admissible(
 }
 fn validate_attachments(
     pass: &PassDeclaration,
-    produced: &BTreeMap<ResourceRef, AttachmentDeclaration>,
+    attachments: &[&AttachmentDeclaration],
+    produced: &Produced,
 ) -> Result<(), FrameError> {
-    let attachments: Vec<_> = pass
-        .color
-        .iter()
-        .chain(&pass.additional_colors)
-        .chain(&pass.depth)
-        .collect();
     if attachments.is_empty() {
         return Err(FrameError::AttachmentContract(pass.entry()));
     }
-    validate_attachment_shapes(pass, &attachments)?;
-    for attachment in &attachments {
+    validate_attachment_shapes(pass, attachments)?;
+    for attachment in attachments {
         let depth = pass
             .depth
             .as_ref()
@@ -460,7 +465,7 @@ fn validate_feature(
     pass: &PassDeclaration,
     feature: &FeaturePass,
     attachments: &[&AttachmentDeclaration],
-    produced: &BTreeMap<ResourceRef, AttachmentDeclaration>,
+    produced: &Produced,
 ) -> Result<(), FrameError> {
     if attachments
         .iter()
@@ -468,12 +473,10 @@ fn validate_feature(
         || feature
             .color_format
             .is_some_and(|format| pass.color.as_ref().is_none_or(|a| a.format != format))
-        || feature.additional_color_formats
-            != pass
-                .additional_colors
-                .iter()
-                .map(|attachment| attachment.format)
-                .collect::<Vec<_>>()
+        || feature.additional_color_formats.iter().ne(pass
+            .additional_colors
+            .iter()
+            .map(|attachment| &attachment.format))
         || (feature.requires_no_depth && pass.depth.is_some())
         || feature
             .depth_format
@@ -493,10 +496,7 @@ fn validate_feature(
     Ok(())
 }
 
-fn require_producer(
-    produced: &BTreeMap<ResourceRef, AttachmentDeclaration>,
-    resource: ResourceRef,
-) -> Result<&AttachmentDeclaration, FrameError> {
+fn require_producer(produced: &Produced, resource: ResourceRef) -> Result<&Product, FrameError> {
     match produced.get(&resource) {
         None => Err(FrameError::MissingProducer(resource)),
         Some(previous) if previous.store == wgpu::StoreOp::Discard => {
@@ -695,25 +695,15 @@ pub(crate) fn validate_views(
     passes: &[PassDeclaration],
     views: &[AttachmentView],
 ) -> Result<(), FrameError> {
-    for (index, view) in views.iter().enumerate() {
-        if views[..index].iter().any(|other| {
-            other.resource == view.resource
-                || (other.view.texture() == view.view.texture()
-                    && other.resource.mip == view.resource.mip
-                    && other.resource.layer == view.resource.layer)
-        }) {
-            return Err(FrameError::AttachmentHazard(view.resource));
-        }
-    }
+    let by_resource = unique_views(views)?;
     for attachment in passes.iter().flat_map(|pass| {
         pass.color
             .iter()
             .chain(&pass.additional_colors)
             .chain(&pass.depth)
     }) {
-        let view = views
-            .iter()
-            .find(|view| view.resource == attachment.resource)
+        let view = by_resource
+            .get(&attachment.resource)
             .ok_or(FrameError::AttachmentView(attachment.resource))?;
         let texture = view.view.texture();
         if view.format() != attachment.format
@@ -726,7 +716,28 @@ pub(crate) fn validate_views(
             return Err(FrameError::AttachmentView(attachment.resource));
         }
     }
-    compute::validate_storage_views(passes, views)
+    compute::validate_storage_views(passes, &by_resource)
+}
+
+/// The views by resource. The first view that repeats the resource, or the mip and layer of the
+/// texture, of an earlier one is refused as a hazard.
+fn unique_views(
+    views: &[AttachmentView],
+) -> Result<PlanMap<ResourceRef, &AttachmentView>, FrameError> {
+    let mut by_resource = map_with_capacity(views.len());
+    let mut subresources = set_with_capacity(views.len());
+    let mut textures = Textures::default();
+    for view in views {
+        let first_of_subresource = subresources.insert((
+            textures.number(view.view.texture()),
+            view.resource.mip,
+            view.resource.layer,
+        ));
+        if !first_of_subresource || by_resource.insert(view.resource, view).is_some() {
+            return Err(FrameError::AttachmentHazard(view.resource));
+        }
+    }
+    Ok(by_resource)
 }
 
 /// Complete borrowed geometry contract, validated before feature preparation.

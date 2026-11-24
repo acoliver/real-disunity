@@ -15,11 +15,6 @@ pub(crate) fn sha256_validity(value: &str) -> HashValidity {
     HashValidity::Valid
 }
 
-pub(crate) fn sha256_matches_empty_length(value: &str, bytes: u64) -> bool {
-    const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    bytes != 0 || value.eq_ignore_ascii_case(EMPTY_SHA256)
-}
-
 pub(crate) fn is_nonempty_text(value: &str) -> bool {
     value.trim() == value && !value.is_empty() && !value.chars().any(char::is_control)
 }

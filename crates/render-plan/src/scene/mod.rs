@@ -35,7 +35,6 @@ pub use atmosphere::{
 pub use scattering::{SceneScattering, SceneScatteringFormat, SceneScatteringModel};
 mod direction;
 pub use direction::{DIRECTION_MICRO_SCALE, SceneDirection};
-mod composition;
 mod depth_fitting;
 mod depth_footprint;
 pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
@@ -150,10 +149,6 @@ mod terrain_pages;
 pub use terrain_pages::{TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts};
 #[cfg(test)]
 mod terrain_pages_tests;
-pub use composition::{
-    DocumentSceneInput, ProvenSceneContribution, RouteDeclarationRef, RouteSceneFactory,
-    RouteSceneInput, SceneCompositionFactory, SceneContribution, ScenePlacement,
-};
 pub use effects::{
     DEFAULT_TAA_CLIP_SCALE_MICRO, EFFECTS_MICRO_SCALE, MAXIMUM_SUN_IRRADIANCE_MICRO,
     MAXIMUM_TAA_CLIP_SCALE_MICRO, MINIMUM_TAA_CLIP_SCALE_MICRO, SceneAmbient, SceneAntiAlias,

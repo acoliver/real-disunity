@@ -41,6 +41,7 @@
 //! ```
 
 /// The scene GPU and declared split settings the cascade preparation reads through.
+#[derive(Clone, Copy)]
 pub(crate) struct CasterScene<'a> {
     pub gpu: &'a SceneGpu,
     pub effects: &'a SceneEffects,
@@ -54,6 +55,7 @@ pub(crate) struct CascadeFitting {
 }
 
 /// The scene casters and objects the terrain prepass, shadow passes and object casters draw.
+#[derive(Clone, Copy)]
 pub(crate) struct TerrainCasters<'a> {
     pub gpu: &'a SceneGpu,
     pub caster: &'a terrain_caster::TerrainCaster,
@@ -61,6 +63,7 @@ pub(crate) struct TerrainCasters<'a> {
 }
 
 /// The frame geometry and selected pipelines the terrain preparation prepares.
+#[derive(Clone, Copy)]
 pub(crate) struct TerrainFrame<'a> {
     pub screen: Option<&'a crate::scene_metadata::Geometry>,
     pub selected: &'a ScenePipelines,

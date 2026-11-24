@@ -438,3 +438,97 @@ fn a_screen_through_the_clamp_output_keeps_every_srgb_code() {
     let red: std::collections::BTreeSet<_> = drawn.chunks_exact(4).map(|pixel| pixel[0]).collect();
     assert_eq!(red.len(), 256, "the pattern exercises every code");
 }
+
+/// Eight-bit bytes uploaded to a screen reach the standard copy's output unchanged, for the
+/// linear and the sRGB attachment alike. Each of the first two channels holds all 256 codes,
+/// so no code can be remapped, rounded to a neighbour or clamped without the test seeing it.
+#[test]
+fn standard_copy_round_trips_every_eight_bit_code_exactly() {
+    let (device, queue) = crate::gpu_tests::gpu();
+    let size = [256, 4];
+    let row = 256 * 4;
+    let uploaded: Vec<u8> = (0..size[1])
+        .flat_map(|y| (0..size[0]).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let code = |value: u32| u8::try_from(value % 256).unwrap();
+            [
+                code(x),
+                code(255 - x),
+                code(x * 7 + y * 13),
+                code(x * 31 + y),
+            ]
+        })
+        .collect();
+    for format in [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let screen = crate::taa_gpu_test_support::sampled(&device, "uploaded bytes", size, format);
+        crate::taa_gpu_test_support::write_texture(&queue, &screen, &uploaded, 4);
+        let config = FrameConfig::new(size, format, 1);
+        let chain = PostChain::new(
+            &device,
+            config,
+            Resources::default(),
+            CopyOutput::new(&device, format),
+            crate::SceneDepth::Independent,
+        )
+        .unwrap();
+        let seed = CopyOutput::bottom_first(&device, format)
+            .source(
+                &device,
+                &crate::AttachmentView::new(crate::ResourceRef::new("uploaded bytes"), &screen)
+                    .unwrap(),
+            )
+            .unwrap();
+        let output = color_texture(&device, "standard copy", size, format);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("uploaded bytes into scene colour"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: chain.targets().scene(),
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            seed.record(&mut pass);
+        }
+        chain.encode(
+            &mut encoder,
+            &output.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        queue.submit([encoder.finish()]);
+        let mut readback = Readback::new(&device, config, 1024 * 1024).unwrap();
+        let scene = readback
+            .read(
+                &device,
+                &crate::test_authority(&queue),
+                chain.targets().texture(),
+            )
+            .unwrap();
+        let copied = readback
+            .read(&device, &crate::test_authority(&queue), &output)
+            .unwrap();
+        let rows = uploaded.len() / row;
+        for y in 0..rows {
+            // The seed's first stored row is the displayed bottom row.
+            let expected = &uploaded[(rows - 1 - y) * row..(rows - y) * row];
+            assert_eq!(
+                &scene[y * row..(y + 1) * row],
+                expected,
+                "{format:?} scene row {y}"
+            );
+            assert_eq!(
+                &copied[y * row..(y + 1) * row],
+                expected,
+                "{format:?} copy row {y}"
+            );
+        }
+    }
+}

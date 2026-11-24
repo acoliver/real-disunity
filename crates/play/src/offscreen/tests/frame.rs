@@ -30,6 +30,7 @@ pub(super) fn settings() -> Settings {
         screen: None,
         supplied: Vec::new(),
         stand_in_look: StandInLook::Declared,
+        linear_colour_space: false,
     }
 }
 

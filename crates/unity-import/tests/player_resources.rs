@@ -368,6 +368,16 @@ fn the_plan_carries_the_project_color_space() {
 }
 
 #[test]
+fn only_a_linear_project_says_it_is_linear() {
+    let dir = tempfile::tempdir().unwrap();
+    for (stored, linear) in [(0, false), (1, true)] {
+        write_managers_in(dir.path(), "6000.3.15f1", stored);
+        let graphics = player_project_graphics(dir.path()).unwrap().unwrap();
+        assert_eq!(graphics.is_linear(), linear);
+    }
+}
+
+#[test]
 fn a_color_space_outside_gamma_and_linear_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
     write_managers_in(dir.path(), "6000.3.15f1", 5);

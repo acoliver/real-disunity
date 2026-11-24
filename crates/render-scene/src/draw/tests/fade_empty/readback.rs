@@ -190,7 +190,13 @@ pub(super) fn capture(
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
                 .total()
         } else {
-            let mut sink = PreparedSink::new(&mut pass, &gpu.objects, forward.object_context());
+            let mut scratch = gpu.sink_scratch.borrow_mut();
+            let mut sink = PreparedSink::new(
+                &mut pass,
+                &gpu.objects,
+                forward.object_context(),
+                &mut scratch,
+            );
             let total = gpu
                 .record_selection(&mut sink, (None, &frame), &selected.ranges)
                 .total();

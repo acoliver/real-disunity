@@ -1,0 +1,6 @@
+<Project>
+  <!-- NU1900 means the audit feed was unreachable; keep it from failing warnaserror builds. Real findings (NU1901-NU1904) still fail. -->
+  <PropertyGroup>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1900</WarningsNotAsErrors>
+  </PropertyGroup>
+</Project>

@@ -120,6 +120,7 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
     assert_filled(&rig.render().unwrap(), "before replacement");
     let array = rig.renderer.game_targets().texture(ARRAY).unwrap();
     let created = rig.renderer.game_targets().created();
+    let views = rig.renderer.game_targets().views_created();
     assert!(
         rig.renderer.game_targets().is_written(HISTORY, 0),
         "the frame wrote the history target"
@@ -149,6 +150,11 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
     assert_eq!(rig.renderer.game_targets().texture(ARRAY).unwrap(), array);
     knobs.lock().unwrap().produce.clear();
     assert_filled(&rig.render().unwrap(), "after replacement");
+    assert_eq!(
+        rig.renderer.game_targets().views_created(),
+        views,
+        "the kept textures kept their views"
+    );
 
     // A frame-sized persistent target is recreated by a resize, which discards its contents;
     // the fixed-size array keeps its texture and its layers.
@@ -162,6 +168,19 @@ fn renderer_replacement_registers_the_factory_again_and_keeps_fixed_persistent_t
     assert_eq!(rig.renderer.game_targets().texture(ARRAY).unwrap(), array);
     assert!(rig.renderer.game_targets().is_written(ARRAY, LAYERS - 1));
     assert!(!rig.renderer.game_targets().is_written(HISTORY, 0));
+    knobs.lock().unwrap().produce = vec![(HISTORY_PRODUCER, RED)];
+    rig.render().unwrap();
+    let resized = rig.renderer.game_targets().views_created();
+    assert!(
+        resized > views,
+        "the recreated history target got views of its new texture"
+    );
+    rig.render().unwrap();
+    assert_eq!(
+        rig.renderer.game_targets().views_created(),
+        resized,
+        "and kept them"
+    );
 }
 
 #[test]
@@ -174,9 +193,16 @@ fn steady_state_frames_build_nothing_new() {
     }
     let stats = knobs.lock().unwrap().stats.unwrap();
     let created = rig.renderer.game_targets().created();
+    let views = rig.renderer.game_targets().views_created();
+    assert!(views > 0, "the frames attached views of the targets");
     for _ in 0..3 {
         assert_filled(&rig.render().unwrap(), "steady");
     }
+    assert_eq!(
+        rig.renderer.game_targets().views_created(),
+        views,
+        "steady frames made no view of a target"
+    );
     assert_eq!(
         knobs.lock().unwrap().stats.unwrap(),
         stats,

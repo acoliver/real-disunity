@@ -75,11 +75,44 @@ fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         ],
     })
 }
+/// The colour attachment every sky pipeline writes: its format and sample count.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ColorTarget {
+    pub format: wgpu::TextureFormat,
+    pub samples: u32,
+}
+
+/// The attachments one sky pipeline writes beyond colour, and the depth mode it tests against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Variant {
+    pub velocity: bool,
+    pub reflection: bool,
+    pub depth: crate::renderer::depth::DepthMode,
+}
+
+impl Variant {
+    /// The background pass that neither writes reflection outputs nor shares scene depth.
+    pub(crate) const fn independent(velocity: bool) -> Self {
+        Self {
+            velocity,
+            reflection: false,
+            depth: crate::renderer::depth::DepthMode::Independent,
+        }
+    }
+}
+
+/// The dome texture views the sky samples and the white view it uses without a texture.
+#[derive(Clone, Copy)]
+pub(crate) struct DomeTextures<'a> {
+    pub views: &'a [wgpu::TextureView],
+    pub white: &'a wgpu::TextureView,
+}
+
 pub(crate) fn pipeline(
     device: &wgpu::Device,
     frame: &wgpu::BindGroupLayout,
-    target: (wgpu::TextureFormat, u32, bool),
-    reflection: (bool, crate::renderer::depth::DepthMode),
+    target: ColorTarget,
+    variant: Variant,
 ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
     let group = layout(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -101,9 +134,9 @@ pub(crate) fn pipeline(
             buffers: &[],
         },
         primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(depth_state(reflection.1)),
+        depth_stencil: Some(depth_state(variant.depth)),
         multisample: wgpu::MultisampleState {
-            count: target.1,
+            count: target.samples,
             ..Default::default()
         },
         fragment: Some(wgpu::FragmentState {
@@ -112,11 +145,11 @@ pub(crate) fn pipeline(
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &targets(
                 wgpu::ColorTargetState {
-                    format: target.0,
+                    format: target.format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 },
-                (target.2, reflection.0, reflection.1),
+                variant,
             ),
         }),
         multiview_mask: None,
@@ -127,11 +160,13 @@ pub(crate) fn pipeline(
 
 #[derive(Debug)]
 pub(crate) struct Sky {
-    variants:
-        RefCell<BTreeMap<(bool, bool, crate::renderer::depth::DepthMode), wgpu::RenderPipeline>>,
+    variants: RefCell<BTreeMap<Variant, wgpu::RenderPipeline>>,
+    /// The variant `new` built first, which the test draw uses.
+    #[cfg(test)]
+    background: Variant,
     device: wgpu::Device,
     frame_layout: wgpu::BindGroupLayout,
-    target: (wgpu::TextureFormat, u32, bool),
+    target: ColorTarget,
     groups: Vec<wgpu::BindGroup>,
     lookup: Option<scattering::Lookup>,
     identity: std::rc::Rc<()>,
@@ -156,11 +191,11 @@ impl Sky {
                 Ok(Self::new(
                     device,
                     pipelines.frame_layout(),
-                    (
-                        pipelines.color_format,
-                        pipelines.samples,
-                        pipelines.writes_velocity(),
-                    ),
+                    ColorTarget {
+                        format: pipelines.color_format,
+                        samples: pipelines.samples,
+                    },
+                    Variant::independent(pipelines.writes_velocity()),
                     settings,
                     match scene.effects().expect("atmosphere has effects").sky() {
                         worldrunner_render_plan::SceneSky::DomeTexture { texture } => {
@@ -168,7 +203,7 @@ impl Sky {
                         }
                         worldrunner_render_plan::SceneSky::ProceduralHemisphere { .. } => None,
                     },
-                    (views, white),
+                    DomeTextures { views, white },
                 ))
             })
             .transpose()
@@ -177,19 +212,15 @@ impl Sky {
     pub fn new(
         device: &wgpu::Device,
         frame: &wgpu::BindGroupLayout,
-        target: (wgpu::TextureFormat, u32, bool),
+        target: ColorTarget,
+        variant: Variant,
         settings: &SceneAtmosphere,
         dome: Option<worldrunner_render_plan::TextureHandle>,
-        textures: (&[wgpu::TextureView], &wgpu::TextureView),
+        textures: DomeTextures<'_>,
     ) -> Self {
         settings.validate().expect("validated atmosphere");
-        let (views, white) = textures;
-        let (pipeline, layout) = pipeline(
-            device,
-            frame,
-            target,
-            (false, crate::renderer::depth::DepthMode::Independent),
-        );
+        let DomeTextures { views, white } = textures;
+        let (pipeline, layout) = pipeline(device, frame, target, variant);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("celestial sampling"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -237,14 +268,9 @@ impl Sky {
             })
             .collect();
         Self {
-            variants: RefCell::new(BTreeMap::from([(
-                (
-                    target.2,
-                    false,
-                    crate::renderer::depth::DepthMode::Independent,
-                ),
-                pipeline,
-            )])),
+            variants: RefCell::new(BTreeMap::from([(variant, pipeline)])),
+            #[cfg(test)]
+            background: variant,
             device: device.clone(),
             frame_layout: frame.clone(),
             target,
@@ -264,7 +290,10 @@ impl Sky {
                 device,
                 encoder,
                 &self.identity,
-                (frame.sun_direction, frame.camera_position.z.max(0.1)),
+                scattering::Observer {
+                    sun_direction: frame.sun_direction,
+                    camera_altitude: frame.camera_position.z.max(0.1),
+                },
                 worldrunner_render_gpu::configuration::AllocationBudget(16 * 1024 * 1024),
             )?;
         }
@@ -284,33 +313,19 @@ impl Sky {
     }
     #[cfg(test)]
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, frame: &wgpu::BindGroup) {
-        self.draw_targets(
-            pass,
-            frame,
-            (
-                self.target.2,
-                false,
-                crate::renderer::depth::DepthMode::Independent,
-            ),
-        );
+        self.draw_targets(pass, frame, self.background);
     }
     pub fn draw_targets(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         frame: &wgpu::BindGroup,
-        key: (bool, bool, crate::renderer::depth::DepthMode),
+        variant: Variant,
     ) -> crate::draw::DrawCount {
         let mut count = crate::draw::DrawCount::default();
         let mut variants = self.variants.borrow_mut();
-        let pipeline = variants.entry(key).or_insert_with(|| {
-            pipeline(
-                &self.device,
-                &self.frame_layout,
-                (self.target.0, self.target.1, key.0),
-                (key.1, key.2),
-            )
-            .0
-        });
+        let pipeline = variants
+            .entry(variant)
+            .or_insert_with(|| pipeline(&self.device, &self.frame_layout, self.target, variant).0);
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, frame, &[]);
         for group in &self.groups {
@@ -484,10 +499,10 @@ mod review_tests;
 
 fn targets(
     colour: wgpu::ColorTargetState,
-    key: (bool, bool, crate::renderer::depth::DepthMode),
+    variant: Variant,
 ) -> Vec<Option<wgpu::ColorTargetState>> {
     let mut targets = vec![Some(colour)];
-    if key.1 {
+    if variant.reflection {
         targets.extend((0..2).map(|_| {
             Some(wgpu::ColorTargetState {
                 format: wgpu::TextureFormat::Rgba16Float,
@@ -496,7 +511,7 @@ fn targets(
             })
         }));
     }
-    if key.0 {
+    if variant.velocity {
         targets.push(Some(wgpu::ColorTargetState {
             format: worldrunner_render_post::VELOCITY_FORMAT,
             blend: None,

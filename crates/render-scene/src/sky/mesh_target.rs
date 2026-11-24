@@ -126,7 +126,7 @@ fn composition_layout(
 pub(super) fn pipeline(
     device: &wgpu::Device,
     scene: &crate::renderer::ScenePipelines,
-    targets: (bool, bool, crate::renderer::depth::DepthMode),
+    variant: super::Variant,
 ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
     let (layout, group) = composition_layout(device, scene);
     let module = composite_shader(device, scene.samples);
@@ -140,7 +140,7 @@ pub(super) fn pipeline(
             buffers: &[],
         },
         primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(super::depth_state(targets.2)),
+        depth_stencil: Some(super::depth_state(variant.depth)),
         multisample: wgpu::MultisampleState {
             count: scene.samples,
             ..Default::default()
@@ -155,7 +155,7 @@ pub(super) fn pipeline(
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 },
-                targets,
+                variant,
             ),
         }),
         multiview_mask: None,

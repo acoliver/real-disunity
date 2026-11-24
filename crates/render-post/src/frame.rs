@@ -102,7 +102,7 @@ impl std::fmt::Display for PassEntry {
 }
 
 /// A specific texture version and subresource, never an implicit latest value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceRef {
     pub name: &'static str,
     pub version: u32,

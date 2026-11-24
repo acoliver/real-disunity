@@ -120,7 +120,10 @@ fn capture(
     let screen_layout = crate::ssr::forward::layout(device);
     let pipelines = ScenePipelines::with_screen_space(
         device,
-        (TextureFormat::Rgba16Float, count),
+        crate::renderer::SceneTarget {
+            format: TextureFormat::Rgba16Float,
+            samples: count,
+        },
         &object,
         &terrain,
         Some(&shadow_layout),

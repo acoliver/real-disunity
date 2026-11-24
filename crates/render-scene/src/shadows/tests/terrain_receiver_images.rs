@@ -9,7 +9,10 @@ fn comparison_pipelines(
 ) -> ScenePipelines {
     ScenePipelines::with_screen_space(
         context.device(),
-        (OffscreenTarget::COLOR_FORMAT, 1),
+        crate::renderer::SceneTarget {
+            format: OffscreenTarget::COLOR_FORMAT,
+            samples: 1,
+        },
         resources::SHADOWED_WGSL,
         terrain,
         Some(&renderer.shadow_layout),

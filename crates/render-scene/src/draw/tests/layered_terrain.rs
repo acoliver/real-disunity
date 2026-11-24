@@ -148,7 +148,10 @@ fn render_with_source(
     let authority = SubmissionAuthority::new(context.queue().clone());
     let pipelines = ScenePipelines::with_environment(
         device,
-        (COLOR_FORMAT, 1),
+        crate::renderer::SceneTarget {
+            format: COLOR_FORMAT,
+            samples: 1,
+        },
         crate::shader::ENVIRONMENT_WGSL,
         source,
         None,

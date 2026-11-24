@@ -98,7 +98,10 @@ fn gpu_receiver_gradient_reports_main_deltas_on_existing_shadow_fixtures() {
             let reference = super::depth_reuse::reference_receiver();
             let mut pipelines = ScenePipelines::with_screen_space(
                 context.device(),
-                (OffscreenTarget::COLOR_FORMAT, 1),
+                crate::renderer::SceneTarget {
+                    format: OffscreenTarget::COLOR_FORMAT,
+                    samples: 1,
+                },
                 &resources::SHADOWED_WGSL.replace(current, &reference),
                 &replace_terrain_shadow_receiver(current, &reference),
                 Some(&renderer.shadow_layout),
@@ -186,7 +189,10 @@ fn scalar_pipelines(context: &GpuContext, renderer: &ShadowedScene) -> ScenePipe
     let terrain = replace_terrain_shadow_receiver(original, &receiver);
     ScenePipelines::with_screen_space(
         context.device(),
-        (OffscreenTarget::COLOR_FORMAT, 1),
+        crate::renderer::SceneTarget {
+            format: OffscreenTarget::COLOR_FORMAT,
+            samples: 1,
+        },
         &source,
         &terrain,
         Some(&renderer.shadow_layout),

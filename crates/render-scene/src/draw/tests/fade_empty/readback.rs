@@ -57,7 +57,10 @@ impl Setup {
                 );
                 setup.pipelines = ScenePipelines::with_screen_space(
                     device,
-                    (hdr, 1),
+                    crate::renderer::SceneTarget {
+                        format: hdr,
+                        samples: 1,
+                    },
                     &object,
                     &terrain,
                     None,

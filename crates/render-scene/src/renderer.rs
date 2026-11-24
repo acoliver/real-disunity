@@ -74,6 +74,13 @@ use crate::shader::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 use crate::upload::{frame_bind_group_layout, material_bind_group_layout};
 use crate::view::Viewport;
 
+/// The colour format and sample count shared by a scene's pipelines.
+#[derive(Clone, Copy)]
+pub(crate) struct SceneTarget {
+    pub(crate) format: TextureFormat,
+    pub(crate) samples: u32,
+}
+
 /// Depth format for independent scene draws and light-space depth.
 pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
@@ -114,7 +121,10 @@ impl ScenePipelines {
             .validate_device(device)?;
         Ok(Self::with_environment(
             device,
-            (color_format, samples),
+            SceneTarget {
+                format: color_format,
+                samples,
+            },
             ENVIRONMENT_WGSL,
             TERRAIN_WGSL,
             None,
@@ -135,7 +145,10 @@ impl ScenePipelines {
             .validate_device(device)?;
         Ok(Self::with_environment(
             device,
-            (color_format, samples),
+            SceneTarget {
+                format: color_format,
+                samples,
+            },
             &crate::velocity::object_source(ENVIRONMENT_WGSL),
             &crate::velocity::terrain_source(TERRAIN_WGSL),
             None,
@@ -193,7 +206,7 @@ impl ScenePipelines {
         };
         Ok(Self::with_screen_space(
             device,
-            (format, samples),
+            SceneTarget { format, samples },
             &crate::ssao::ambient_source(&object),
             &crate::ssao::ambient_source(&terrain),
             None,
@@ -203,7 +216,7 @@ impl ScenePipelines {
 
     pub(crate) fn with_environment(
         device: &Device,
-        target: (TextureFormat, u32),
+        target: SceneTarget,
         source: &str,
         terrain_source: &str,
         shadow_layout: Option<&BindGroupLayout>,
@@ -213,7 +226,7 @@ impl ScenePipelines {
 
     pub(crate) fn with_screen_space(
         device: &Device,
-        target: (TextureFormat, u32),
+        target: SceneTarget,
         source: &str,
         terrain_source: &str,
         shadow_layout: Option<&BindGroupLayout>,
@@ -236,7 +249,7 @@ impl ScenePipelines {
 
     fn with_constants(
         device: &Device,
-        target: (TextureFormat, u32),
+        target: SceneTarget,
         sources: (&str, &str),
         layouts: (&specular::ShadowLayouts, Option<&BindGroupLayout>),
         (options, family): (
@@ -248,7 +261,10 @@ impl ScenePipelines {
         let (source, terrain_source) = sources;
         let mut constants = specular::constants(options.0).to_vec();
         specular::raster_constants(&mut constants, options.1);
-        let (color_format, samples) = target;
+        let SceneTarget {
+            format: color_format,
+            samples,
+        } = target;
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
         let targets = source_targets(source, color_format);

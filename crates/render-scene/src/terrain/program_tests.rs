@@ -142,7 +142,10 @@ fn receiver_terrain_programs_load_payload_in_every_surface_and_depth_policy() {
     let screen = crate::ssr::forward::layout(context.device());
     let built = crate::renderer::ScenePipelines::with_screen_space(
         context.device(),
-        (wgpu::TextureFormat::Rgba16Float, 1),
+        crate::renderer::SceneTarget {
+            format: wgpu::TextureFormat::Rgba16Float,
+            samples: 1,
+        },
         &object,
         &terrain,
         Some(&layout),

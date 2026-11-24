@@ -242,7 +242,10 @@ pub(super) fn pipelines(
     (
         ScenePipelines::with_screen_space(
             device,
-            (wgpu::TextureFormat::Rgba16Float, 1),
+            crate::renderer::SceneTarget {
+                format: wgpu::TextureFormat::Rgba16Float,
+                samples: 1,
+            },
             &object,
             &terrain,
             None,

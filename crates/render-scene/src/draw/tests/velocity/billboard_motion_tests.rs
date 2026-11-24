@@ -105,7 +105,10 @@ impl Card {
             } else {
                 ScenePipelines::with_environment(
                     device,
-                    (HDR, samples.count()),
+                    crate::renderer::SceneTarget {
+                        format: HDR,
+                        samples: samples.count(),
+                    },
                     &crate::velocity::current_camera_object_source(crate::shader::ENVIRONMENT_WGSL),
                     &crate::velocity::terrain_source(crate::shader::TERRAIN_WGSL),
                     None,

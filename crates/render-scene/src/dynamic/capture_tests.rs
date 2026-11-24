@@ -154,7 +154,10 @@ pub(crate) fn build(device: &Device, config: &Config) -> Built {
             );
             let pipelines = ScenePipelines::with_screen_space(
                 device,
-                (HDR, samples),
+                crate::renderer::SceneTarget {
+                    format: HDR,
+                    samples,
+                },
                 &object,
                 &terrain,
                 None,

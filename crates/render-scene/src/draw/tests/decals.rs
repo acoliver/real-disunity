@@ -405,7 +405,10 @@ fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_screen_space(
             &device,
-            (TextureFormat::Rgba16Float, samples),
+            crate::renderer::SceneTarget {
+                format: TextureFormat::Rgba16Float,
+                samples,
+            },
             &object,
             &terrain,
             Some(&shadow),

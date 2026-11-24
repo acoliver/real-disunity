@@ -486,7 +486,7 @@ pub(super) fn receiver_pipelines(
     let reflection_layout = reflection.then(|| crate::ssr::forward::layout(context.device()));
     let mut pipelines = ScenePipelines::with_screen_space(
         context.device(),
-        (format, samples),
+        crate::renderer::SceneTarget { format, samples },
         &source,
         &terrain_source,
         Some(shadow_layout),

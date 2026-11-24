@@ -160,7 +160,10 @@ fn default_modifier_preserves_rendered_bytes_against_unmodified_shader() {
     for samples in [1, 4] {
         let original = ScenePipelines::with_environment(
             context.device(),
-            (COLOR_FORMAT, samples),
+            crate::renderer::SceneTarget {
+                format: COLOR_FORMAT,
+                samples,
+            },
             &object,
             &terrain,
             None,
@@ -405,7 +408,16 @@ fn metadata_pipelines(
         "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);",
         &format!("return {terrain_output};"),
     );
-    ScenePipelines::with_environment(context.device(), (COLOR_FORMAT, 1), &object, &terrain, None)
+    ScenePipelines::with_environment(
+        context.device(),
+        crate::renderer::SceneTarget {
+            format: COLOR_FORMAT,
+            samples: 1,
+        },
+        &object,
+        &terrain,
+        None,
+    )
 }
 
 fn channel_pipelines(context: &crate::device::GpuContext) -> [ScenePipelines; 3] {

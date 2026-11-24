@@ -116,7 +116,10 @@ fn pipelines(context: &GpuContext, set: &Set) -> (ScenePipelines, Option<BindGro
     };
     let mut built = ScenePipelines::with_screen_space(
         device,
-        (HDR, set.samples),
+        crate::renderer::SceneTarget {
+            format: HDR,
+            samples: set.samples,
+        },
         &object,
         &terrain,
         Some(&layout),

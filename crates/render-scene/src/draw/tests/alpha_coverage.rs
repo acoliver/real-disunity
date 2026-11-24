@@ -37,7 +37,10 @@ fn multisampled_masked_pipelines_support_velocity_and_reflection_targets() {
         );
         let pipelines = ScenePipelines::with_screen_space(
             device,
-            (TextureFormat::Rgba16Float, 4),
+            crate::renderer::SceneTarget {
+                format: TextureFormat::Rgba16Float,
+                samples: 4,
+            },
             &object,
             &terrain,
             None,
@@ -120,7 +123,10 @@ fn coverage(context: &GpuContext, enabled: Option<bool>, samples: u32) -> Vec<u8
     );
     let pipelines = ScenePipelines::with_environment(
         device,
-        (TextureFormat::Rgba8Unorm, samples),
+        crate::renderer::SceneTarget {
+            format: TextureFormat::Rgba8Unorm,
+            samples,
+        },
         &source,
         crate::shader::TERRAIN_WGSL,
         None,

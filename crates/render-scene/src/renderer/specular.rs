@@ -138,7 +138,10 @@ impl ScenePipelines {
         };
         let mut selected = Self::with_constants(
             &spec.device,
-            (self.color_format, self.samples),
+            super::SceneTarget {
+                format: self.color_format,
+                samples: self.samples,
+            },
             (source, &terrain),
             (&layouts, spec.screen.as_ref()),
             (spec.options, &spec.family),
@@ -214,7 +217,10 @@ impl ScenePipelines {
         let layout = crate::scene_metadata::receiver::shadow_layout(&spec.device);
         let mut selected = Self::with_constants(
             &spec.device,
-            (self.color_format, self.samples),
+            super::SceneTarget {
+                format: self.color_format,
+                samples: self.samples,
+            },
             (&sources[0], &sources[1]),
             (&ShadowLayouts::shared(Some(&layout)), spec.screen.as_ref()),
             (spec.options, &spec.family),
@@ -256,7 +262,10 @@ impl ScenePipelines {
             crate::scene_metadata::receiver::poison::source(&spec.terrain, receiver, family, true);
         let mut selected = Self::with_constants(
             &spec.device,
-            (self.color_format, self.samples),
+            super::SceneTarget {
+                format: self.color_format,
+                samples: self.samples,
+            },
             (&source, &terrain),
             (&spec.shadow, spec.screen.as_ref()),
             (spec.options, &spec.family),
@@ -271,7 +280,10 @@ impl ScenePipelines {
         let source = crate::scene_metadata::receiver::late_card_source(&spec.source);
         let mut selected = Self::with_constants(
             &spec.device,
-            (self.color_format, self.samples),
+            super::SceneTarget {
+                format: self.color_format,
+                samples: self.samples,
+            },
             (&source, &spec.terrain),
             (&spec.shadow, spec.screen.as_ref()),
             (spec.options, &spec.family),
@@ -293,7 +305,10 @@ impl ScenePipelines {
             .or_insert_with(|| {
                 let mut selected = Self::with_constants(
                     &spec.device,
-                    (self.color_format, self.samples),
+                    super::SceneTarget {
+                        format: self.color_format,
+                        samples: self.samples,
+                    },
                     (&spec.source, &spec.terrain),
                     (&spec.shadow, spec.screen.as_ref()),
                     (options, &spec.family),
@@ -331,7 +346,10 @@ impl ScenePipelines {
                 };
                 let mut selected = Self::with_constants(
                     &spec.device,
-                    (self.color_format, self.samples),
+                    super::SceneTarget {
+                        format: self.color_format,
+                        samples: self.samples,
+                    },
                     (&source, &terrain),
                     (&spec.shadow, Some(&layout)),
                     (spec.options, &spec.family),
@@ -385,7 +403,10 @@ impl ScenePipelines {
             .or_insert_with(|| {
                 let mut selected = Self::with_constants(
                     &spec.device,
-                    (self.color_format, self.samples),
+                    super::SceneTarget {
+                        format: self.color_format,
+                        samples: self.samples,
+                    },
                     (&spec.source, &spec.terrain),
                     (&spec.shadow, spec.screen.as_ref()),
                     (options, &spec.family),

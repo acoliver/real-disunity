@@ -148,7 +148,10 @@ fn reference_pipelines(context: &GpuContext) -> ScenePipelines {
     let layout = crate::scene_metadata::receiver::shadow_layout(context.device());
     let mut pipelines = ScenePipelines::with_screen_space(
         context.device(),
-        (wgpu::TextureFormat::Rgba16Float, 1),
+        crate::renderer::SceneTarget {
+            format: wgpu::TextureFormat::Rgba16Float,
+            samples: 1,
+        },
         &object.replace(current, &receiver),
         &terrain.replace(current, &receiver),
         Some(&layout),

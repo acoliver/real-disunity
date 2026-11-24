@@ -192,7 +192,10 @@ pub(super) fn install(
     );
     let pipelines = crate::renderer::ScenePipelines::with_screen_space(
         device,
-        (config.format, config.samples),
+        crate::renderer::SceneTarget {
+            format: config.format,
+            samples: config.samples,
+        },
         &object,
         &terrain,
         None,

@@ -39,7 +39,10 @@ impl Pair {
         let layout = crate::ssr::forward::layout(device);
         let forward = ScenePipelines::with_screen_space(
             device,
-            (TextureFormat::Rgba16Float, 1),
+            crate::renderer::SceneTarget {
+                format: TextureFormat::Rgba16Float,
+                samples: 1,
+            },
             &sources[0],
             &sources[1],
             None,

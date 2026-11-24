@@ -39,7 +39,7 @@ pub enum DisunityErrorReason {
 
 fn revision(sources: &[&str]) -> u32 {
     let pairs: Vec<(&str, &str)> = sources.iter().map(|source| ("test.rs", *source)).collect();
-    abi_revision(build_abi::surface(pairs.into_iter()).as_bytes())
+    abi_revision(build_abi::surface(pairs).as_bytes())
 }
 
 fn baseline() -> u32 {
@@ -281,4 +281,13 @@ pub struct DisunityNameless {
 }
 "#;
     let _ = build_abi::records("test.rs", source);
+}
+
+#[test]
+fn a_record_source_runs_from_its_attribute_to_its_closing_brace() {
+    let source = "/// Doc.\n#[repr(C)]\n#[derive(Clone, Copy)]\npub struct DisunityPair {\n    pub a: u32,\n    pub b: u32,\n}\n\npub struct Other;\n";
+    let records = build_abi::record_sources("test.rs", source);
+    assert_eq!(records.len(), 1);
+    assert!(records[0].starts_with("#[repr(C)]"));
+    assert!(records[0].ends_with("    pub b: u32,\n}"));
 }

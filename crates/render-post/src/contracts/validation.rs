@@ -1,15 +1,14 @@
-use std::collections::BTreeMap;
-
 use super::raster::StockPass;
 use super::{
     AccessMode, AllocationKey, CheckedView, CompiledRaster, ContractError, RasterPass,
     ResourceLifetime, ResourceRegistry, ResourceUse, UseKind,
 };
 use crate::AttachmentLoad;
+use crate::plan_hash::PlanMap;
 
 type Cell = (AllocationKey, u32, u32, u8);
 #[derive(Default)]
-pub(super) struct Versions(BTreeMap<Cell, (Option<u32>, Option<u32>)>);
+pub(super) struct Versions(PlanMap<Cell, (Option<u32>, Option<u32>)>);
 
 impl ResourceRegistry {
     /// Checks all declarations before uploads or command encoding. Never sorts or culls.
@@ -190,7 +189,7 @@ pub(super) fn validate_versions(
     let aspects = aspect_cells(allocation.texture.format(), usage.view.range.aspect);
     for mip in usage.view.range.mips.clone() {
         for layer in usage.view.range.layers.clone() {
-            for &aspect in &aspects {
+            for &aspect in aspects {
                 let cell = versions
                     .0
                     .entry((allocation.key, mip, layer, aspect))
@@ -215,14 +214,14 @@ pub(super) fn validate_versions(
     }
     Ok(())
 }
-fn aspect_cells(format: wgpu::TextureFormat, aspect: wgpu::TextureAspect) -> Vec<u8> {
+fn aspect_cells(format: wgpu::TextureFormat, aspect: wgpu::TextureAspect) -> &'static [u8] {
     match aspect {
-        wgpu::TextureAspect::DepthOnly => vec![1],
-        wgpu::TextureAspect::StencilOnly => vec![2],
-        _ if format.has_depth_aspect() && format.has_stencil_aspect() => vec![1, 2],
-        _ if format.has_depth_aspect() => vec![1],
-        _ if format.has_stencil_aspect() => vec![2],
-        _ => vec![0],
+        wgpu::TextureAspect::DepthOnly => &[1],
+        wgpu::TextureAspect::StencilOnly => &[2],
+        _ if format.has_depth_aspect() && format.has_stencil_aspect() => &[1, 2],
+        _ if format.has_depth_aspect() => &[1],
+        _ if format.has_stencil_aspect() => &[2],
+        _ => &[0],
     }
 }
 
@@ -231,9 +230,10 @@ fn validate_attachments(
     device: &wgpu::Device,
     pass: &RasterPass,
 ) -> Result<(), ContractError> {
+    let limits = device.limits();
     if (pass.colors.iter().all(Option::is_none) && pass.depth.is_none())
-        || pass.colors.len() > device.limits().max_color_attachments as usize
-        || pass.bindings.len() > device.limits().max_bind_groups as usize
+        || pass.colors.len() > limits.max_color_attachments as usize
+        || pass.bindings.len() > limits.max_bind_groups as usize
     {
         return Err(ContractError::Raster(pass.id));
     }
@@ -258,7 +258,7 @@ fn validate_attachments(
             validate_resolve(registry, device, &color.view, resolve, pass)?;
         }
     }
-    let limit = device.limits().max_color_attachment_bytes_per_sample;
+    let limit = limits.max_color_attachment_bytes_per_sample;
     if total_bytes > limit {
         return Err(ContractError::ColorAttachmentBytes {
             total: total_bytes,
@@ -310,7 +310,8 @@ fn attachment_shape(
     registry.check_view(view)?;
     let texture = &registry.allocation(view.allocation)?.texture;
     let format = view.format();
-    let features = format.guaranteed_format_features(device.features());
+    let device_features = device.features();
+    let features = format.guaranteed_format_features(device_features);
     if view.range.mips.len() != 1
         || view.range.layers.len() != 1
         || format.is_depth_stencil_format() != depth
@@ -323,9 +324,7 @@ fn attachment_shape(
         || !crate::frame::sample_count_admissible(
             format,
             texture.sample_count(),
-            device
-                .features()
-                .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+            device_features.contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
         )
     {
         return Err(ContractError::Binding(view.allocation));

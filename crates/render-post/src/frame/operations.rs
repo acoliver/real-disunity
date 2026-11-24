@@ -1,8 +1,6 @@
 //! Operations groups: work a host records into the frame's encoder between the authored passes.
 
-use super::{
-    AttachmentDeclaration, AttachmentLoad, FrameError, PassDeclaration, PassEntry, ResourceRef,
-};
+use super::{AttachmentLoad, FrameError, PassDeclaration, PassEntry, Product, ResourceRef};
 
 /// Work that records commands of its own into the frame's encoder, outside the raster passes
 /// of the plan: a checked operations list the host admitted, for one.
@@ -129,24 +127,21 @@ impl GroupOutputs {
 
     /// The outputs of the groups that run immediately before pass `index`, as the producers
     /// later passes read.
-    pub(crate) fn left_before(
+    pub(super) fn left_before(
         &self,
         index: usize,
-    ) -> impl Iterator<Item = (ResourceRef, AttachmentDeclaration)> + '_ {
+    ) -> impl Iterator<Item = (ResourceRef, Product)> + '_ {
         self.0
             .iter()
             .filter(move |(at, _)| *at == index)
             .map(|(_, output)| {
                 (
                     output.resource,
-                    AttachmentDeclaration {
-                        resource: output.resource,
+                    Product {
                         format: output.format,
                         size: output.size,
                         samples: 1,
-                        load: AttachmentLoad::Load,
                         store: wgpu::StoreOp::Store,
-                        read_only: false,
                     },
                 )
             })

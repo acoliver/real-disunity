@@ -45,6 +45,7 @@ mod operations_tests;
 #[cfg(test)]
 mod operations_transfer_tests;
 mod pass_labels;
+mod plan_hash;
 #[cfg(test)]
 mod raster_capture_tests;
 mod timing;

@@ -58,7 +58,6 @@ pub mod world {
     pub use worldrunner_save;
     pub use worldrunner_world_generation;
     pub use worldrunner_world_model;
-    pub use worldrunner_world_runtime;
     pub use worldrunner_world_schema;
 }
 

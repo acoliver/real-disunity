@@ -132,7 +132,10 @@ fn capture_with_stages(
             context.device(),
             &mut encoder,
             (gpu, pipelines),
-            (&color, &depth),
+            worldrunner_render_scene::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             FrameUniform::unlit(&contribution.view),
         )
         .unwrap();

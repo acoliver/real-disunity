@@ -20,5 +20,14 @@ pub fn encode(
     )?;
     compositor::FrameRenderer::new(device)
         .encoding()
-        .encode_scene(device, encoder, scene, (&color, &depth), *frame)
+        .encode_scene(
+            device,
+            encoder,
+            scene,
+            worldrunner_render_scene::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
+            *frame,
+        )
 }

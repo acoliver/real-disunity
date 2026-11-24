@@ -146,7 +146,10 @@ impl Card {
                 device,
                 &mut encoder,
                 (&mut self.gpu, &self.pipelines),
-                (&self.color, &self.depth),
+                crate::compositor::ColorDepth {
+                    color: &self.color,
+                    depth: &self.depth,
+                },
                 frame_from(pose),
             )
             .unwrap();

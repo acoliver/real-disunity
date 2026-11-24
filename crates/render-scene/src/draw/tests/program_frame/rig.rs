@@ -300,7 +300,10 @@ impl Fixture {
             self.context.device(),
             encoder,
             (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             frame(),
         )
     }

@@ -141,7 +141,10 @@ pub(super) fn capture_with_renderer(
             context.device(),
             &mut encoder,
             (gpu, pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             frame,
         )
         .unwrap();

@@ -222,7 +222,10 @@ fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                crate::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 frame,
             )?;
             let buffers = streaming(&gpu).prepared_buffers();
@@ -230,7 +233,10 @@ fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                crate::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 frame,
             )?;
             assert_eq!(streaming(&gpu).prepared_buffers(), buffers);
@@ -242,7 +248,10 @@ fn repeated_stock_encodes_reuse_one_preparation_and_reject_a_second_view() {
                     context.device(),
                     encoder,
                     (&mut gpu, &pipelines),
-                    (&target.color_attachment(), &target.depth_attachment()),
+                    crate::compositor::ColorDepth {
+                        color: &target.color_attachment(),
+                        depth: &target.depth_attachment()
+                    },
                     changed
                 ),
                 Err(worldrunner_render_post::FrameError::StreamingSelectionConflict)

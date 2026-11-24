@@ -213,7 +213,10 @@ fn render(
                         device,
                         encoder,
                         scene,
-                        (&color, &depth),
+                        crate::compositor::ColorDepth {
+                            color: &color,
+                            depth: &depth,
+                        },
                         frame,
                     )?;
                     renderer.encode_output(encoder, &view).unwrap();

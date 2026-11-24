@@ -138,7 +138,10 @@ impl Rig {
                     context.device(),
                     encoder,
                     (gpu, pipelines),
-                    (&target.color_attachment(), &target.depth_attachment()),
+                    crate::compositor::ColorDepth {
+                        color: &target.color_attachment(),
+                        depth: &target.depth_attachment(),
+                    },
                     *frame,
                 )?;
                 target.encode_readback(encoder)?;

@@ -25,7 +25,10 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
+            crate::compositor::ColorDepth {
+                color: &target.color_attachment(),
+                depth: &target.depth_attachment(),
+            },
             frame,
         )
         .unwrap();
@@ -150,7 +153,10 @@ fn decal_statistics_apply_visibility_and_shader_capacity_at_submission() {
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
+            crate::compositor::ColorDepth {
+                color: &target.color_attachment(),
+                depth: &target.depth_attachment(),
+            },
             frame_from(pose()),
         )
         .unwrap();

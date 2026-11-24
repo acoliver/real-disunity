@@ -139,7 +139,10 @@ impl<'a> Harness<'a> {
                 device,
                 &mut encoder,
                 (&mut self.gpu, &self.pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 FrameUniform::unlit(&view),
             )
             .unwrap();

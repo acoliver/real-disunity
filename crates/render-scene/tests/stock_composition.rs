@@ -231,7 +231,10 @@ impl Frame {
             device,
             encoder,
             (&mut self.gpu, &self.pipelines),
-            (&self.color, &self.depth),
+            worldrunner_render_scene::compositor::ColorDepth {
+                color: &self.color,
+                depth: &self.depth,
+            },
             *uniform,
         )?;
         let plan = stock.plan();
@@ -726,7 +729,10 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
                 &device,
                 encoder,
                 (&mut frame.gpu, &frame.pipelines),
-                (&frame.color, &frame.depth),
+                worldrunner_render_scene::compositor::ColorDepth {
+                    color: &frame.color,
+                    depth: &frame.depth,
+                },
                 uniform,
             )?;
             let plan = stock.plan();

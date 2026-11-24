@@ -640,7 +640,7 @@ impl Resident {
                     context.device(),
                     encoder,
                     (&mut plain.gpu, &plain.pipelines),
-                    (color, depth),
+                    worldrunner_render_scene::compositor::ColorDepth { color, depth },
                     FrameUniform::new(view, plain.effects.as_ref())?,
                 )?;
             }

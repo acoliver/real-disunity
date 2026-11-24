@@ -157,7 +157,10 @@ fn reflective_velocity_after(
                 context.device(),
                 &mut encoder,
                 (&mut gpu, &pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame_from(pose),
             )
             .unwrap();
@@ -186,7 +189,10 @@ fn occluded_velocity_after(
                 context.device(),
                 &mut encoder,
                 (&mut gpu, &pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame_from(pose),
             )
             .unwrap();

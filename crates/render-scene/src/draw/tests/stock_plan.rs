@@ -223,7 +223,10 @@ impl<'a> Rig<'a> {
                 device,
                 &mut encoder,
                 (&mut self.gpu, &self.pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 FrameUniform::new(&view, self.source.effects()).unwrap(),
             )
             .unwrap();

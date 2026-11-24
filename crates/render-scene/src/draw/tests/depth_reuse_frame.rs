@@ -204,7 +204,16 @@ fn draw_frame_with_view(
             } else {
                 renderer
                     .encoding()
-                    .encode_scene(device, encoder, (gpu, pipelines), (&color, &depth), frame)
+                    .encode_scene(
+                        device,
+                        encoder,
+                        (gpu, pipelines),
+                        crate::compositor::ColorDepth {
+                            color: &color,
+                            depth: &depth,
+                        },
+                        frame,
+                    )
                     .unwrap();
             }
             renderer

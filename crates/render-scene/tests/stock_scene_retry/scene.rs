@@ -95,7 +95,10 @@ impl Scene {
             context.device(),
             &mut encoder,
             (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
+            worldrunner_render_scene::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             self.uniform,
         )?;
         self.frame

@@ -109,7 +109,10 @@ fn geometry_observations_budget_limit_and_cancellation_preserve_submission() {
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
+            crate::compositor::ColorDepth {
+                color: &target.color_attachment(),
+                depth: &target.depth_attachment(),
+            },
             frame,
         )
         .unwrap();

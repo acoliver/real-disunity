@@ -73,7 +73,10 @@ fn capture(
                 device,
                 encoder,
                 (&mut *gpu, pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame,
             )
         })
@@ -88,7 +91,10 @@ fn capture(
                     device,
                     encoder,
                     (&mut *gpu, pipelines),
-                    (&color, &depth),
+                    crate::compositor::ColorDepth {
+                        color: &color,
+                        depth: &depth,
+                    },
                     frame,
                 )
             },

@@ -220,7 +220,10 @@ impl Rig {
                 device,
                 encoder,
                 (&mut self.gpu, &self.pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 self.frame,
             )
             .unwrap();

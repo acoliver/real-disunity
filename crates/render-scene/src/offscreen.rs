@@ -276,7 +276,10 @@ impl OffscreenTarget {
                         context.device(),
                         encoder,
                         (scene, pipelines),
-                        (&color, &depth),
+                        crate::compositor::ColorDepth {
+                            color: &color,
+                            depth: &depth,
+                        },
                         frame,
                     )
                     .map_err(worldrunner_render_post::PostError::from)?;

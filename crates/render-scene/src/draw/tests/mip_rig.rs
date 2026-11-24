@@ -75,7 +75,10 @@ pub(super) fn center(
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             *frame,
         )
         .unwrap();

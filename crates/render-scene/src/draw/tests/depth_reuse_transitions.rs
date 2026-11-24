@@ -156,7 +156,10 @@ fn gpu_relief_ordinary_relief_retains_depth_without_draining_or_rebudgeting() {
                 device,
                 &mut encoder,
                 (gpu, &pipelines),
-                (&color, &scene_depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &scene_depth,
+                },
                 frame,
             )
             .unwrap();

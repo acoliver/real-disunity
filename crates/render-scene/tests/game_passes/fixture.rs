@@ -369,7 +369,10 @@ impl Rig {
             self.context.device(),
             encoder,
             (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
+            worldrunner_render_scene::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             self.frame,
         )?;
         self.renderer.encode_resolve(encoder);

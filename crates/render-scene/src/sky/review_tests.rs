@@ -69,7 +69,10 @@ fn render(context: &GpuContext, scene: &RenderScene, samples: u32) -> Vec<u8> {
             device,
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             frame,
         )
         .unwrap();

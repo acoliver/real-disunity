@@ -73,7 +73,10 @@ fn encode_profile(
         context.device(),
         &mut encoder,
         (gpu, pipelines),
-        (&color, &depth),
+        crate::compositor::ColorDepth {
+            color: &color,
+            depth: &depth,
+        },
         FrameUniform::new(&view, source.effects()).unwrap(),
     );
     encoder.finish().submit().unwrap();
@@ -243,7 +246,10 @@ pub(super) fn capture_metadata(
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             FrameUniform::new(&view, source.effects()).unwrap(),
         )
         .unwrap();

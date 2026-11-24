@@ -69,7 +69,10 @@ fn render(reflections: Option<bool>, velocity: bool, capture: bool) -> Vec<u8> {
                 device,
                 encoder,
                 (&mut gpu, &pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame,
             )?;
             encode_output(device, &renderer, encoder, capture);

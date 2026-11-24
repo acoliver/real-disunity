@@ -184,7 +184,14 @@ fn validate_effects(
 /// by the same checks as the stock passes' own.
 ///
 /// ```ignore
-/// let mut stock = prepare_stock_scene(renderer, device, encoder, scene, attachments, frame)?;
+/// let mut stock = prepare_stock_scene(
+///     renderer,
+///     device,
+///     encoder,
+///     scene,
+///     crate::compositor::ColorDepth { color, depth },
+///     frame,
+/// )?;
 /// let plan = stock.plan();
 /// let (mut passes, mut views) = (plan.passes.to_vec(), plan.views.to_vec());
 /// let (declaration, uniform) = (stock.declaration(), stock.frame());
@@ -326,13 +333,11 @@ pub fn prepare_stock_scene<'a>(
         &'a mut crate::draw::SceneGpu,
         &crate::renderer::ScenePipelines,
     ),
-    attachments: (&AttachmentView, &AttachmentView),
+    attachments: ColorDepth<'_>,
     frame: crate::frame::FrameUniform,
 ) -> Result<StockSceneFeature<'a>, FrameError> {
     let (gpu, pipelines) = scene;
     let scene = SceneRefs { gpu, pipelines };
-    let (color, depth) = attachments;
-    let attachments = ColorDepth { color, depth };
     let draw = prepare_scene_draw(renderer, device, encoder, scene, attachments, &frame)?;
     finish_stock_scene(renderer, device, encoder, draw)
 }
@@ -345,9 +350,9 @@ struct SceneRefs<'a, 'p> {
 
 /// The scene colour and depth attachments of one frame.
 #[derive(Clone, Copy)]
-pub(crate) struct ColorDepth<'a> {
-    pub(crate) color: &'a AttachmentView,
-    pub(crate) depth: &'a AttachmentView,
+pub struct ColorDepth<'a> {
+    pub color: &'a AttachmentView,
+    pub depth: &'a AttachmentView,
 }
 
 fn prepare_scene_draw<'a, 'b>(

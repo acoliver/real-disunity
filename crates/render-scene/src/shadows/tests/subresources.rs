@@ -213,7 +213,10 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
                         context.device(),
                         &mut encoder,
                         (&mut gpu, &pipelines),
-                        (&color_view, &depth_view),
+                        crate::compositor::ColorDepth {
+                            color: &color_view,
+                            depth: &depth_view,
+                        },
                         FrameUniform::new(&view(), source.effects()).unwrap(),
                     )
                     .unwrap();

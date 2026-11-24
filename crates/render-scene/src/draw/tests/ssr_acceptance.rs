@@ -240,7 +240,10 @@ fn render_selected_environment(
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             *frame,
         )
         .unwrap();

@@ -88,7 +88,10 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
             context.device(),
             &mut encoder,
             (&mut gpu, &pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
+            crate::compositor::ColorDepth {
+                color: &target.color_attachment(),
+                depth: &target.depth_attachment()
+            },
             frame
         ),
         Err(FrameError::UnsupportedEffect("injected"))
@@ -134,7 +137,10 @@ fn published_slots_leave_the_dirty_set() {
                 context.device(),
                 &mut encoder,
                 (gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                crate::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 frame_from(pose()),
             )
             .unwrap();
@@ -198,7 +204,7 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
     let before = buffer_bytes(&context, &gpu.frame_buffer, gpu.frame_buffer.size());
     let mut encoder = context.submission().begin(context.device()).unwrap();
     assert!(matches!(
-        renderer.encoding().encode_scene(context.device(), &mut encoder, (&mut gpu, &pipelines), (&color, &target.depth_attachment()), frame_from(pose())),
+        renderer.encoding().encode_scene(context.device(), &mut encoder, (&mut gpu, &pipelines), crate::compositor::ColorDepth { color: &color, depth: &target.depth_attachment() }, frame_from(pose())),
         Err(FrameError::AttachmentContract(entry)) if entry == PassEntry::new(PassSlot::Opaque)
     ));
     assert_eq!(gpu.frame.get(), None);
@@ -224,7 +230,10 @@ fn assert_retry(
             context.device(),
             &mut encoder,
             (gpu, pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
+            crate::compositor::ColorDepth {
+                color: &target.color_attachment(),
+                depth: &target.depth_attachment(),
+            },
             frame_from(pose()),
         )
         .unwrap();
@@ -277,7 +286,10 @@ fn discard_failed_frame(
             context.device(),
             &mut encoder,
             (gpu, pipelines),
-            (&target.color_attachment(), &target.depth_attachment()),
+            crate::compositor::ColorDepth {
+                color: &target.color_attachment(),
+                depth: &target.depth_attachment()
+            },
             frame_from(pose())
         ),
         Err(FrameError::UnsupportedEffect("injected"))

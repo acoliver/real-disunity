@@ -26,7 +26,10 @@ fn resident_frames_lend_their_streamed_terrain_to_game_features() {
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                crate::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 frame,
             )
         })

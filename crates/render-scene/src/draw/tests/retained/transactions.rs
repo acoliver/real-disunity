@@ -18,7 +18,10 @@ fn prepare(
                 context.device(),
                 encoder,
                 (gpu, pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                crate::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 frame_from(pose()),
             )
         })
@@ -148,7 +151,10 @@ fn cancelled_camera_does_not_change_a_later_resident_draw() {
                 context.device(),
                 encoder,
                 (&mut gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                crate::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 camera,
             )
         })

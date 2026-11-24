@@ -34,7 +34,11 @@ for frame in frames {
     renderer.encoding().encode_scene(
         context.device(), &mut encoder,
         (&mut scene, &pipelines),
-        (&target.color_attachment(), &target.depth_attachment()), frame,
+        worldrunner_render_scene::compositor::ColorDepth {
+            color: &target.color_attachment(),
+            depth: &target.depth_attachment(),
+        },
+        frame,
     )?;
     target.encode_readback_slot(slot, &mut encoder)?;
     tickets.push((slot, flight.submit(

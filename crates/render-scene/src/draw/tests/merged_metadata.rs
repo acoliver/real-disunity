@@ -138,7 +138,10 @@ fn draw_with(
             context.device(),
             &mut encoder,
             (&mut gpu, pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             FrameUniform::new(&view(pose), scene.effects()).unwrap(),
         )
         .unwrap();

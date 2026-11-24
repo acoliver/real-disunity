@@ -92,7 +92,10 @@ impl Fixture {
                 self.context.device(),
                 &mut encoder,
                 (&mut self.gpu, &self.pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame_from(pose()),
             )
             .unwrap();

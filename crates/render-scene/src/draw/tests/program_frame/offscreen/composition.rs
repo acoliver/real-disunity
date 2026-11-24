@@ -82,7 +82,10 @@ fn encode_composed(
         device,
         encoder,
         (&mut fixture.gpu, &fixture.pipelines),
-        (&color, &depth),
+        crate::compositor::ColorDepth {
+            color: &color,
+            depth: &depth,
+        },
         rig::frame(),
     )
     .unwrap();

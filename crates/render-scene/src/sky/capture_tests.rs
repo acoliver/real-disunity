@@ -320,7 +320,10 @@ pub(super) fn render(
                     device,
                     encoder,
                     (gpu, pipelines),
-                    (&color_view, &depth_view),
+                    crate::compositor::ColorDepth {
+                        color: &color_view,
+                        depth: &depth_view,
+                    },
                     *frame,
                 )
                 .unwrap();

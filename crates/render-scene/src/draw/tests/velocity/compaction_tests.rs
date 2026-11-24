@@ -85,7 +85,10 @@ impl Rig {
                 self.context.device(),
                 &mut encoder,
                 (&mut self.gpu, pipelines),
-                (&self.color, &self.depth),
+                crate::compositor::ColorDepth {
+                    color: &self.color,
+                    depth: &self.depth,
+                },
                 unlit(pose_at(x)),
             )
             .unwrap();

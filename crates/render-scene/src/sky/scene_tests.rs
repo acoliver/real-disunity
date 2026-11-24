@@ -228,7 +228,10 @@ pub(super) fn render_at(
                 device,
                 encoder,
                 (&mut gpu, &pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame,
             )
             .unwrap();
@@ -436,7 +439,10 @@ pub(super) fn draw(
             device,
             encoder,
             (gpu, pipelines),
-            (&color.unwrap(), &depth.unwrap()),
+            crate::compositor::ColorDepth {
+                color: &color.unwrap(),
+                depth: &depth.unwrap(),
+            },
             frame,
         )
         .unwrap();

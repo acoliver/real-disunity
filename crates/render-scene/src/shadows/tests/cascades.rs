@@ -57,7 +57,10 @@ fn resident_statistics_clear_shadows_only_after_submission() {
                 context.device(),
                 &mut encoder,
                 (shadowed.scene_mut(), &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                crate::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 frame,
             )
             .unwrap();

@@ -502,7 +502,13 @@ let mut arena = runtime.open_arena(reservation)?;
 let mut frame = authority.begin(&device)?;
 let admitted = runtime.admit_draws(&frame, &arena, signature, &packets)?;
 scene_gpu.admit_programs(admitted);
-renderer.encoding().encode_scene(&device, &mut frame, (&mut scene_gpu, &pipelines), attachments, uniform)?;
+renderer.encoding().encode_scene(
+    &device,
+    &mut frame,
+    (&mut scene_gpu, &pipelines),
+    worldrunner_render_scene::compositor::ColorDepth { color: &color, depth: &depth },
+    uniform,
+)?;
 frame.finish().submit()?;
 ```
 

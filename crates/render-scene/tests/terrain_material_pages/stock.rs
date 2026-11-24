@@ -42,7 +42,10 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
                 context.device(),
                 &mut encoder,
                 (&mut gpu, &pipelines),
-                (&target.color_attachment(), &target.depth_attachment()),
+                worldrunner_render_scene::compositor::ColorDepth {
+                    color: &target.color_attachment(),
+                    depth: &target.depth_attachment(),
+                },
                 uniform,
             )
             .unwrap();

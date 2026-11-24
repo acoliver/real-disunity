@@ -206,7 +206,7 @@ impl FrameEncoding<'_> {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
-        attachments: (&AttachmentView, &AttachmentView),
+        attachments: crate::compositor::ColorDepth<'_>,
         frame: crate::frame::FrameUniform,
     ) -> Result<(), FrameError> {
         let mut stock =

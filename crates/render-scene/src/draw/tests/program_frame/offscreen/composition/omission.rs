@@ -24,7 +24,10 @@ fn encode_without_forwarding(
         device,
         encoder,
         (&mut fixture.gpu, &fixture.pipelines),
-        (&color, &depth),
+        crate::compositor::ColorDepth {
+            color: &color,
+            depth: &depth,
+        },
         super::super::super::rig::frame(),
     )
     .unwrap();

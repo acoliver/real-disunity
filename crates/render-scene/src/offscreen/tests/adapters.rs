@@ -102,7 +102,10 @@ fn composed_capture(
             context.device(),
             &mut encoder,
             (scene, pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             frame,
         )
         .unwrap();

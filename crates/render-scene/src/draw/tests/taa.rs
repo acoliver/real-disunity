@@ -91,7 +91,10 @@ fn encode_scene_refuses_a_host_depth_that_is_not_the_frame_depth_before_changing
         context.device(),
         &mut encoder,
         (&mut gpu, &pipelines),
-        (&color, &depth),
+        crate::compositor::ColorDepth {
+            color: &color,
+            depth: &depth,
+        },
         frame_from(pose()),
     );
     assert_eq!(result, Err(REFUSED));

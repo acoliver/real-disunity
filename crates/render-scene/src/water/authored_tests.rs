@@ -215,7 +215,10 @@ fn encode(
             context.device(),
             &mut encoder,
             (gpu, pipelines),
-            (&color, &depth),
+            crate::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             FrameUniform::new(&fixture_view(), None).unwrap(),
         )
         .unwrap();

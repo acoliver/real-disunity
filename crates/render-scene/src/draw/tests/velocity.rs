@@ -220,7 +220,10 @@ fn velocity_after(
                 context.device(),
                 &mut encoder,
                 (&mut gpu, &pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame_from(pose),
             )
             .unwrap();
@@ -501,7 +504,10 @@ fn output_after(
                 device,
                 &mut encoder,
                 (&mut gpu, &pipelines),
-                (&color, &depth),
+                crate::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 frame_from(pose()),
             )
             .unwrap();

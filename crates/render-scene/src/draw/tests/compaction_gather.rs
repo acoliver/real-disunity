@@ -161,7 +161,10 @@ fn gpu_gather_matches_plain_copies_of_a_fragmented_selection() {
                     device,
                     encoder,
                     (&mut gpu, &pipelines),
-                    (&target.color_attachment(), &target.depth_attachment()),
+                    crate::compositor::ColorDepth {
+                        color: &target.color_attachment(),
+                        depth: &target.depth_attachment(),
+                    },
                     unlit(pose_at(1_500 * step)),
                 )?;
                 Ok::<_, Box<dyn std::error::Error>>(())

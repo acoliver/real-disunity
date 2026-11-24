@@ -215,7 +215,10 @@ fn encode_suffix(
         device,
         encoder,
         (&mut scene.gpu, &scene.pipelines),
-        (&color, &depth),
+        worldrunner_render_scene::compositor::ColorDepth {
+            color: &color,
+            depth: &depth,
+        },
         scene.uniform,
     )?;
     let plan = stock.plan();

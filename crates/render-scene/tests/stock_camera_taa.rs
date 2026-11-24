@@ -109,7 +109,10 @@ impl CameraTaaFrame {
                 &device,
                 &mut encoder,
                 (&mut self.gpu, &self.pipelines),
-                (&color, &depth),
+                worldrunner_render_scene::compositor::ColorDepth {
+                    color: &color,
+                    depth: &depth,
+                },
                 uniform,
             )
             .unwrap();
@@ -186,7 +189,10 @@ impl CameraTaaFrame {
             device,
             encoder,
             (&mut self.gpu, &self.pipelines),
-            (&color, &depth),
+            worldrunner_render_scene::compositor::ColorDepth {
+                color: &color,
+                depth: &depth,
+            },
             *uniform,
         )
         .unwrap();

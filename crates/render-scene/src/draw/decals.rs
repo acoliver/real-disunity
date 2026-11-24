@@ -30,6 +30,11 @@ struct Palette {
     group: wgpu::BindGroup,
 }
 #[derive(Debug)]
+struct PaletteArrays {
+    materials: Vec<u32>,
+    views: [wgpu::TextureView; 3],
+}
+#[derive(Debug)]
 pub(super) struct Decals {
     scene: RenderScene,
     entries: Vec<Entry>,
@@ -37,6 +42,11 @@ pub(super) struct Decals {
     queue: wgpu::Queue,
     layout: wgpu::BindGroupLayout,
     palettes: RefCell<Vec<Palette>>,
+    /// Every distinct material any placement names, ascending. The palette holds all of them, so
+    /// a camera move that changes which decals are visible never changes the palette.
+    materials: Vec<u32>,
+    /// The channel arrays built for `materials`, shared by every frame slot's bind group.
+    arrays: RefCell<Option<PaletteArrays>>,
     pub buffers: Vec<wgpu::Buffer>,
     /// The previous-frame block of each frame slot, bound beside the frame uniform.
     previous: Vec<wgpu::Buffer>,
@@ -53,10 +63,15 @@ struct FrameBuffers<'a> {
 
 /// Checks only referenced decal materials and borrowed texture descriptors/mip ranges.
 /// No world geometry preparation or texture decoding is performed.
-pub fn validate_decal_materials(scene: &RenderScene) -> Result<(), DrawError> {
+fn placed_materials(scene: &RenderScene) -> Vec<u32> {
     let mut materials: Vec<_> = scene.decals().iter().map(|d| d.material.raw()).collect();
     materials.sort_unstable();
     materials.dedup();
+    materials
+}
+
+pub fn validate_decal_materials(scene: &RenderScene) -> Result<(), DrawError> {
+    let materials = placed_materials(scene);
     for &handle in &materials {
         validate_material(&scene.resources().materials()[handle as usize])?;
     }
@@ -125,6 +140,8 @@ impl Decals {
             queue: queue.clone(),
             layout: layout.clone(),
             palettes: RefCell::new(palettes),
+            materials: Vec::new(),
+            arrays: RefCell::new(None),
             buffers,
             previous,
             slot: 0,
@@ -160,6 +177,7 @@ impl Decals {
             .into_iter()
             .map(|(id, decal)| entry(&scene, id, decal))
             .collect();
+        self.materials = placed_materials(&scene);
         self.scene = scene;
         Ok(())
     }
@@ -190,23 +208,26 @@ impl Decals {
             frame.selection_view_projection(),
             frame.camera_position,
         );
-        let mut materials: Vec<_> = selected
-            .iter()
-            .map(|&i| self.entries[i].decal.material.raw())
-            .collect();
-        materials.sort_unstable();
-        materials.dedup();
         let mut palettes = self.palettes.borrow_mut();
         let palette = &mut palettes[self.slot];
-        if palette.materials != materials {
-            let views = [Channel::Albedo, Channel::Normal, Channel::Surface].map(|channel| {
-                channel
-                    .texture(self, &materials)
-                    .create_view(&wgpu::TextureViewDescriptor {
-                        dimension: Some(wgpu::TextureViewDimension::D2Array),
-                        ..Default::default()
-                    })
-            });
+        if palette.materials != self.materials {
+            let mut arrays = self.arrays.borrow_mut();
+            if arrays
+                .as_ref()
+                .is_none_or(|arrays| arrays.materials != self.materials)
+            {
+                *arrays = Some(PaletteArrays {
+                    materials: self.materials.clone(),
+                    views: [Channel::Albedo, Channel::Normal, Channel::Surface].map(|channel| {
+                        channel.texture(self, &self.materials).create_view(
+                            &wgpu::TextureViewDescriptor {
+                                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                                ..Default::default()
+                            },
+                        )
+                    }),
+                });
+            }
             palette.group = group_with(
                 &self.device,
                 &self.layout,
@@ -215,16 +236,16 @@ impl Decals {
                     decals: &self.buffers[self.slot],
                     previous: &self.previous[self.slot],
                 },
-                &views,
+                &arrays.as_ref().expect("palette arrays").views,
                 &self
                     .device
                     .create_sampler(&crate::upload::material_sampler_descriptor(
                         worldrunner_render_plan::TextureAnisotropy::default(),
                     )),
             );
-            palette.materials.clone_from(&materials);
+            palette.materials.clone_from(&self.materials);
         }
-        self.bytes(&selected, &materials)
+        self.bytes(&selected, &self.materials)
     }
 
     fn bytes(&self, selected: &[usize], materials: &[u32]) -> Vec<u8> {

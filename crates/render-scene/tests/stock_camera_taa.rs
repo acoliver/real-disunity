@@ -11,7 +11,7 @@ use worldrunner_render_post::{
 use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     SceneView,
-    compositor::{FrameRenderer, prepare_stock_scene},
+    compositor::{FrameRenderer, PrefixContribution, PrefixScene, prepare_stock_scene},
     device::GpuContext,
     draw::SceneGpu,
     frame::FrameUniform,
@@ -138,7 +138,13 @@ impl CameraTaaFrame {
     ) {
         let prefix = self
             .renderer
-            .stock_depth_prefix(device, (&mut self.gpu, &self.pipelines))
+            .stock_depth_prefix(
+                device,
+                PrefixScene {
+                    gpu: &mut self.gpu,
+                    pipelines: &self.pipelines,
+                },
+            )
             .unwrap();
         assert_no_scene_velocity(&prefix.plan());
         prefix
@@ -146,9 +152,15 @@ impl CameraTaaFrame {
                 &mut self.renderer,
                 device,
                 encoder,
-                (&mut self.gpu, &self.pipelines),
+                PrefixScene {
+                    gpu: &mut self.gpu,
+                    pipelines: &self.pipelines,
+                },
                 *uniform,
-                (&empty_plan(), &mut []),
+                PrefixContribution {
+                    plan: &empty_plan(),
+                    features: &mut [],
+                },
             )
             .unwrap();
     }

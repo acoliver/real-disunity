@@ -24,7 +24,10 @@ use worldrunner_render_post::{
 use worldrunner_render_scene::draw::PreparedScene;
 use worldrunner_render_scene::{
     SceneView,
-    compositor::{FeatureTarget, FrameRenderer, StockDepthPrefix, prepare_stock_scene},
+    compositor::{
+        FeatureTarget, FrameRenderer, PrefixContribution, PrefixScene, StockDepthPrefix,
+        prepare_stock_scene,
+    },
     device::GpuContext,
     draw::{PassDrawStatistics, SceneGpu},
     frame::FrameUniform,
@@ -192,16 +195,26 @@ impl Frame {
     ) -> Result<(), FrameError> {
         let device = self.context.device();
         let uniform = self.uniform(view);
-        let prefix = self
-            .renderer
-            .stock_depth_prefix(device, (&mut self.gpu, &self.pipelines))?;
+        let prefix = self.renderer.stock_depth_prefix(
+            device,
+            PrefixScene {
+                gpu: &mut self.gpu,
+                pipelines: &self.pipelines,
+            },
+        )?;
         prefix.encode(
             &mut self.renderer,
             device,
             encoder,
-            (&mut self.gpu, &self.pipelines),
+            PrefixScene {
+                gpu: &mut self.gpu,
+                pipelines: &self.pipelines,
+            },
             uniform,
-            (&empty_plan(), &mut []),
+            PrefixContribution {
+                plan: &empty_plan(),
+                features: &mut [],
+            },
         )?;
         self.encode_suffix(encoder, &uniform, sampler)
     }
@@ -304,7 +317,13 @@ impl Frame {
         let uniform = self.uniform(view);
         let prefix = self
             .renderer
-            .stock_depth_prefix(&device, (&mut self.gpu, &self.pipelines))
+            .stock_depth_prefix(
+                &device,
+                PrefixScene {
+                    gpu: &mut self.gpu,
+                    pipelines: &self.pipelines,
+                },
+            )
             .unwrap();
         let writes = self.capture_writes(&prefix);
         let first = authority
@@ -313,9 +332,15 @@ impl Frame {
                     &mut self.renderer,
                     &device,
                     encoder,
-                    (&mut self.gpu, &self.pipelines),
+                    PrefixScene {
+                        gpu: &mut self.gpu,
+                        pipelines: &self.pipelines,
+                    },
                     uniform,
-                    (&empty_plan(), &mut []),
+                    PrefixContribution {
+                        plan: &empty_plan(),
+                        features: &mut [],
+                    },
                 )
             })
             .unwrap_or_else(|error| panic!("prefix was not prepared: {error:?}"));
@@ -345,7 +370,13 @@ impl Frame {
     fn prepass_depth_texture(&mut self) -> wgpu::Texture {
         let prefix = self
             .renderer
-            .stock_depth_prefix(self.context.device(), (&mut self.gpu, &self.pipelines))
+            .stock_depth_prefix(
+                self.context.device(),
+                PrefixScene {
+                    gpu: &mut self.gpu,
+                    pipelines: &self.pipelines,
+                },
+            )
             .unwrap();
         let plan = prefix.plan();
         let resource = prepass_depth_of(&plan);
@@ -360,7 +391,13 @@ impl Frame {
     fn sampler(&mut self, seen: &Rc<RefCell<Seen>>) -> Sampler {
         let prefix = self
             .renderer
-            .stock_depth_prefix(self.context.device(), (&mut self.gpu, &self.pipelines))
+            .stock_depth_prefix(
+                self.context.device(),
+                PrefixScene {
+                    gpu: &mut self.gpu,
+                    pipelines: &self.pipelines,
+                },
+            )
             .unwrap();
         let reads = [
             prepass_depth_of(&prefix.plan()),
@@ -607,22 +644,29 @@ fn gpu_a_prefix_contribution_with_an_unproduced_read_is_refused_before_anything_
         .clone()
         .prepare(&device, |encoder, _| {
             let uniform = frame.uniform(&view(0));
-            let prefix = frame
-                .renderer
-                .stock_depth_prefix(&device, (&mut frame.gpu, &frame.pipelines))?;
+            let prefix = frame.renderer.stock_depth_prefix(
+                &device,
+                PrefixScene {
+                    gpu: &mut frame.gpu,
+                    pipelines: &frame.pipelines,
+                },
+            )?;
             prefix.encode(
                 &mut frame.renderer,
                 &device,
                 encoder,
-                (&mut frame.gpu, &frame.pipelines),
+                PrefixScene {
+                    gpu: &mut frame.gpu,
+                    pipelines: &frame.pipelines,
+                },
                 uniform,
-                (
-                    &contribution.plan(),
-                    &mut [BorrowedFeature {
+                PrefixContribution {
+                    plan: &contribution.plan(),
+                    features: &mut [BorrowedFeature {
                         declaration: unproduced.declaration(&contribution.target),
                         prepared: &mut unproduced,
                     }],
-                ),
+                },
             )
         })
         .map_err(unwrap_preparation)
@@ -653,22 +697,29 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
         .clone()
         .prepare(&device, |encoder, _| {
             let uniform = frame.uniform(&view(0));
-            let prefix = frame
-                .renderer
-                .stock_depth_prefix(&device, (&mut frame.gpu, &frame.pipelines))?;
+            let prefix = frame.renderer.stock_depth_prefix(
+                &device,
+                PrefixScene {
+                    gpu: &mut frame.gpu,
+                    pipelines: &frame.pipelines,
+                },
+            )?;
             prefix.encode(
                 &mut frame.renderer,
                 &device,
                 encoder,
-                (&mut frame.gpu, &frame.pipelines),
+                PrefixScene {
+                    gpu: &mut frame.gpu,
+                    pipelines: &frame.pipelines,
+                },
                 uniform,
-                (
-                    &contribution.plan(),
-                    &mut [BorrowedFeature {
+                PrefixContribution {
+                    plan: &contribution.plan(),
+                    features: &mut [BorrowedFeature {
                         declaration: probe.declaration(&contribution.target),
                         prepared: &mut probe,
                     }],
-                ),
+                },
             )?;
             let mut stock = prepare_stock_scene(
                 &mut frame.renderer,

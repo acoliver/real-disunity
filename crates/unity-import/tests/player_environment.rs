@@ -76,12 +76,48 @@ fn write_file(dir: &Path, name: &str, objects: Vec<ObjectData>, externals: &[&st
     std::fs::write(dir.join(name), contents.write().unwrap()).unwrap();
 }
 
+/// The size, `TextureFormat`, mip levels and byte size of the faces of a cube.
+#[derive(Clone, Copy)]
+struct Shape {
+    side: i32,
+    format: i32,
+    mips: i32,
+    complete: u32,
+}
+
+/// 2x2 faces in `TextureFormat` 4 with one mip level.
+const RGBA32_2X2: Shape = Shape {
+    side: 2,
+    format: 4,
+    mips: 1,
+    complete: 32,
+};
+
+/// 8x8 faces in BC6H (`TextureFormat` 24) with the four levels 8x8, 4x4, 2x2 and 1x1, which hold
+/// 4 + 1 + 1 + 1 blocks of 16 bytes.
+const BC6H_8X8: Shape = Shape {
+    side: 8,
+    format: 24,
+    mips: 4,
+    complete: 112,
+};
+
 /// A cube of 2x2 faces in `TextureFormat` 4 with one mip level and `images` faces, whose pixels
 /// are `pixels`.
 fn cube(name: &str, images: i32, pixels: &[u8]) -> Vec<u8> {
+    cube_of(name, images, RGBA32_2X2, pixels)
+}
+
+/// A cube of the faces `shape` describes and `images` of them, whose pixels are `pixels`.
+fn cube_of(name: &str, images: i32, shape: Shape, pixels: &[u8]) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string(name).unwrap().u8(1).align();
-    w.i32(2).i32(2).u32(32).i32(0).i32(4).i32(1);
+    w.i32(shape.side)
+        .i32(shape.side)
+        .u32(shape.complete)
+        .i32(0)
+        .i32(shape.format)
+        .i32(shape.mips);
     w.u8(1)
         .u8(0)
         .u8(0)
@@ -236,6 +272,62 @@ fn the_cubes_a_scene_names_are_scene_assets_with_their_pixels_named_in_place() {
         assert_eq!((&asset["width"], &asset["height"]), (&json!(2), &json!(2)));
         assert_eq!(pixels(&plan, index), expected, "{name}");
     }
+}
+
+/// A scene as the player stores one with a baked sky: the skybox mode, no custom cube and the
+/// generated skybox reflection a BC6H cube with a mip chain in the shared assets.
+fn planned_bc6h(sky: &[u8]) -> (tempfile::TempDir, ScenePlan) {
+    let dir = tempfile::tempdir().unwrap();
+    root(
+        dir.path(),
+        vec![object(
+            21,
+            ClassId::RENDER_SETTINGS,
+            settings(0, ptr(0, 0), ptr(1, 32)),
+        )],
+        &["sharedassets0.assets"],
+    );
+    write_file(
+        dir.path(),
+        "sharedassets0.assets",
+        vec![object(
+            32,
+            ClassId::CUBEMAP,
+            cube_of("Sky", 6, BC6H_8X8, sky),
+        )],
+        &[],
+    );
+    let plan = plan_player_scene(dir.path(), "level0", &ScriptLayouts::new(Vec::new())).unwrap();
+    (dir, plan)
+}
+
+#[test]
+fn a_generated_skybox_reflection_in_bc6h_is_planned_with_its_format_and_whole_mip_chain() {
+    let sky: Vec<u8> = (0..=u8::MAX).cycle().take(6 * 112).collect();
+    let (_dir, plan) = planned_bc6h(&sky);
+    let plan = as_json(&plan);
+    let environment = &plan["environment"];
+    assert_eq!(environment["reflection_mode"], 0);
+    assert_eq!(environment["custom_reflection"], Value::Null);
+    let index = usize::try_from(environment["skybox_reflection"].as_u64().unwrap()).unwrap();
+    let asset = &plan["assets"][index];
+    assert_eq!(asset["type"], "Cubemap");
+    assert_eq!(asset["name"], "Sky");
+    assert_eq!(
+        (
+            &asset["width"],
+            &asset["height"],
+            &asset["format"],
+            &asset["mip_count"]
+        ),
+        (&json!(8), &json!(8), &json!(24), &json!(4))
+    );
+    assert_eq!(pixels(&plan, index), sky);
+    assert!(
+        plan.get("differences").is_none(),
+        "{:?}",
+        plan["differences"]
+    );
 }
 
 #[test]

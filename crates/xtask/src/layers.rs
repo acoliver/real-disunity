@@ -60,7 +60,6 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-world-simulation", Layer::Foundation),
     ("worldrunner-world-schema", Layer::World),
     ("worldrunner-world-model", Layer::World),
-    ("worldrunner-world-runtime", Layer::World),
     ("worldrunner-world-generation", Layer::World),
     ("worldrunner-save", Layer::World),
     ("worldrunner-render-plan", Layer::Bridge),

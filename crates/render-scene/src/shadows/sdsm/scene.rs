@@ -281,7 +281,10 @@ impl ShadowedScene {
         scheduler.encode_depth_prefix(
             input.context.device(),
             encoder,
-            (&mut self.gpu, &self.pipelines),
+            crate::compositor::PrefixScene {
+                gpu: &mut self.gpu,
+                pipelines: &self.pipelines,
+            },
             &input.frame,
             &input.metadata,
         )?;

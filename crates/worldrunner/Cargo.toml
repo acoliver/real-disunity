@@ -31,7 +31,6 @@ worldrunner-script = { path = "../script", optional = true }
 worldrunner-texture = { path = "../texture", optional = true }
 worldrunner-world-generation = { path = "../world-generation", optional = true }
 worldrunner-world-model = { path = "../world-model", optional = true }
-worldrunner-world-runtime = { path = "../world-runtime", optional = true }
 worldrunner-world-schema = { path = "../world-schema", optional = true }
 worldrunner-world-simulation = { path = "../world-simulation", optional = true }
 
@@ -63,7 +62,6 @@ world = [
     "dep:worldrunner-save",
     "dep:worldrunner-world-generation",
     "dep:worldrunner-world-model",
-    "dep:worldrunner-world-runtime",
     "dep:worldrunner-world-schema",
 ]
 

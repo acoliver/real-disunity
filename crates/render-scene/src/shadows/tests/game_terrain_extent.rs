@@ -35,7 +35,10 @@ fn render_prefix_then_suffix(
             scheduler.encode_depth_prefix(
                 context.device(),
                 encoder,
-                (&mut renderer.gpu, &renderer.pipelines),
+                crate::compositor::PrefixScene {
+                    gpu: &mut renderer.gpu,
+                    pipelines: &renderer.pipelines,
+                },
                 &frame,
                 &metadata,
             )?;

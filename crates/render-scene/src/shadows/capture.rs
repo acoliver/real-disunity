@@ -43,10 +43,13 @@ impl ShadowedScene {
                 device,
                 encoder,
                 &self.gpu,
-                (
-                    Some((&self.shadow_layout, &self.map.group)),
-                    Some(scheduler),
-                ),
+                crate::compositor::terms::FrameBindings {
+                    shadow: Some(crate::compositor::terms::ShadowBinding {
+                        layout: &self.shadow_layout,
+                        group: &self.map.group,
+                    }),
+                    frame: Some(scheduler),
+                },
             );
         }
         Ok(())

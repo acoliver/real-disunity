@@ -63,18 +63,34 @@ impl Capture {
 /// Writes `rgba`, tightly packed rows of four 8-bit channels, top row first, as an RGB PNG of
 /// `size`: the alpha is not part of the picture.
 pub(crate) fn write_rgb_png(path: &Path, size: [u32; 2], rgba: &[u8]) -> Result<(), PlayError> {
-    let io = |error| PlayError::Io(path.to_owned(), error);
-    let file = std::fs::File::create(path).map_err(io)?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), size[0], size[1]);
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.set_depth(png::BitDepth::Eight);
     let rgb: Vec<u8> = rgba
         .chunks_exact(4)
         .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
+    write_png_bytes(path, size, png::ColorType::Rgb, &rgb)
+}
+
+/// Writes `rgba`, tightly packed rows of four 8-bit channels, top row first, as an RGBA PNG of
+/// `size`, keeping the alpha.
+pub(crate) fn write_rgba_png(path: &Path, size: [u32; 2], rgba: &[u8]) -> Result<(), PlayError> {
+    write_png_bytes(path, size, png::ColorType::Rgba, rgba)
+}
+
+/// Writes `data`, the 8-bit channels of `color` in rows from the top, as a PNG of `size`.
+fn write_png_bytes(
+    path: &Path,
+    size: [u32; 2],
+    color: png::ColorType,
+    data: &[u8],
+) -> Result<(), PlayError> {
+    let io = |error| PlayError::Io(path.to_owned(), error);
+    let file = std::fs::File::create(path).map_err(io)?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), size[0], size[1]);
+    encoder.set_color(color);
+    encoder.set_depth(png::BitDepth::Eight);
     encoder
         .write_header()
-        .and_then(|mut writer| writer.write_image_data(&rgb))
+        .and_then(|mut writer| writer.write_image_data(data))
         .map_err(|error| PlayError::Invalid(format!("{}: {error}", path.display())))
 }
 

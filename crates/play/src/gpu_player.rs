@@ -97,14 +97,18 @@ pub struct GpuLaunch {
     pub report_each_frame: bool,
     /// The records whose targets the run writes to files.
     pub reads: Vec<crate::TargetRead>,
+    /// Whether the player's project colour space is Linear.
+    pub linear_colour_space: bool,
 }
 
 impl GpuLaunch {
     /// The settings of the run's offscreen work: `globals` as the fallback globals every frame
-    /// starts from, with stand-in textures drawn as `stand_ins` says.
+    /// starts from, with stand-in textures drawn as `stand_ins` says and the project's colour
+    /// space.
     fn settings(&self) -> Settings {
         Settings {
             supplied: self.globals.clone(),
+            linear_colour_space: self.linear_colour_space,
             ..Settings::cameras().with_stand_in_look(self.stand_ins)
         }
     }

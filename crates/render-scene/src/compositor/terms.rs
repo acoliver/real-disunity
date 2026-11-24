@@ -14,6 +14,29 @@ pub enum CaptureTerm {
     SunSpecular,
 }
 
+/// The shadow layout a term replay's pipelines are built against and the group it binds at set
+/// two.
+#[derive(Clone, Copy)]
+pub(crate) struct ShadowBinding<'a> {
+    pub layout: &'a wgpu::BindGroupLayout,
+    pub group: &'a wgpu::BindGroup,
+}
+
+/// What a replay of the current frame binds beyond the scene: the shadow binding and the frame
+/// renderer whose screen-space group binds at set three.
+#[derive(Clone, Copy)]
+pub(crate) struct FrameBindings<'a> {
+    pub shadow: Option<ShadowBinding<'a>>,
+    pub frame: Option<&'a super::FrameRenderer>,
+}
+
+/// The groups a replay binds: the shadow group at set two and the screen group at set three.
+#[derive(Clone, Copy)]
+pub(crate) struct ReplayGroups<'a> {
+    pub shadow: Option<&'a wgpu::BindGroup>,
+    pub screen: Option<&'a wgpu::BindGroup>,
+}
+
 /// Storage is owned by one capture request and must be included in its budget.
 pub struct TermCapture {
     pub texture: wgpu::Texture,
@@ -54,21 +77,22 @@ impl TermCapture {
         encoder: &mut wgpu::CommandEncoder,
         gpu: &SceneGpu,
     ) {
-        self.encode_with_frame(device, encoder, gpu, (None, None));
+        let bindings = FrameBindings {
+            shadow: None,
+            frame: None,
+        };
+        self.encode_with_frame(device, encoder, gpu, bindings);
     }
     pub(crate) fn encode_with_frame(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         gpu: &SceneGpu,
-        bindings: (
-            Option<(&wgpu::BindGroupLayout, &wgpu::BindGroup)>,
-            Option<&super::FrameRenderer>,
-        ),
+        bindings: FrameBindings<'_>,
     ) {
-        let (shadow, frame) = bindings;
+        let FrameBindings { shadow, frame } = bindings;
         let screen = frame.and_then(|frame| frame.ssao.as_ref());
-        let pipelines = pipelines(device, self.term, shadow.map(|s| s.0), screen);
+        let pipelines = pipelines(device, self.term, shadow.map(|s| s.layout), screen);
         let group = screen.map(|screen| {
             screen
                 .geometry
@@ -76,7 +100,11 @@ impl TermCapture {
                 .as_ref()
                 .map_or(&screen.geometry.ambient, |(_, group)| group)
         });
-        self.replay(encoder, gpu, &pipelines, (shadow.map(|s| s.1), group));
+        let groups = ReplayGroups {
+            shadow: shadow.map(|s| s.group),
+            screen: group,
+        };
+        self.replay(encoder, gpu, &pipelines, groups);
     }
     /// Draws the term into this capture's texture with `pipelines`, binding the shadow group at
     /// set two and the screen group at set three. The terrain's and the objects' pipelines are
@@ -91,14 +119,14 @@ impl TermCapture {
         encoder: &mut wgpu::CommandEncoder,
         gpu: &SceneGpu,
         pipelines: &ScenePipelines,
-        (shadow, group): (Option<&wgpu::BindGroup>, Option<&wgpu::BindGroup>),
+        groups: ReplayGroups<'_>,
     ) {
         gpu.prepare_terrain_replay(pipelines)
             .expect("the terrain program of a term replay prepares against its layouts");
         gpu.prepare_objects_replay(pipelines)
             .expect("the object programs of a term replay prepare against their layouts");
-        self.record(encoder, (shadow, group), |pass| {
-            gpu.draw_opaque_capture(pass, pipelines, shadow);
+        self.record(encoder, groups, |pass| {
+            gpu.draw_opaque_capture(pass, pipelines, groups.shadow);
         });
     }
     /// Opens the replay pass over this capture's texture and depth, binds the shadow group at set
@@ -106,7 +134,7 @@ impl TermCapture {
     pub(crate) fn record(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        (shadow, group): (Option<&wgpu::BindGroup>, Option<&wgpu::BindGroup>),
+        groups: ReplayGroups<'_>,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) {
         let color = self
@@ -136,10 +164,10 @@ impl TermCapture {
             }),
             ..Default::default()
         });
-        if let Some(group) = shadow {
+        if let Some(group) = groups.shadow {
             pass.set_bind_group(2, group, &[]);
         }
-        if let Some(group) = group {
+        if let Some(group) = groups.screen {
             pass.set_bind_group(3, group, &[]);
         }
         draw(&mut pass);

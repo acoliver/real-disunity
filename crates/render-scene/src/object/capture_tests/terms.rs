@@ -8,7 +8,7 @@
 use wgpu::BindGroup;
 
 use super::{Rig, digest, prepass, scenes};
-use crate::compositor::terms::{CaptureTerm, TermCapture, pipelines_for};
+use crate::compositor::terms::{CaptureTerm, ReplayGroups, TermCapture, pipelines_for};
 use crate::draw::SceneGpu;
 use crate::dynamic::capture_tests::{
     SIZE, ambient_group, context, copy_results, read_results, reflection_group, shadow_fixture,
@@ -99,7 +99,10 @@ fn replays() -> usize {
             let config = format!("term-{name}-{label}");
             let pipelines = pipelines_for(device, term, layout, replay.screen());
             let mut rig = Rig::moving(&context, &pipelines, &scene, false);
-            let inputs = (group, screen.as_ref());
+            let inputs = ReplayGroups {
+                shadow: group,
+                screen: screen.as_ref(),
+            };
             let before = pipelines.object_runtime_stats().pipelines_built;
             let drawn = read(&mut rig, term, |encoder, capture, gpu| {
                 capture.replay(encoder, gpu, &pipelines, inputs);

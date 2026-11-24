@@ -13,6 +13,20 @@ use worldrunner_render_post::PassSlot;
 /// A frame's pass list and the views it attaches.
 type ListedPlan = (Vec<PassDeclaration>, Vec<AttachmentView>);
 
+/// The scene a depth prefix is drawn from: its resident GPU state and the pipelines the suffix
+/// draws with.
+pub struct PrefixScene<'a> {
+    pub gpu: &'a mut crate::draw::SceneGpu,
+    pub pipelines: &'a crate::renderer::ScenePipelines,
+}
+
+/// What a caller adds to a depth prefix: the passes, views, requested effects and operations of
+/// `plan`, and the `features` that prepare them.
+pub struct PrefixContribution<'a, 'p> {
+    pub plan: &'a FramePlan<'p>,
+    pub features: &'a mut [BorrowedFeature<'p>],
+}
+
 fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
     features
         .iter_mut()
@@ -116,12 +130,12 @@ impl StockDepthPrefix {
         renderer: &mut FrameRenderer,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        scene: PrefixScene<'_>,
         frame: crate::frame::FrameUniform,
-        contribution: (&FramePlan<'_>, &mut [BorrowedFeature<'_>]),
+        contribution: PrefixContribution<'_, '_>,
     ) -> Result<(), FrameError> {
         let frame = renderer.prepare_uniform(frame)?;
-        renderer.encode_prefix(device, encoder, scene, &frame, (self, Some(contribution)))
+        renderer.encode_prefix(device, encoder, scene, &frame, self, Some(contribution))
     }
 }
 
@@ -168,9 +182,9 @@ impl FrameRenderer {
     pub fn stock_depth_prefix(
         &mut self,
         device: &wgpu::Device,
-        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        scene: PrefixScene<'_>,
     ) -> Result<StockDepthPrefix, FrameError> {
-        let (gpu, pipelines) = scene;
+        let PrefixScene { gpu, pipelines } = scene;
         if self.ssao.is_none() {
             return Err(FrameError::UnsupportedEffect(
                 "stock depth prefix needs screen-space metadata",
@@ -186,7 +200,7 @@ impl FrameRenderer {
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        scene: PrefixScene<'_>,
         frame: &crate::frame::FrameUniform,
         source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
@@ -194,28 +208,25 @@ impl FrameRenderer {
         let prefix = StockDepthPrefix::from_plan(
             self,
             source.clone(),
-            scene.0.has_relief(),
+            scene.gpu.has_relief(),
             PrefixParts {
                 schedule: (*plan.schedule).clone(),
                 views: (*plan.views).clone(),
             },
         );
-        self.encode_prefix(device, encoder, scene, frame, (&prefix, None))
+        self.encode_prefix(device, encoder, scene, frame, &prefix, None)
     }
 
     fn encode_prefix(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
+        scene: PrefixScene<'_>,
         frame: &crate::frame::FrameUniform,
-        planned: (
-            &StockDepthPrefix,
-            Option<(&FramePlan<'_>, &mut [BorrowedFeature<'_>])>,
-        ),
+        prefix: &StockDepthPrefix,
+        contribution: Option<PrefixContribution<'_, '_>>,
     ) -> Result<(), FrameError> {
-        let (prefix, contribution) = planned;
-        let (gpu, pipelines) = scene;
+        let PrefixScene { gpu, pipelines } = scene;
         gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
         // Prefix features prepare after this, so they read the chunks the suffix will lend. The
@@ -232,12 +243,13 @@ impl FrameRenderer {
         let mut operations = Vec::new();
         let mut extra = None;
         self.plan_game_prefix(frame, &mut passes, &mut views)?;
-        if let Some((plan, features)) = contribution {
+        if let Some(contribution) = contribution {
+            let plan = contribution.plan;
             passes.extend_from_slice(plan.passes);
             views.extend_from_slice(plan.views);
             requested.extend_from_slice(plan.requested);
             operations.extend_from_slice(plan.operations);
-            extra = Some(features);
+            extra = Some(contribution.features);
         }
         let mut geometry = match Self::prefix_geometry(gpu, pipelines, frame, prefix) {
             Ok(geometry) => geometry,

@@ -277,7 +277,7 @@ fn the_prepass_prepares_before_its_pass_and_steady_state_frames_build_nothing() 
 /// terrain's caches.
 #[test]
 fn term_replays_prepare_before_the_pass_build_nothing_in_steady_state_and_leave_no_residue() {
-    use crate::compositor::terms::{CaptureTerm, TermCapture, pipelines_for};
+    use crate::compositor::terms::{CaptureTerm, ReplayGroups, TermCapture, pipelines_for};
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
@@ -286,7 +286,11 @@ fn term_replays_prepare_before_the_pass_build_nothing_in_steady_state_and_leave_
     let rig = Rig::new(&context, &seed, &scenes::plain(), (Source::Plain, frame));
     let replay = |capture: &TermCapture, pipelines: &crate::renderer::ScenePipelines| {
         let mut encoder = context.submission().begin(device).unwrap();
-        capture.replay(&mut encoder, &rig.gpu, pipelines, (None, None));
+        let groups = ReplayGroups {
+            shadow: None,
+            screen: None,
+        };
+        capture.replay(&mut encoder, &rig.gpu, pipelines, groups);
         encoder.finish().submit().unwrap();
     };
     let capture = TermCapture::new(

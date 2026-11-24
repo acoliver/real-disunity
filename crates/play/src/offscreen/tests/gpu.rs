@@ -92,14 +92,16 @@ impl ShaderSupply for Synthetic {
             "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
             "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
             // The colour shader of `_PerFrame` with `_MainLightColor` declared a colour property
-            // of the default `declared_light::DECLARED`.
-            "declared_light" => {
+            // (`declared_light`) or a vector property (`declared_vector`), of the default
+            // `declared_light::DECLARED`.
+            "declared_light" | "declared_vector" => {
+                let kind = i32::from(source.file != "declared_light");
                 let mut synthetic = super::lights_gpu::per_frame_passes("fs_color");
                 synthetic.shader.parsed.properties = vec![ShaderProperty {
                     name: "_MainLightColor".to_owned(),
                     description: String::new(),
                     attributes: Vec::new(),
-                    kind: 0,
+                    kind,
                     flags: 0,
                     default_value: super::declared_light::DECLARED,
                     default_texture: String::new(),
@@ -143,7 +145,7 @@ impl ShaderSupply for Synthetic {
             _ => return Err(ShaderLoadError::NoVulkanPlatform),
         };
         let texture_defaults = declared(&synthetic.shader);
-        let fill = if source.file == "declared_light" {
+        let fill = if source.file.starts_with("declared_") {
             declared_fill(&synthetic.shader)
         } else {
             ShaderFill::default()

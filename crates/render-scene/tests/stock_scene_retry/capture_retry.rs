@@ -8,7 +8,7 @@ use worldrunner_render_post::{
     ResourceRef,
 };
 use worldrunner_render_scene::{
-    compositor::{StockDepthPrefix, prepare_stock_scene},
+    compositor::{PrefixContribution, PrefixScene, StockDepthPrefix, prepare_stock_scene},
     device::GpuContext,
     wgpu,
 };
@@ -95,7 +95,13 @@ fn capture_refusal(context: &GpuContext, scene: &mut Scene, refusal: &Refusal) {
     let authority = context.submission().clone();
     let prefix = scene
         .frame
-        .stock_depth_prefix(&device, (&mut scene.gpu, &scene.pipelines))
+        .stock_depth_prefix(
+            &device,
+            PrefixScene {
+                gpu: &mut scene.gpu,
+                pipelines: &scene.pipelines,
+            },
+        )
         .unwrap();
     assert_prefix_plan(&prefix);
     let writes = capture_writes(scene, &device, &prefix);
@@ -107,9 +113,15 @@ fn capture_refusal(context: &GpuContext, scene: &mut Scene, refusal: &Refusal) {
                 &mut scene.frame,
                 &device,
                 encoder,
-                (&mut scene.gpu, &scene.pipelines),
+                PrefixScene {
+                    gpu: &mut scene.gpu,
+                    pipelines: &scene.pipelines,
+                },
                 uniform,
-                (&empty_plan(), &mut []),
+                PrefixContribution {
+                    plan: &empty_plan(),
+                    features: &mut [],
+                },
             )
         })
         .unwrap();
@@ -268,7 +280,13 @@ fn assert_foreign_residents(context: &GpuContext, a: &mut Scene, b: &mut Scene) 
     let authority = context.submission();
     let prefix = a
         .frame
-        .stock_depth_prefix(device, (&mut a.gpu, &a.pipelines))
+        .stock_depth_prefix(
+            device,
+            PrefixScene {
+                gpu: &mut a.gpu,
+                pipelines: &a.pipelines,
+            },
+        )
         .unwrap();
     assert_prefix_plan(&prefix);
     let a_keys = a.gpu.capture_write_keys(device).unwrap();
@@ -286,9 +304,15 @@ fn assert_foreign_residents(context: &GpuContext, a: &mut Scene, b: &mut Scene) 
             &mut a.frame,
             device,
             encoder,
-            (&mut b.gpu, &b.pipelines),
+            PrefixScene {
+                gpu: &mut b.gpu,
+                pipelines: &b.pipelines,
+            },
             b.uniform,
-            (&empty_plan(), &mut []),
+            PrefixContribution {
+                plan: &empty_plan(),
+                features: &mut [],
+            },
         )?;
         encoded = true;
         Ok::<_, FrameError>(())

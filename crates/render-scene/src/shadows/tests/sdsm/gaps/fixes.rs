@@ -165,7 +165,10 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
             scheduler.encode_depth_prefix(
                 context.device(),
                 encoder,
-                (&mut renderer.gpu, &renderer.pipelines),
+                crate::compositor::PrefixScene {
+                    gpu: &mut renderer.gpu,
+                    pipelines: &renderer.pipelines,
+                },
                 &frame,
                 &metadata,
             )
@@ -241,10 +244,17 @@ fn assert_rendered_interval(
     range: RangeFit,
 ) {
     let cascades = ShadowedScene::prepare_cascades(
-        (&renderer.gpu, source.effects().unwrap(), settings()),
+        crate::shadows::CasterScene {
+            gpu: &renderer.gpu,
+            effects: source.effects().unwrap(),
+            settings: settings(),
+        },
         &view(),
         Vec3::new(0.6, 0.0, 0.8),
-        Some((fit.depth, range)),
+        Some(crate::shadows::CascadeFitting {
+            range: fit.depth,
+            fit: range,
+        }),
     )
     .unwrap();
     let DepthRange::Receivers { near, far } = fit.depth else {

@@ -41,19 +41,56 @@ pub const SPEC_CUBE0: &str = "unity_SpecCube0";
 /// `unity_SHBb` and `unity_SHC`, in that order.
 pub type PackedHarmonics = [[f32; 4]; 7];
 
+/// What a draw reads as `unity_SpecCube0` once the scene's reflection was added to the globals.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReflectionCube {
+    /// The scene wrote no reflection, so a draw reads the grey default cube.
+    NotWritten,
+    /// The world's globals already name a cube, which the scene's reflection leaves alone.
+    Held,
+    /// The reflection names no cube, so a draw reads the grey default cube.
+    NoCube,
+    /// The reflection's cube is uploaded and bound.
+    Bound,
+    /// The reflection names a cube the frame cannot read, so a draw reads the grey default cube.
+    Unreadable,
+}
+
+impl ReflectionCube {
+    /// The census line of the outcome, which names what the draws of the frame read.
+    #[must_use]
+    pub const fn census(self) -> &'static str {
+        match self {
+            Self::NotWritten => "unity_SpecCube0: the scene wrote no reflection, grey default cube",
+            Self::Held => "unity_SpecCube0: a cube the world's globals name",
+            Self::NoCube => {
+                "unity_SpecCube0: the scene's reflection names no cube, grey default cube"
+            }
+            Self::Bound => "unity_SpecCube0: the scene's reflection cube",
+            Self::Unreadable => {
+                "unity_SpecCube0: the scene's reflection cube is not readable, grey default cube"
+            }
+        }
+    }
+}
+
 /// Adds the scene's ambient light and reflection to `layer`, for each name the layer holds no
-/// value for. The reflection's cube is resolved through `textures`.
+/// value for. The reflection's cube is resolved through `textures`. The result says which cube a
+/// draw reads as `unity_SpecCube0`.
 pub fn add_environment(
     layer: &mut PropertyLayer,
     environment: &Environment,
     textures: &mut Textures<'_>,
-) {
+) -> ReflectionCube {
     if let Some(ambient) = &environment.ambient {
         add_ambient_light(layer, ambient);
     }
-    if let Some(reflection) = &environment.reflection {
-        add_reflection(layer, reflection, textures);
-    }
+    environment
+        .reflection
+        .as_ref()
+        .map_or(ReflectionCube::NotWritten, |reflection| {
+            add_reflection(layer, reflection, textures)
+        })
 }
 
 fn add_ambient_light(layer: &mut PropertyLayer, ambient: &Ambient) {
@@ -66,7 +103,11 @@ fn add_ambient_light(layer: &mut PropertyLayer, ambient: &Ambient) {
     }
 }
 
-fn add_reflection(layer: &mut PropertyLayer, reflection: &Reflection, textures: &mut Textures<'_>) {
+fn add_reflection(
+    layer: &mut PropertyLayer,
+    reflection: &Reflection,
+    textures: &mut Textures<'_>,
+) -> ReflectionCube {
     if layer.values.get(SPEC_CUBE0_HDR).is_none() {
         layer.values.set(
             SPEC_CUBE0_HDR,
@@ -75,8 +116,11 @@ fn add_reflection(layer: &mut PropertyLayer, reflection: &Reflection, textures: 
     }
     let held = layer.textures.contains_key(SPEC_CUBE0) || layer.stand_ins.contains_key(SPEC_CUBE0);
     let source = reflection.source();
-    if held || source.is_unbound() {
-        return;
+    if held {
+        return ReflectionCube::Held;
+    }
+    if source.is_unbound() {
+        return ReflectionCube::NoCube;
     }
     let slot = TextureSlot {
         texture: source.clone(),
@@ -87,6 +131,11 @@ fn add_reflection(layer: &mut PropertyLayer, reflection: &Reflection, textures: 
         &WorldValue::Texture(SPEC_CUBE0.to_owned(), slot),
         textures,
     );
+    if layer.textures.contains_key(SPEC_CUBE0) {
+        ReflectionCube::Bound
+    } else {
+        ReflectionCube::Unreadable
+    }
 }
 
 /// The first coefficient of a channel a uniform radiance of 1 has: the basis function of band 0.

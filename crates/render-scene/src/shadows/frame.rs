@@ -1,9 +1,10 @@
 use crate::compositor::ColorDepth;
 
 use super::{
-    BorrowedFeature, DirectionalShadowSettings, FrameUniform, GpuContext, SceneEffects, SceneGpu,
-    ScenePipelines, SceneView, ShadowError, ShadowMap, ShadowedScene, cascades, lent, light_frame,
-    refresh, resources, sdsm, terrain_caster,
+    BorrowedFeature, CascadeFitting, CasterScene, DirectionalShadowSettings, FrameUniform,
+    GpuContext, SceneEffects, SceneGpu, ScenePipelines, SceneView, ShadowError, ShadowMap,
+    ShadowedScene, TerrainCasters, TerrainFrame, cascades, lent, light_frame, refresh, resources,
+    terrain_caster,
 };
 
 #[path = "compaction.rs"]
@@ -27,7 +28,7 @@ struct ShadowFrameResources<'a> {
 /// sampling; the ordinary frame retains its original schedule.
 pub(super) struct FitInput<'a> {
     pub(super) scheduler: &'a mut crate::compositor::FrameRenderer,
-    pub(super) fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
+    pub(super) fitting: Option<CascadeFitting>,
 }
 
 /// What the cascade preparation encodes into and looks through.
@@ -162,12 +163,16 @@ impl ShadowFrameResources<'_> {
             .track_previous_transforms(selected.writes_velocity());
         let screen = scheduler.geometry_for_depth(depth_mode);
         ShadowedScene::prepare_terrain_passes(
-            (
-                self.gpu,
-                self.terrain_caster,
-                self.shadows_enabled.then_some(self.object_caster),
-            ),
-            (screen.as_ref(), &selected, &frame),
+            TerrainCasters {
+                gpu: self.gpu,
+                caster: self.terrain_caster,
+                objects: self.shadows_enabled.then_some(self.object_caster),
+            },
+            TerrainFrame {
+                screen: screen.as_ref(),
+                selected: &selected,
+                frame: &frame,
+            },
         )?;
         Ok(SceneFrame {
             depth_mode,
@@ -181,7 +186,7 @@ impl ShadowFrameResources<'_> {
         &self,
         work_context: ShadowWorkContext<'_>,
         frame: &FrameUniform,
-        fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
+        fitting: Option<CascadeFitting>,
         next_refresh: &mut refresh::RefreshCache,
         size: [u32; 2],
     ) -> Result<ShadowWork, ShadowError> {
@@ -191,7 +196,11 @@ impl ShadowFrameResources<'_> {
             encoder,
         } = work_context;
         let mut cascades = ShadowedScene::prepare_cascades(
-            (self.gpu, self.effects, self.settings),
+            CasterScene {
+                gpu: self.gpu,
+                effects: self.effects,
+                settings: self.settings,
+            },
             view,
             frame.shadow_direction,
             fitting,

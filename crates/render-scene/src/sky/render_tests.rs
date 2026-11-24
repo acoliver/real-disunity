@@ -196,13 +196,17 @@ pub(super) fn render_frame(
     let sky = Sky::new(
         device,
         &frame_layout,
-        (wgpu::TextureFormat::Rgba16Float, 1, false),
+        ColorTarget {
+            format: wgpu::TextureFormat::Rgba16Float,
+            samples: 1,
+        },
+        Variant::independent(false),
         settings,
         None,
-        (
-            &[],
-            &white.create_view(&wgpu::TextureViewDescriptor::default()),
-        ),
+        DomeTextures {
+            views: &[],
+            white: &white.create_view(&wgpu::TextureViewDescriptor::default()),
+        },
     );
     let targets = Targets::new(device);
     let prepared = context

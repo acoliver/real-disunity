@@ -8,13 +8,12 @@
 //! while they prepare, and the executor records that work, in staging order, in one compute pass
 //! at the entry's place with [`PreparedCompute::record_in_pass`](super::PreparedCompute), the same
 //! call the frame's preparation records a run of compute work with.
-use std::collections::BTreeMap;
-
 use super::{
-    AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError,
-    PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedAccess, PreparedCommands,
-    ResourceRef, prepared, require_producer,
+    AttachmentView, FeatureDeclaration, FeaturePass, FrameError, PassDeclaration, PassEntry,
+    PassSlot, PrepareContext, PreparedAccess, PreparedCommands, Produced, Product, ResourceRef,
+    prepared, require_producer,
 };
+use crate::plan_hash::PlanMap;
 
 /// What a compute pass writes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -41,15 +40,12 @@ impl StorageWrite {
     }
 
     /// The write as the producer later passes read: stored, single-sampled.
-    fn produced(self) -> AttachmentDeclaration {
-        AttachmentDeclaration {
-            resource: self.resource,
+    const fn produced(self) -> Product {
+        Product {
             format: self.format,
             size: self.size,
             samples: 1,
-            load: AttachmentLoad::Load,
             store: wgpu::StoreOp::Store,
-            read_only: false,
         }
     }
 }
@@ -102,11 +98,11 @@ impl PassDeclaration {
 /// twice, a write of a stock product written once per frame, and a read of a write of the pass;
 /// [`FrameError::MissingProducer`] and [`FrameError::LoadAfterDiscard`] for a read no earlier
 /// pass left.
-pub(super) fn validate_compute_pass(
+pub(super) fn validate_compute_pass<'a>(
     pass: &PassDeclaration,
     compute: &ComputeDeclaration,
-    features: &[FeatureDeclaration],
-    produced: &mut BTreeMap<ResourceRef, AttachmentDeclaration>,
+    declared: impl Iterator<Item = &'a FeaturePass>,
+    produced: &mut Produced,
 ) -> Result<(), FrameError> {
     let entry = pass.entry();
     if pass.color.is_some() || !pass.additional_colors.is_empty() || pass.depth.is_some() {
@@ -126,10 +122,6 @@ pub(super) fn validate_compute_pass(
             return Err(FrameError::AttachmentHazard(write.resource));
         }
     }
-    let declared = features
-        .iter()
-        .flat_map(|feature| &feature.passes)
-        .filter(|feature| feature.entry() == entry);
     for feature in declared {
         if feature.color_format.is_some()
             || !feature.additional_color_formats.is_empty()
@@ -157,21 +149,18 @@ pub(super) fn validate_compute_pass(
 /// texture with the write's format and extent.
 pub(super) fn validate_storage_views(
     passes: &[PassDeclaration],
-    views: &[AttachmentView],
+    views: &PlanMap<ResourceRef, &AttachmentView>,
 ) -> Result<(), FrameError> {
     for write in passes.iter().flat_map(PassDeclaration::storage_writes) {
-        let suits = views
-            .iter()
-            .find(|view| view.resource() == write.resource)
-            .is_some_and(|view| {
-                let texture = view.texture();
-                view.format() == write.format
-                    && view.size() == write.size
-                    && texture.sample_count() == 1
-                    && texture
-                        .usage()
-                        .contains(wgpu::TextureUsages::STORAGE_BINDING)
-            });
+        let suits = views.get(&write.resource).is_some_and(|view| {
+            let texture = view.texture();
+            view.format() == write.format
+                && view.size() == write.size
+                && texture.sample_count() == 1
+                && texture
+                    .usage()
+                    .contains(wgpu::TextureUsages::STORAGE_BINDING)
+        });
         if !suits {
             return Err(FrameError::AttachmentView(write.resource));
         }

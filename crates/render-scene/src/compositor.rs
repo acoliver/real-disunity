@@ -747,7 +747,7 @@ pub(crate) fn attachment(
     }
 }
 
-pub use depth_prefix::StockDepthPrefix;
+pub use depth_prefix::{PrefixContribution, PrefixScene, StockDepthPrefix};
 pub(crate) use scene::ColorDepth;
 pub(crate) use scene::SceneFeature;
 pub use scene::StockSceneFeature;

@@ -16,7 +16,7 @@ use worldrunner_render_post::{
     OperationsOutput, PassEntry, PassSlot, ResourceRef, TimingState, color_texture,
 };
 use worldrunner_render_scene::{
-    compositor::{StockDepthPrefix, prepare_stock_scene},
+    compositor::{PrefixContribution, PrefixScene, StockDepthPrefix, prepare_stock_scene},
     frame::FrameUniform,
     wgpu,
 };
@@ -118,9 +118,15 @@ fn encode_composed(
         &mut frame.renderer,
         device,
         encoder,
-        (&mut frame.gpu, &frame.pipelines),
+        PrefixScene {
+            gpu: &mut frame.gpu,
+            pipelines: &frame.pipelines,
+        },
         *uniform,
-        (contribution, &mut []),
+        PrefixContribution {
+            plan: contribution,
+            features: &mut [],
+        },
     )?;
     assert_eq!(
         operation.calls.get(),
@@ -224,7 +230,13 @@ fn gpu_stock_prefix_encodes_contribution_operations_once_and_sampler_reads_the_r
     };
     let prefix = frame
         .renderer
-        .stock_depth_prefix(&device, (&mut frame.gpu, &frame.pipelines))
+        .stock_depth_prefix(
+            &device,
+            PrefixScene {
+                gpu: &mut frame.gpu,
+                pipelines: &frame.pipelines,
+            },
+        )
         .unwrap();
     let seen = Rc::new(std::cell::RefCell::new(Seen::default()));
     let mut sampler = Sampler::new(&device, [prepass_depth_of(&prefix.plan()), resource], seen);
@@ -293,22 +305,29 @@ fn gpu_a_prefix_contribution_that_reads_a_frame_snapshot_is_refused_by_its_name(
             .clone()
             .prepare(&device, |encoder, _| {
                 let uniform = frame.uniform(&view(0));
-                let prefix = frame
-                    .renderer
-                    .stock_depth_prefix(&device, (&mut frame.gpu, &frame.pipelines))?;
+                let prefix = frame.renderer.stock_depth_prefix(
+                    &device,
+                    PrefixScene {
+                        gpu: &mut frame.gpu,
+                        pipelines: &frame.pipelines,
+                    },
+                )?;
                 prefix.encode(
                     &mut frame.renderer,
                     &device,
                     encoder,
-                    (&mut frame.gpu, &frame.pipelines),
+                    PrefixScene {
+                        gpu: &mut frame.gpu,
+                        pipelines: &frame.pipelines,
+                    },
                     uniform,
-                    (
-                        &contribution.plan(),
-                        &mut [BorrowedFeature {
+                    PrefixContribution {
+                        plan: &contribution.plan(),
+                        features: &mut [BorrowedFeature {
                             declaration: reader.declaration(&contribution.target),
                             prepared: &mut reader,
                         }],
-                    ),
+                    },
                 )
             })
             .map_err(unwrap_preparation)

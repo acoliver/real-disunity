@@ -342,18 +342,19 @@ impl ScenePipelines {
             .clone()
     }
 
-    pub(crate) fn sky_targets(&self) -> (bool, bool, super::DepthMode) {
-        (
-            self.writes_velocity(),
-            self.specialization
+    pub(crate) fn sky_variant(&self) -> crate::sky::Variant {
+        crate::sky::Variant {
+            velocity: self.writes_velocity(),
+            reflection: self
+                .specialization
                 .source
                 .contains("struct ReflectionOutput"),
-            if self.depth == super::DepthMode::Independent {
+            depth: if self.depth == super::DepthMode::Independent {
                 self.depth
             } else {
                 super::DepthMode::Shared
             },
-        )
+        }
     }
 
     #[cfg(test)]

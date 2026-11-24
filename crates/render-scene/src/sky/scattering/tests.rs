@@ -253,7 +253,7 @@ fn fixed_observer_uses_authored_altitude_and_validates_the_atmosphere_boundary()
     assert!(settings.validate().is_err());
 }
 
-fn prepare_frame(lookup: &Lookup, observer: (Vec3, f32), submit: bool) {
+fn prepare_frame(lookup: &Lookup, observer: Observer, submit: bool) {
     let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let identity = std::rc::Rc::new(());
@@ -337,8 +337,11 @@ fn gpu_unchanged_inputs_reuse_the_submitted_columns_and_cancelled_uploads_are_re
     let context = crate::device::GpuContext::shared_for_test().unwrap();
     let lookup = Lookup::new(context.device(), settings());
     let zeros = vec![0; lookup.settings.lookup_rows as usize * 256 * 3];
-    let low = (Vec3::new(0.0, 0.966, 0.259), 0.1);
-    let elevation = low.0.z.asin();
+    let low = Observer {
+        sun_direction: Vec3::new(0.0, 0.966, 0.259),
+        camera_altitude: 0.1,
+    };
+    let elevation = low.sun_direction.z.asin();
     prepare_frame(&lookup, low, true);
     assert_eq!(
         lookup.written.get(),
@@ -350,7 +353,10 @@ fn gpu_unchanged_inputs_reuse_the_submitted_columns_and_cancelled_uploads_are_re
     prepare_frame(&lookup, low, true);
     assert_eq!(read_lookup(&lookup), zeros);
     // A cancelled frame records nothing, so the same new inputs upload on the next frame.
-    let high = (Vec3::Z, 0.1);
+    let high = Observer {
+        sun_direction: Vec3::Z,
+        camera_altitude: 0.1,
+    };
     prepare_frame(&lookup, high, false);
     assert_eq!(
         lookup.written.get(),
@@ -367,6 +373,13 @@ fn gpu_unchanged_inputs_reuse_the_submitted_columns_and_cancelled_uploads_are_re
     assert_eq!(read_lookup(&lookup), pixels(settings(), zenith, 0.1));
     // Observer altitude is an input as well.
     clear_lookup(&lookup);
-    prepare_frame(&lookup, (Vec3::Z, 250.0), true);
+    prepare_frame(
+        &lookup,
+        Observer {
+            sun_direction: Vec3::Z,
+            camera_altitude: 250.0,
+        },
+        true,
+    );
     assert_eq!(read_lookup(&lookup), pixels(settings(), zenith, 250.0));
 }

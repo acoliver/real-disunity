@@ -551,14 +551,14 @@ impl SceneGpu {
     ) -> DrawCount {
         let mut sky_count = DrawCount::default();
         if let Some(sky) = &self.sky {
-            sky_count = sky.draw_targets(pass, frame_group, pipelines.sky_targets());
+            sky_count = sky.draw_targets(pass, frame_group, pipelines.sky_variant());
         }
         if let Some(meshes) = &self.celestial {
             self.sky
                 .as_ref()
                 .expect("celestial atmosphere")
                 .bind_background(pass, frame_group);
-            meshes.draw(pass, pipelines.sky_targets());
+            meshes.draw(pass, pipelines.sky_variant());
         }
         self.dynamic
             .draw(pass, self.drawing_frame_slot(), pipelines);

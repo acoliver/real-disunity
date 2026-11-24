@@ -40,6 +40,36 @@
 //! # }
 //! ```
 
+/// The scene GPU and declared split settings the cascade preparation reads through.
+#[derive(Clone, Copy)]
+pub(crate) struct CasterScene<'a> {
+    pub gpu: &'a SceneGpu,
+    pub effects: &'a SceneEffects,
+    pub settings: DirectionalShadowSettings,
+}
+
+/// The measured depth range and fit to cascade before casters are fitted.
+pub(crate) struct CascadeFitting {
+    pub range: sdsm::DepthRange,
+    pub fit: sdsm::RangeFit,
+}
+
+/// The scene casters and objects the terrain prepass, shadow passes and object casters draw.
+#[derive(Clone, Copy)]
+pub(crate) struct TerrainCasters<'a> {
+    pub gpu: &'a SceneGpu,
+    pub caster: &'a terrain_caster::TerrainCaster,
+    pub objects: Option<&'a crate::object::program::Context>,
+}
+
+/// The frame geometry and selected pipelines the terrain preparation prepares.
+#[derive(Clone, Copy)]
+pub(crate) struct TerrainFrame<'a> {
+    pub screen: Option<&'a crate::scene_metadata::Geometry>,
+    pub selected: &'a ScenePipelines,
+    pub frame: &'a FrameUniform,
+}
+
 mod capture;
 mod frame;
 mod lent;
@@ -403,16 +433,24 @@ impl ShadowedScene {
     }
 
     fn prepare_cascades(
-        scene: (&SceneGpu, &SceneEffects, DirectionalShadowSettings),
+        scene: CasterScene<'_>,
         view: &SceneView,
         sun: glam::Vec3,
-        fitting: Option<(sdsm::DepthRange, sdsm::RangeFit)>,
+        fitting: Option<CascadeFitting>,
     ) -> Result<cascades::CascadeViews, ShadowError> {
-        let (gpu, effects, settings) = scene;
+        let CasterScene {
+            gpu,
+            effects,
+            settings,
+        } = scene;
         match fitting {
-            Some(fitting) => {
-                cascades::CascadeViews::fitted((gpu, effects), view, settings, sun, fitting)
-            }
+            Some(fitting) => cascades::CascadeViews::fitted(
+                (gpu, effects),
+                view,
+                settings,
+                sun,
+                (fitting.range, fitting.fit),
+            ),
             None => cascades::CascadeViews::new(gpu, view, effects, settings, sun),
         }
     }
@@ -432,17 +470,19 @@ impl ShadowedScene {
     /// forward pass, and the casters of the cascades, and the objects of the prepass, the forward
     /// pass and, when the frame has shadow passes, the cascades.
     fn prepare_terrain_passes(
-        (gpu, caster, objects): (
-            &SceneGpu,
-            &terrain_caster::TerrainCaster,
-            Option<&crate::object::program::Context>,
-        ),
-        (screen, selected, frame): (
-            Option<&crate::scene_metadata::Geometry>,
-            &ScenePipelines,
-            &FrameUniform,
-        ),
+        casters: TerrainCasters<'_>,
+        terrain: TerrainFrame<'_>,
     ) -> Result<(), ShadowError> {
+        let TerrainCasters {
+            gpu,
+            caster,
+            objects,
+        } = casters;
+        let TerrainFrame {
+            screen,
+            selected,
+            frame,
+        } = terrain;
         if let Some(screen) = screen {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
             gpu.prepare_objects(screen.prepass_pipelines(), frame)?;

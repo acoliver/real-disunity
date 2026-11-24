@@ -9,6 +9,14 @@ use worldrunner_render_gpu::{
 use worldrunner_render_lighting::atmosphere::scattering::ElevationColumnScattering;
 use worldrunner_render_plan::{SceneScattering, SceneScatteringFormat, SceneScatteringModel};
 
+/// Where a frame looks from and what lights it: the unit sun direction and the camera height
+/// above the scene origin, from which the lookup derives the observer altitude.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Observer {
+    pub sun_direction: Vec3,
+    pub camera_altitude: f32,
+}
+
 /// Sun elevation and observer altitude bits; the settings are fixed per lookup.
 pub(super) type LookupInputs = [u32; 2];
 
@@ -53,7 +61,7 @@ impl Lookup {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         identity: &std::rc::Rc<()>,
-        observer: (Vec3, f32),
+        observer: Observer,
         budget: AllocationBudget,
     ) -> Result<(), PreparationError> {
         let uploaded = self.encode(device, encoder, observer, budget)?;
@@ -71,7 +79,7 @@ impl Lookup {
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        observer: (Vec3, f32),
+        observer: Observer,
         budget: AllocationBudget,
     ) -> Result<Option<LookupInputs>, PreparationError> {
         let _transaction = Publications::for_encoder(encoder)?;
@@ -82,7 +90,10 @@ impl Lookup {
             return Err(PreparationError::Budget);
         }
         let model = model(self.settings);
-        let (sun, camera_altitude) = observer;
+        let Observer {
+            sun_direction: sun,
+            camera_altitude,
+        } = observer;
         let altitude = observer_altitude(self.settings, camera_altitude);
         if altitude < 0.0
             || altitude >= model.outer_radius - model.planet_radius

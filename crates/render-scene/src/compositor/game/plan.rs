@@ -1,7 +1,7 @@
 //! Placing a game's passes in the frame's pass list.
 use super::snapshots::SnapshotReads;
 use super::targets::GameTargets;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeaturePass, FrameError, GamePlace,
     PassDeclaration, PassEntry, PassSlot, ResourceRef,
@@ -222,8 +222,9 @@ impl GameTargets {
         mips: &[ResourceRef],
     ) -> Vec<ResourceRef> {
         let mut reads = self.layer_reads(layers);
+        let mut seen: HashSet<ResourceRef> = reads.iter().copied().collect();
         for mip in mips {
-            if !reads.contains(mip) {
+            if seen.insert(*mip) {
                 reads.push(*mip);
             }
         }
@@ -339,6 +340,7 @@ impl GameTargets {
     /// made, is left as it is for the view check to refuse.
     fn layer_reads(&self, reads: &[ResourceRef]) -> Vec<ResourceRef> {
         let mut expanded: Vec<ResourceRef> = Vec::new();
+        let mut seen: HashSet<ResourceRef> = HashSet::new();
         for resource in reads {
             let mips = match self.mips(resource.name) {
                 Some(mips) if resource.mip < mips => 0..mips,
@@ -346,7 +348,7 @@ impl GameTargets {
             };
             for mip in mips {
                 let read = ResourceRef { mip, ..*resource };
-                if !expanded.contains(&read) {
+                if seen.insert(read) {
                     expanded.push(read);
                 }
             }
@@ -509,18 +511,25 @@ pub(super) fn new_views(
     added: Vec<AttachmentView>,
 ) -> Result<Vec<AttachmentView>, FrameError> {
     let mut fresh: Vec<AttachmentView> = Vec::new();
+    let known: HashMap<ResourceRef, &AttachmentView> =
+        views.iter().map(|view| (view.resource(), view)).collect();
+    let mut known_fresh: HashMap<ResourceRef, AttachmentView> = HashMap::new();
     for view in added {
-        match views
-            .iter()
-            .chain(&fresh)
-            .find(|known| known.resource() == view.resource())
-        {
-            Some(known) if known.texture() != view.texture() => {
+        let resource = view.resource();
+        if let Some(known_view) = known.get(&resource) {
+            if known_view.texture() != view.texture() {
                 return Err(FrameError::AttachmentHazard(view.resource()));
             }
-            Some(_) => {}
-            None => fresh.push(view),
+            continue;
         }
+        if let Some(known_view) = known_fresh.get(&resource) {
+            if known_view.texture() != view.texture() {
+                return Err(FrameError::AttachmentHazard(view.resource()));
+            }
+            continue;
+        }
+        known_fresh.insert(resource, view.clone());
+        fresh.push(view);
     }
     Ok(fresh)
 }

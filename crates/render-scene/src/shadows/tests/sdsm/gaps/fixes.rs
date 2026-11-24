@@ -165,7 +165,10 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
             scheduler.encode_depth_prefix(
                 context.device(),
                 encoder,
-                (&mut renderer.gpu, &renderer.pipelines),
+                crate::compositor::PrefixScene {
+                    gpu: &mut renderer.gpu,
+                    pipelines: &renderer.pipelines,
+                },
                 &frame,
                 &metadata,
             )

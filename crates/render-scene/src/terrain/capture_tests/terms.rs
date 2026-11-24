@@ -6,7 +6,7 @@ use wgpu::BindGroup;
 
 use super::shadow::Shadow;
 use super::{Rig, Source, assert_recorded_by_runtime, drawable, scenes};
-use crate::compositor::terms::{CaptureTerm, TermCapture, pipelines_for};
+use crate::compositor::terms::{CaptureTerm, ReplayGroups, TermCapture, pipelines_for};
 use crate::device::GpuContext;
 use crate::draw::terrain_paths;
 use crate::dynamic::capture_tests::{
@@ -111,13 +111,16 @@ fn terms(source: Source) -> usize {
                 _ => None,
             };
             let pipelines = pipelines_for(device, term, layout, screen_kind);
-            let group = layout.map(|_| &shadow.groups[0]);
+            let groups = ReplayGroups {
+                shadow: layout.map(|_| &shadow.groups[0]),
+                screen: screen.as_ref(),
+            };
             let recorded = terrain_paths::recorded();
             let scene = read(
                 &context,
                 &rig,
                 |encoder, capture| {
-                    capture.replay(encoder, &rig.gpu, &pipelines, (group, screen.as_ref()));
+                    capture.replay(encoder, &rig.gpu, &pipelines, groups);
                 },
                 term,
             );
@@ -130,7 +133,7 @@ fn terms(source: Source) -> usize {
                 &context,
                 &rig,
                 |encoder, capture| {
-                    capture.record(encoder, (group, screen.as_ref()), |_| {});
+                    capture.record(encoder, groups, |_| {});
                 },
                 term,
             );

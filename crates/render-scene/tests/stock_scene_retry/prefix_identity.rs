@@ -14,7 +14,10 @@ use worldrunner_render_post::{
     PassDeclaration, PassSlot, ResourceRef, color_texture,
 };
 use worldrunner_render_scene::{
-    compositor::prepare_stock_scene, device::GpuContext, test_support::SceneTestSession, wgpu,
+    compositor::{PrefixContribution, PrefixScene, prepare_stock_scene},
+    device::GpuContext,
+    test_support::SceneTestSession,
+    wgpu,
 };
 
 #[derive(Clone, Copy)]
@@ -107,7 +110,13 @@ fn refuse_substitution(
     let mut substitution = Substitution::new(context, scene);
     let prefix = scene
         .frame
-        .stock_depth_prefix(context.device(), (&mut scene.gpu, &scene.pipelines))
+        .stock_depth_prefix(
+            context.device(),
+            PrefixScene {
+                gpu: &mut scene.gpu,
+                pipelines: &scene.pipelines,
+            },
+        )
         .unwrap();
     let mut encoder = context.submission().begin(context.device()).unwrap();
     prefix
@@ -115,17 +124,20 @@ fn refuse_substitution(
             &mut scene.frame,
             context.device(),
             &mut encoder,
-            (&mut scene.gpu, &scene.pipelines),
+            PrefixScene {
+                gpu: &mut scene.gpu,
+                pipelines: &scene.pipelines,
+            },
             scene.uniform,
-            (
-                &FramePlan {
+            PrefixContribution {
+                plan: &FramePlan {
                     passes: std::slice::from_ref(&substitution.pass),
                     views: std::slice::from_ref(&substitution.original),
                     requested: &[],
                     operations: &[],
                 },
-                &mut [],
-            ),
+                features: &mut [],
+            },
         )
         .unwrap();
     let expected = match change {

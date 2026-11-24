@@ -26,11 +26,14 @@ use super::support::{
     material, render_texture, set_global_in_earlier_take, snapshot, texture_slot, world,
 };
 use crate::offscreen::assets::{AssetError, Assets};
-use crate::offscreen::{Report, SPEC_CUBE0};
+use crate::offscreen::{ReflectionCube, Report, SPEC_CUBE0};
 
-/// The identities the managed engine stored two cubes under.
+/// The identities the managed engine stored two cubes under, and a third in BC6H.
 const CUBE: u64 = 1 << 40;
 const OTHER: u64 = (1 << 40) + 1;
+const BAKED: u64 = (1 << 40) + 10;
+/// The ten-bit BC6H endpoint that decodes to the half float 1.0.
+const BC6H_ONE: u16 = 495;
 /// The read of a grey cube, 128 of 255 in each colour channel.
 const GREY: f32 = 128.0 / 255.0;
 
@@ -55,11 +58,42 @@ impl Assets for Cubes {
     }
 }
 
-/// The cube `CUBE` has the six colours of `BASE` as 1x1 faces and `OTHER` those of `TOP`.
+/// One BC6H block of the single-subset mode with ten-bit endpoints that holds `colour` in every
+/// texel: both endpoints are the colour and every index is zero. A channel of 255 is the half
+/// float 1.0 and a channel of 0 is 0.
+fn bc6h_block(colour: [u8; 4]) -> [u8; 16] {
+    let mut bits = 3_u128;
+    for slot in 0..6 {
+        let endpoint = if colour[slot % 3] == 0 { 0 } else { BC6H_ONE };
+        bits |= u128::from(endpoint) << (5 + slot * 10);
+    }
+    bits.to_le_bytes()
+}
+
+/// A BC6H cube of 8x8 faces with four levels as the player stores a baked sky: level 0 of face
+/// `f` is `BASE[f]` in its four blocks, and the three smaller levels are `TOP[f]`.
+fn baked_cube() -> PlayerTexture {
+    let bytes = (0..6)
+        .flat_map(|face| {
+            let level = |colour, blocks: usize| bc6h_block(colour).repeat(blocks);
+            [level(BASE[face], 4), level(TOP[face], 3)].concat()
+        })
+        .collect();
+    PlayerTexture {
+        format: 24,
+        linear: true,
+        graphics_format: 106,
+        ..cube(8, 4, bytes)
+    }
+}
+
+/// The cube `CUBE` has the six colours of `BASE` as 1x1 faces, `OTHER` those of `TOP` and `BAKED`
+/// is a sky baked in BC6H.
 fn stored() -> Cubes {
     Cubes(vec![
         (CUBE, cube(1, 1, BASE.concat())),
         (OTHER, cube(1, 1, TOP.concat())),
+        (BAKED, baked_cube()),
     ])
 }
 
@@ -119,6 +153,11 @@ fn with_environment(environment: Environment) -> (Vec<f32>, Report) {
     (pixels, report)
 }
 
+/// Whether the report counts one flush that read the cube `cube` names.
+fn counts(report: &Report, cube: ReflectionCube) -> bool {
+    report.census.get(cube.census()) == Some(&1)
+}
+
 fn grey() -> Vec<f32> {
     (0..6 * SIDE)
         .flat_map(|_| [GREY, GREY, GREY, 1.0])
@@ -149,6 +188,11 @@ fn a_draw_reads_the_custom_cube_of_the_scene_as_unity_speccube0() {
     assert_eq!(read, columns(SIDE, &BASE));
     assert_eq!(counted_as_undeclared(&report), BTreeMap::new());
     assert_eq!(report.stand_ins.draws, 0, "{:?}", report.stand_ins);
+    assert!(
+        counts(&report, ReflectionCube::Bound),
+        "{:?}",
+        report.census
+    );
 }
 
 #[test]
@@ -159,6 +203,19 @@ fn the_skybox_mode_reads_the_cube_baked_from_the_skybox_and_not_the_custom_one()
 }
 
 #[test]
+fn a_bc6h_cube_baked_from_the_skybox_is_what_a_draw_reads_as_unity_speccube0() {
+    let (read, report) = with_environment(reflection(ReflectionMode::Skybox, 0, BAKED));
+    assert_eq!(read, columns(SIDE, &BASE));
+    assert_eq!(counted_as_undeclared(&report), BTreeMap::new());
+    assert_eq!(report.stand_ins.draws, 0, "{:?}", report.stand_ins);
+    assert!(
+        counts(&report, ReflectionCube::Bound),
+        "{:?}",
+        report.census
+    );
+}
+
+#[test]
 fn a_custom_mode_without_a_custom_cube_reads_the_cube_baked_from_the_skybox() {
     let (read, _) = with_environment(reflection(ReflectionMode::Custom, 0, OTHER));
     assert_eq!(read, columns(SIDE, &TOP));
@@ -166,12 +223,16 @@ fn a_custom_mode_without_a_custom_cube_reads_the_cube_baked_from_the_skybox() {
 
 #[test]
 fn a_scene_without_a_reflection_cube_reads_the_grey_cube_and_is_counted() {
-    for environment in [
-        Environment::default(),
-        reflection(ReflectionMode::Custom, 0, 0),
+    for (environment, cube) in [
+        (Environment::default(), ReflectionCube::NotWritten),
+        (
+            reflection(ReflectionMode::Custom, 0, 0),
+            ReflectionCube::NoCube,
+        ),
     ] {
         let (read, report) = with_environment(environment);
         assert_grey(&read);
+        assert!(counts(&report, cube), "{:?}", report.census);
         assert!(
             report
                 .stand_ins
@@ -195,6 +256,11 @@ fn a_cube_the_host_does_not_hold_reads_the_grey_cube_and_is_counted() {
         BTreeMap::from([(format!("{SPEC_CUBE0} exists-not-loaded"), 1)])
     );
     assert_eq!(report.failures.get("texture:NotStored"), Some(&1));
+    assert!(
+        counts(&report, ReflectionCube::Unreadable),
+        "{:?}",
+        report.census
+    );
 }
 
 fn other_cube() -> PropertyValue {

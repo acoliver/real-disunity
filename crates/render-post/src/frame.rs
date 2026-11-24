@@ -1,7 +1,7 @@
 //! Geometry declarations for the same linear executor as post stages.
-use std::sync::{Arc, OnceLock};
 use crate::FrameTargets;
 use crate::plan_hash::{PlanMap, map_with_capacity, set_with_capacity};
+use std::sync::{Arc, OnceLock};
 
 mod compute;
 mod error;

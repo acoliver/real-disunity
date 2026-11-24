@@ -43,7 +43,12 @@ impl ConfiguredFrameRenderer {
             device,
             encoder,
             scene.0,
-            (scene.1, Some(self.state.current())),
+            super::super::terms::FrameBindings {
+                shadow: scene
+                    .1
+                    .map(|(layout, group)| super::super::terms::ShadowBinding { layout, group }),
+                frame: Some(self.state.current()),
+            },
         );
     }
     /// Borrows an existing configured frame product without allocating a target.

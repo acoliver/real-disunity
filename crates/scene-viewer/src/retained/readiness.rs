@@ -115,17 +115,14 @@ impl RetainedHost {
     }
 
     /// Accepts an edit whose generation becomes ready only when the current view's
-    /// selected terrain material pages are resident. Paging must be enabled.
+    /// selected terrain material pages are resident. Stock material paging must be enabled.
     pub fn apply_with_pages(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
         self.require_initial_scene()?;
         let terrain = match &update {
             RetainedUpdate::Terrain(terrain) => terrain.as_deref(),
             _ => self.scene().terrain(),
         };
-        if terrain
-            .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
-            .is_none()
-        {
+        if !stock_pages_enabled(terrain, &self.options) {
             return Err(ViewerError::InvalidOptions(
                 "page dependency requires paging",
             ));
@@ -222,11 +219,7 @@ impl RetainedHost {
             pick_scene,
             capture_features: super::capture::features(self.scene().effects()),
             capture_ao_format: super::capture::ao_format(self.scene().effects()),
-            pages_enabled: self
-                .scene()
-                .terrain()
-                .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
-                .is_some(),
+            pages_enabled: stock_pages_enabled(self.scene().terrain(), &self.options),
             require_pages: false,
             require_geometry: false,
             edit: None,
@@ -244,6 +237,18 @@ impl RetainedHost {
 
 fn prepare(scene: &RenderScene) -> Result<PreparedScene, ViewerError> {
     Ok(PreparedScene::new(scene)?)
+}
+
+/// Whether stock material paging applies to this terrain: the renderer draws the stock terrain
+/// itself only when no game pass replaces it, and the terrain declares a page policy.
+pub(super) fn stock_pages_enabled(
+    terrain: Option<&worldrunner_render_plan::SceneTerrain>,
+    options: &crate::ViewerOptions,
+) -> bool {
+    !options.game.passes.replaces_stock_terrain()
+        && terrain
+            .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
+            .is_some()
 }
 
 /// Whether moving from effects `a` to `b` needs the resident scene rebuilt. SSR parameters

@@ -218,6 +218,11 @@ impl GamePasses {
             })
     }
 
+    /// Whether a game pass factory draws the stock terrain surface itself.
+    pub fn replaces_stock_terrain(&self) -> bool {
+        self.stock_replacement().terrain_surface
+    }
+
     fn declarations(&self) -> Vec<TargetDeclaration> {
         self.factories
             .iter()

@@ -176,10 +176,10 @@ fn initial_readiness(scene: Option<&RenderScene>, options: &ViewerOptions) -> re
         published: 0,
         capture_features: capture::features(effects),
         capture_ao_format: capture::ao_format(effects),
-        pages_enabled: scene
-            .and_then(RenderScene::terrain)
-            .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
-            .is_some(),
+        pages_enabled: readiness::stock_pages_enabled(
+            scene.and_then(RenderScene::terrain),
+            options,
+        ),
         page_wait: false,
         geometry_wait: false,
         camera: (options.pose, options.camera, options.camera_convention),

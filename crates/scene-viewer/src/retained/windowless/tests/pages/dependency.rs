@@ -354,3 +354,213 @@ fn observations_freeze_selected_page_readiness_at_capture_submission() {
     drop(events);
     run.shutdown().unwrap();
 }
+
+#[test]
+fn replacement_terrain_rejects_page_dependent_edits_without_accepting_work() {
+    let stock = paged_host();
+    let mut options = stock.options().clone();
+    options.game.passes = GamePasses::new().with(Arc::new(ReplacesCameraTerrain));
+    let mut host = RetainedHost::new(stock.scene().clone(), options).unwrap();
+    let paged = host.scene().terrain().unwrap().clone();
+    let camera_update = RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+        pose: crate::tests::options().pose,
+        lens: crate::tests::options().camera,
+    };
+    assert!(matches!(
+        host.apply_with_pages(camera_update.clone()),
+        Err(crate::ViewerError::InvalidOptions(
+            "page dependency requires paging"
+        ))
+    ));
+    assert_eq!(host.accepted_generation(), 0);
+    assert_eq!(host.preparations_in_flight(), 0);
+    assert!(matches!(
+        host.apply_with_pages(RetainedUpdate::Terrain(Some(Arc::new(paged)))),
+        Err(crate::ViewerError::InvalidOptions(
+            "page dependency requires paging"
+        ))
+    ));
+    assert_eq!(host.accepted_generation(), 0);
+    assert_eq!(host.preparations_in_flight(), 0);
+    host.apply_with_geometry(camera_update).unwrap();
+    assert_eq!(host.accepted_generation(), 1);
+    let front = host.readiness.queue.front().unwrap();
+    assert!(front.require_geometry);
+    assert!(!front.require_pages);
+}
+
+use worldrunner_render_post::{FrameError, FrameFeature};
+use worldrunner_render_scene::compositor::{
+    GameBuild, GameFeatureFactory, GamePasses, StockReplacement,
+};
+
+struct ReplacesCameraTerrain;
+
+impl GameFeatureFactory for ReplacesCameraTerrain {
+    fn name(&self) -> &'static str {
+        "replaces-camera-terrain"
+    }
+
+    fn replaces_stock(&self) -> StockReplacement {
+        StockReplacement {
+            terrain_surface: true,
+            ..StockReplacement::NONE
+        }
+    }
+
+    fn build(&self, _context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
+        panic!("replaces-camera-terrain must not build")
+    }
+}
+
+#[test]
+fn replacement_terrain_rejects_stock_page_capture() {
+    let stock = paged_host();
+    let mut options = stock.options().clone();
+    options.game.passes = GamePasses::new().with(Arc::new(ReplacesCameraTerrain));
+    let mut host = RetainedHost::new(stock.scene().clone(), options)
+        .unwrap()
+        .with_capture_limit(1)
+        .unwrap();
+    assert_eq!(
+        host.request_capture_with_pages(0),
+        Err(crate::CaptureRequestError::PagingDisabled { generation: 0 })
+    );
+    assert!(host.request_capture(0).is_ok());
+}
+
+#[test]
+fn replacement_terrain_rejects_queued_stock_page_capture() {
+    let stock = paged_host();
+    let mut options = stock.options().clone();
+    options.game.passes = GamePasses::new().with(Arc::new(ReplacesCameraTerrain));
+    let mut host = RetainedHost::new(stock.scene().clone(), options)
+        .unwrap()
+        .with_capture_limit(1)
+        .unwrap();
+    host.apply(RetainedUpdate::Camera {
+        convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
+        pose: crate::tests::options().pose,
+        lens: crate::tests::options().camera,
+    })
+    .unwrap();
+    assert_eq!(host.accepted_generation(), 1);
+    assert_eq!(host.ready_generation(), 0);
+    assert_eq!(
+        host.request_capture_with_pages(1),
+        Err(crate::CaptureRequestError::PagingDisabled { generation: 1 })
+    );
+    let id = host.request_capture_with_geometry(1).unwrap();
+    assert_eq!(host.accepted_generation(), 1);
+    assert_eq!(host.ready_generation(), 0);
+    assert_eq!(host.captures.waiting.front(), Some(&(id, 1, false)));
+    assert!(host.captures.geometry.contains(&id));
+}
+
+fn game_options_with_replacement(
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> crate::ViewerOptions {
+    use std::sync::Arc;
+
+    struct DeferredReplace {
+        flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl GameFeatureFactory for DeferredReplace {
+        fn name(&self) -> &'static str {
+            "deferred game"
+        }
+        fn build(&self, _context: &GameBuild<'_>) -> Result<Box<dyn FrameFeature>, FrameError> {
+            unreachable!("RetainedHost::with_initial_content does not create the renderer")
+        }
+        fn replaces_stock(&self) -> StockReplacement {
+            StockReplacement {
+                terrain_surface: self.flag.load(std::sync::atomic::Ordering::Relaxed),
+                ..StockReplacement::NONE
+            }
+        }
+    }
+
+    let mut options = crate::tests::options();
+    options.game = crate::GameRendering {
+        passes: GamePasses::new().with(Arc::new(DeferredReplace { flag })),
+    };
+    options
+}
+
+#[test]
+fn deferred_startup_rejects_page_dependency_before_installing_scene() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let flag = Arc::new(AtomicBool::new(false));
+    let scene = paged_host().scene().clone();
+    let options = game_options_with_replacement(Arc::clone(&flag));
+    let mut host = RetainedHost::with_initial_content(options, move |_| {
+        flag.store(true, Ordering::Relaxed);
+        Ok(crate::InitialContent {
+            scene,
+            settings: None,
+        })
+    })
+    .unwrap();
+    host.request_capture_with_pages(0).unwrap();
+
+    let adapter = crate::AdapterIdentity {
+        name: "selected".into(),
+        class: crate::AdapterClass::Integrated,
+        backend: wgpu::Backend::Metal,
+        memory: None,
+    };
+    assert!(matches!(
+        host.resolve_initial_content(crate::InitialContext {
+            adapter: &adapter,
+            surface_extent: [64, 32],
+            display: None,
+            presentable_backends: None,
+        }),
+        Err(crate::ViewerError::Capture(
+            crate::CaptureRequestError::PagingDisabled { generation: 0 }
+        ))
+    ));
+    assert!(host.initial_scene.is_none());
+    assert!(host.require_initial_scene().is_err());
+    assert!(matches!(
+        host.apply(RetainedUpdate::Terrain(None)),
+        Err(crate::ViewerError::InitialSceneUnavailable)
+    ));
+}
+
+#[test]
+fn deferred_startup_stock_resolution_retains_queued_request() {
+    let scene = paged_host().scene().clone();
+    let options = paged_host().options().clone();
+    let mut host = RetainedHost::with_initial_content(options, move |_| {
+        Ok(crate::InitialContent {
+            scene,
+            settings: None,
+        })
+    })
+    .unwrap();
+    let id = host.request_capture_with_pages(0).unwrap();
+
+    let adapter = crate::AdapterIdentity {
+        name: "selected".into(),
+        class: crate::AdapterClass::Integrated,
+        backend: wgpu::Backend::Metal,
+        memory: None,
+    };
+    host.resolve_initial_content(crate::InitialContext {
+        adapter: &adapter,
+        surface_extent: [64, 32],
+        display: None,
+        presentable_backends: None,
+    })
+    .unwrap();
+    assert!(host.initial_scene.is_some());
+    assert_eq!(host.accepted_generation(), 0);
+    assert_eq!(host.ready_generation(), 0);
+    assert_eq!(host.captures.waiting.front(), Some(&(id, 0, true)));
+}
